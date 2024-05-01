@@ -1,0 +1,1 @@
+Narzędzie do gry Shinobiworld.
