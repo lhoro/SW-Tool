@@ -1,0 +1,49 @@
+{
+  "name": "SW Tool",
+  "description": "Narzędzie do gry ShinobiWorld",
+
+  "version": "0.0.1",
+  "manifest_version": 3,
+  
+  "icons": {
+    "16": "images/icon_16x16.png",
+    "48": "images/icon_48x48.png",
+    "128": "images/icon_128x128.png"
+  },
+
+  "action": {
+    "default_popup": "html/popup.html"
+  },
+
+  "permissions": [
+    "tabs",
+    "scripting",
+    "storage",
+    "activeTab"
+  ],
+
+	"host_permissions": [
+	  "https://*.shinobiworld.pl/*"
+	],
+
+  "background":{
+    "service_worker" : "js/background.js" 
+  },
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.shinobiworld.pl/*"
+      ],
+      "js": [
+        "js/content_script.js",
+        "js/jquery.js"
+      ],
+      "css": [
+        "css/custom_styles.css"
+      ],
+      "run_at": "document_end"
+    }
+  ]
+   
+}

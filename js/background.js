@@ -1,0 +1,1 @@
+console.log("Jestem service workerem")

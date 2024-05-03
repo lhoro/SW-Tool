@@ -1,0 +1,23 @@
+body{
+    margin: 2px;
+    background-color: black;
+}
+
+.container{
+    width: 100px;
+    margin: 0px;
+    background-color: orange;
+};
+
+.btn {
+    color: white;
+}
+
+.btn {
+    color: white;
+    background-color: black;
+    width: 90%;
+    margin: 2px 5px;
+    border: none;
+    padding: 5px;
+  }
