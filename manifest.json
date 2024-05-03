@@ -38,7 +38,7 @@
       "js": [
         "js/content_script.js",
         "js/jquery.js",
-        "js/old-bot.js"
+        "js/old_bot.js"
       ],
       "css": [
         "css/custom_styles.css"
