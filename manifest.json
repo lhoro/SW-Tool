@@ -37,10 +37,10 @@
       ],
       "js": [
         "js/jquery.js",
-        "js/content_script.js"        
+        "js/contentScript.js"        
       ],
       "css": [
-        "css/custom_styles.css"
+        "css/customStyles.css"
       ],
       "run_at": "document_end"
     }
@@ -48,7 +48,9 @@
   "web_accessible_resources": [
     {
       "resources": [ 
-        "js/old_bot.js"
+        "js/oldBot.js",
+        "js/contentScripts/main.js",
+        "js/contentScripts/charactersManager.js"
       ],
       "matches": [ "https://*.shinobiworld.pl/*" ]
     }

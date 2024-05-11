@@ -24,6 +24,6 @@ button5.addEventListener("click", async () => {
   
     chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      files: ['js//old_bot.js'],
+      files: ['js//oldBot.js'],
     });
 });
