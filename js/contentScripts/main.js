@@ -6,12 +6,13 @@ if( GAME === undefined){
             this.characters = [];
             this.currentCharacterId = 0;
             this.currentCharacterIndex = 0;
+            
         };
         
         showID(){
             console.log(this.characters)
-            console.log("GID "+GAME.char_id);
-            console.log("CID "+this.currentCharacterId)
+            console.log("Game ID "+GAME.char_id);
+            console.log("Char ID "+this.currentCharacterId)
             console.log("INDEX "+this.currentCharacterIndex);
         }
 
@@ -19,6 +20,7 @@ if( GAME === undefined){
             if (GAME.char_id != this.currentCharacterId) {
                 this.currentCharacterId = GAME.char_id; 
                 this.currentCharacterIndex = this.characters.indexOf(`${this.currentCharacterId }`);
+                BOT.collectActivities();
             }
         }
 
@@ -35,38 +37,56 @@ if( GAME === undefined){
                             this.characters.push(element.getAttribute("data-char_id"));
                         });
                     }
-                },200);
+                },50);
             }
         }
 
 
         nextChar() {
-            BOT.showID();
-            console.log("NEXT")
             let nextCharID = null;
             if (this.currentCharacterIndex == this.characters.length - 1) {
                 nextCharID = this.characters[0];
             } else {
                 nextCharID = this.characters[this.currentCharacterIndex + 1];
             }
-            console.log(nextCharID)
             GAME.emitOrder({ a: 2, char_id: nextCharID });
-            console.log("NEXT END")
+            setTimeout(()=>{
+                BOT.updateID();
+            },20);
+
         }
 
         prevChar() {
-            BOT.showID();
-            console.log("PREV")
             let prevCharID = null;
-            if (this.currentCharacterIndex == this.characters.length - 1) {
+            if (this.currentCharacterIndex == 0) {
                 prevCharID = this.characters[this.characters.length - 1];
             } else {
                 prevCharID = this.characters[this.currentCharacterIndex - 1];
             }
-            console.log(prevCharID)
-            //var charId = this.getPreviousCharId();
-            //GAME.emitOrder({ a: 2, char_id: charId });
-            console.log("PREV END")
+            GAME.emitOrder({ a: 2, char_id: prevCharID });
+            setTimeout(()=>{
+                BOT.updateID();
+            },20);
+        }
+
+        createWindow() {
+            console.log("CW");
+        }
+
+        collectActivities() {
+            console.log("CA")
+            if (GAME.char_id != 0 && GAME.quick_opts.online_reward) {
+                setTimeout(() => {
+                    GAME.socket.emit('ga', {
+                        a: 26,
+                        type: 1
+                    });
+                    setTimeout(() => {
+                        $('#daily_reward').fadeOut();
+                        kom_clear();
+                    }, 400);
+                }, 1800);
+            }
         }
 
     }
@@ -74,17 +94,17 @@ if( GAME === undefined){
     
     const BOT = new TOOL();
     BOT.getCharacters();
+    BOT.createWindow();
 
 
 
 
     
     setInterval(()=>{
-        //BOT.showID();
         BOT.updateID();
     }, 2000);
 
-    
+    // Przechwytywanie wciskania przycisków
     $(document).keydown((event) => {
         if (!$("input, textarea").is(":focus")) {
              if (event.key === ",") {

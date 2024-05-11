@@ -49,8 +49,7 @@
     {
       "resources": [ 
         "js/oldBot.js",
-        "js/contentScripts/main.js",
-        "js/contentScripts/charactersManager.js"
+        "js/contentScripts/main.js"
       ],
       "matches": [ "https://*.shinobiworld.pl/*" ]
     }
