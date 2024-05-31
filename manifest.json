@@ -36,13 +36,22 @@
         "https://*.shinobiworld.pl/*"
       ],
       "js": [
-        "js/content_script.js",
-        "js/jquery.js"
+        "js/jquery.js",
+        "js/contentScript.js"        
       ],
       "css": [
-        "css/custom_styles.css"
+        "css/customStyles.css"
       ],
       "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [ 
+        "js/oldBot.js",
+        "js/contentScripts/main.js"
+      ],
+      "matches": [ "https://*.shinobiworld.pl/*" ]
     }
   ]
    

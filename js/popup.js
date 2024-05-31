@@ -19,6 +19,11 @@ button4.addEventListener("click", () => {
 });
 
 let button5 = document.getElementById('button5')
-button5.addEventListener("click", () => {
-    alert("Button 5")
+button5.addEventListener("click", async () => {
+    let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['js//oldBot.js'],
+    });
 });
