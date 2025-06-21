@@ -278,6 +278,7 @@ const pressH = () => {
             metaKey: false
         })
     );
+    console.log("H");
 }
 
 
@@ -500,11 +501,12 @@ const questFight = () =>{
 // H quest
 const questH = () => {
     const questWindow = document.getElementsByClassName("quest_win");
+    console.log("H Q")
     if (questWindow.length > 0){
         if(questWindow[0].innerHTML.search("klawisz H") >= 0){
           	const questInfo = questWindow[0].getElementsByClassName("red");
-            let start = questInfo[0].lastChild.getAttribute("data-count");
-          	const end = questInfo[0].lastChild.getAttribute("data-max");
+            let start = parseInt(questInfo[0].lastChild.getAttribute("data-count"));
+          	let end = parseInt(questInfo[0].lastChild.getAttribute("data-max"));
 
             while(start < end ){
                 start++;

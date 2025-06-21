@@ -14,3 +14,6 @@ function injectCode(src) {
 }
 
 injectCode(chrome.runtime.getURL('js/contentScripts/main.js'));
+injectCode(chrome.runtime.getURL('./js/oldBot.js'));
+
+

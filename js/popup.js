@@ -1,29 +1,26 @@
-let button1 = document.getElementById('button1')
-button1.addEventListener("click",  () => {
-    alert("Button 1")
-});
+const switches = [
+  { id: "autoDay", default: true },
+  { id: "autoTut", default: true },
+  { id: "hideReports", default: true }
+];
 
-let button2 = document.getElementById('button2')
-button2.addEventListener("click", () => {
-    alert("Button 2")
-});
+// Inicjalizacja
+switches.forEach(({ id, default: defaultValue }) => {
+  const input = document.getElementById(id);
+  const storedValue = localStorage.getItem(id);
 
-let button3 = document.getElementById('button3')
-button3.addEventListener("click", () => {
-    alert("Button 3")
-});
+  if (storedValue === null) {
+    // Jeśli brak zapisu w localStorage — ustaw domyślnie na true
+    input.checked = defaultValue;
+    localStorage.setItem(id, defaultValue);
+  } else {
+    // W przeciwnym razie — użyj zapisanej wartości
+    input.checked = storedValue === "true";
+  }
 
-let button4 = document.getElementById('button4')
-button4.addEventListener("click", () => {
-    alert("Button 4")
-});
-
-let button5 = document.getElementById('button5')
-button5.addEventListener("click", async () => {
-    let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ['js//oldBot.js'],
-    });
+  // Obsługa zmiany i zapis do localStorage
+  input.addEventListener("change", function () {
+    localStorage.setItem(id, this.checked);
+    console.log(`${id}:`, this.checked);
+  });
 });

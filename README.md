@@ -4,7 +4,7 @@ V 0.0.1
 - Uruchomiono rozszeżenie
     * Utworzono prosty popup i niezbędne skrypty.
 
-- Dodano przycisk uruchamiający starego bota:
+- Dodano przycisk uruchamiający starą wersję bota:
     - Bicie chempionów, elit, bossów pod "G" (grupowo).
     - Walki PVP pod "P". Bije graczy na polu na którym stoimy,
     - Automatyczne robienie H w questach przyciskiem "V",
@@ -24,5 +24,15 @@ V 0.0.2
 - Dodano przełączanie między postaciami na koncie:
     - Następna postać ".",
     - Poprzednia postać ",",
+- Dodano funkcje automatycznego zapisywania na turnieje,
+- Stary bot uruchamia się automatycznie,
 - Przenoszenie funkcji z starego bota na nowego:
     - Automatyczne odbieranie nagrody dziennej jeśli jest dostępna.
+
+V 0.0.3
+- Ustawienia bota od teraz będą zapamiętywanie w przeglądarce,
+- W oknie od teraz można ustawić:
+    - Automatyczne odbieranie nagród (włączone),
+    - Automatyczne zapisywanie na turnieje (włączone),
+    - Ukrywanie raportów (włączone),
+

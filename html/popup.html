@@ -1,21 +1,38 @@
-<html>
-
+<!DOCTYPE html>
+<html lang="pl">
 <head>
   <meta charset="UTF-8">
+  <title>Panel ustawień</title>
   <link rel="stylesheet" type="text/css" href="../css/popup.css">
-
 </head>
-
 <body>
- 
-  <div class="container">
-    <button type="button" class="btn" id="button1" >Button 1 </button>
-    <button type="button" class="btn" id="button2" >Button 2 </button>
-    <button type="button" class="btn" id="button3" >Button 3 </button>
-    <button type="button" class="btn" id="button4" >Button 4 </button>
-    <button type="button" class="btn" id="button5" >STARY BOT </button>
+
+  <div class="settings-panel">
+    <div class="setting">
+      <span>Automatyczne dzienne</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="autoDay">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="setting">
+      <span>Automatyczne tuty</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="autoTut">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="setting">
+      <span>Ukryj raporty</span>
+      <label class="toggle-switch">
+        <input type="checkbox" id="hideReports">
+        <span class="slider"></span>
+      </label>
+    </div>
   </div>
+
   <script src="../js/popup.js"></script>
 </body>
-
 </html>
