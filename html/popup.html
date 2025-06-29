@@ -2,35 +2,44 @@
 <html lang="pl">
 <head>
   <meta charset="UTF-8">
-  <title>Panel ustawień</title>
-  <link rel="stylesheet" type="text/css" href="../css/popup.css">
+  <title>ShinobiBOT</title>
+  <link rel="stylesheet" href="../css/popup.css">
 </head>
 <body>
-
-  <div class="settings-panel">
-    <div class="setting">
-      <span>Automatyczne dzienne</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="autoDay">
+  <div class="popup">
+    <h2>SHINOBI BOT</h2>
+    <div class="switch-group">
+      <label for="dailyRewards">Dzienne nagrody</label>
+      <label class="switch">
+        <input type="checkbox" id="dailyRewards">
         <span class="slider"></span>
       </label>
     </div>
 
-    <div class="setting">
-      <span>Automatyczne tuty</span>
-      <label class="toggle-switch">
-        <input type="checkbox" id="autoTut">
+    <div class="switch-group">
+      <label for="saveTuts">Zapis na turnieje</label>
+      <label class="switch">
+        <input type="checkbox" id="saveTuts">
         <span class="slider"></span>
       </label>
     </div>
 
-    <div class="setting">
-      <span>Ukryj raporty</span>
-      <label class="toggle-switch">
+    <div class="switch-group">
+      <label for="hideReports">Ukrywanie Raportów</label>
+      <label class="switch">
         <input type="checkbox" id="hideReports">
         <span class="slider"></span>
       </label>
     </div>
+
+    <button id="resetBtn" class="btn">
+      Resetuj
+    </button>
+
+    
+    <button id="accTutsBtn" class="btn">
+       Zapisz tuty
+    </button>
   </div>
 
   <script src="../js/popup.js"></script>

@@ -31,8 +31,12 @@ V 0.0.2
 
 V 0.0.3
 - Ustawienia bota od teraz będą zapamiętywanie w przeglądarce,
-- W oknie od teraz można ustawić:
+- Bot od teraz zapamiętuje listę postaci na koncie,
+- W oknie bota od teraz można ustawić:
     - Automatyczne odbieranie nagród (włączone),
     - Automatyczne zapisywanie na turnieje (włączone),
-    - Ukrywanie raportów (włączone),
+    - Ukrywanie raportów (wyłączone),
+- Dodano przycisk zapisywania całego konta na turnieje,
+- Dodano przycisk resetowania bota (W razie problemów resetuje wszystkie ustawienia na domyślne wraz z listą postaci na koncie),
+
 

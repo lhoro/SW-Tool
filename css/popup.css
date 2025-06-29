@@ -1,73 +1,92 @@
 body {
-  background-color: #0f0f0f;
-  font-family: 'Segoe UI', sans-serif;
+  background-color: #1d1a2a;
+  font-family: 'Verdana', sans-serif;
   color: #fff;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  height: 100vh;
-  margin: 0;
 }
 
-.settings-panel {
-  background-color: #1a1a1a;
-  border: 1px solid #2c2c2c;
-  border-radius: 16px;
-  padding: 30px 40px;
-  box-shadow: 0 0 15px rgba(0, 0, 0, 0.7);
+.popup {
   width: 300px;
+  border: 3px solid #c29e51;
+  background-color: #2b2540;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 0 15px #000;
+  margin: 2px auto;
 }
 
-.setting {
+.popup h2 {
+  margin-top: -10px;
+  margin-bottom: 5px;
+  font-size: 18px;
+  color: #c29e51;
+  text-align: center;
+}
+
+.switch-group {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  margin: 15px 0;
+  align-items: center;
+  margin: 10px 0;
+  font-size: 14px;
+  width: 200px;
 }
 
-.setting label {
-  font-size: 15px;
-  color: #ddd;
-}
-
-.toggle-switch {
-  position: relative;
-  width: 50px;
-  height: 24px;
-}
-
-.toggle-switch input {
+.switch input {
   display: none;
 }
 
 .slider {
-  position: absolute;
-  cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  position: relative;
+  width: 50px;
+  height: 24px;
   background-color: #555;
-  transition: 0.4s;
-  border-radius: 24px;
+  border-color: #000;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: 0.3s;
 }
 
 .slider::before {
-  position: absolute;
   content: "";
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  transition: 0.4s;
+  position: absolute;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
+  background-color: #777;
+  top: 2px;
+  left: 2px;
+  transition: 0.3s;
 }
 
-input:checked + .slider {
-  background-color: #4CAF50;
+.switch input:checked + .slider {
+  background-color: #4caf50;
 }
 
-input:checked + .slider::before {
-  transform: translateX(26px);
+.switch input:checked + .slider::before {
+  transform: translateX(20px);
+  background-color: #fff;
+}
+
+.btn {
+  background-color: #3a314d;
+  border: 2px solid #c29e51;
+  color: #fff;
+  font-size: 14px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background-color 0.2s;
+}
+
+.btn:hover {
+  background-color: #4a3e61;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
 }

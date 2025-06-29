@@ -48,8 +48,10 @@
   "web_accessible_resources": [
     {
       "resources": [ 
-        "js/oldBot.js",
-        "js/contentScripts/main.js"
+        "js/contentScripts/menageCSS.js",
+        "js/contentScripts/menageStorage.js",
+        "js/contentScripts/main.js",
+        "js/oldBot.js"
       ],
       "matches": [ "https://*.shinobiworld.pl/*" ]
     }

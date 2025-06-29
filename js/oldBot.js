@@ -35,19 +35,7 @@ const toolWindow = () =>{
         toolWindow.style.padding="5px";
         toolWindow.style.fontSize="14px";
 
-    // Przycisk ukrywania raportów
-    const hideRaportsContainer = document.createElement("div");
-    const hideRaportsCheck = document.createElement("input");
-        hideRaportsCheck.setAttribute("type", "checkbox");
-        hideRaportsCheck.addEventListener('change', (e) => {
-            hideRaports(e);
-        });
-    const hideRaportsLabel = document.createElement("label");
-        hideRaportsLabel.style.marginLeft = "5px";
-        hideRaportsLabel.innerHTML = "Ukrywaj raporty walk";
 
-    hideRaportsContainer.appendChild(hideRaportsCheck);
-    hideRaportsContainer.appendChild(hideRaportsLabel);
 
     // Informacja o skrótach
     const toolShorts = document.createElement("div");
@@ -63,7 +51,6 @@ const toolWindow = () =>{
                                 L - Wymiana roninów na kryształy`;
 
     // Połączenie elementów okienka w całość
-    toolWindow.appendChild(hideRaportsContainer);
     toolWindow.appendChild(toolShorts);
 
     // Inject okienka
@@ -308,19 +295,6 @@ const switchChar = () =>{
     changeButton.addEventListener('click', (e) => {
         setTimeout(()=>{ selectChar() }, 250);
     });
-}
-
-// Ukrycie raportów walk
-const hideRaports = (e) =>{
-    // Pobranie informacji o panelu walki
-    const raport = getElement("fight_view");
-    // Sprawdzanie stanu checkboxa i zmiana stanu panelu walki przez dodanie/usunięcie hidden
-    if(!e.currentTarget.checked){
-        raport.classList.remove("hidden");
-    }
-    else{
-        raport.classList.add("hidden");
-    }
 }
 
 // Zamykanie okienka z informacjami
