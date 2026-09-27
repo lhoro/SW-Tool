@@ -23,6 +23,7 @@
   ],
 
 	"host_permissions": [
+	  "https://shinobiworld.pl/*",
 	  "https://*.shinobiworld.pl/*"
 	],
 
