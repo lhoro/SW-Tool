@@ -165,8 +165,18 @@
                     (char) => char.id == GAME.char_id
                 );
 
+                console.info("[SW Tool][PAGE] Zmiana postaci:", {
+                    charId: this.currentCharacterId,
+                    charIndex: this.currentCharacterIndex
+                });
+
                 this.collectDailyReward();
-                this.registerTut();
+
+                // Tymczasowo wyłączone na dev.
+                // Stara wersja jest oparta o kliknięcia DOM i potrafi uruchomić
+                // loader gry w nieprzewidywalnym stanie. Wrócimy do tej funkcji
+                // po przeniesieniu zapisu turniejów na emity.
+                // this.registerTut();
             }
         }
 
@@ -175,6 +185,11 @@
 
             if (GAME.char_id != 0 && GAME.quick_opts?.online_reward) {
                 setTimeout(() => {
+                    console.info("[SW Tool][PAGE] Daily reward TX:", {
+                        a: 26,
+                        type: 1
+                    });
+
                     GAME.socket.emit("ga", {
                         a: 26,
                         type: 1
@@ -202,6 +217,7 @@
             if (currentHour < 18 || currentHour >= 21) return;
 
             setTimeout(() => {
+                console.info("[SW Tool][PAGE] Legacy tournament registration start.");
                 const instMenu = document.getElementsByClassName("select_page");
                 const tournamentMenu = instMenu[22];
 

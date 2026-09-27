@@ -4,9 +4,11 @@ const BRIDGE_TIMEOUT = 5000;
 const PAGE_SCRIPTS = [
   "js/contentScripts/menageCSS.js",
   "js/contentScripts/menageStorage.js",
-  "js/contentScripts/main.js",
-  "js/oldBot.js"
+  "js/contentScripts/main.js"
 ];
+
+// oldBot.js zostaje w repo jako referencja starej implementacji.
+// Nie uruchamiamy go automatycznie na dev, żeby nie dublował eventów i automatyzacji.
 
 function injectScript(path) {
   return new Promise((resolve, reject) => {
