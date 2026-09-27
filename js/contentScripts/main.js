@@ -429,6 +429,11 @@
             );
         }
 
+        isTournamentWindowOpen(date = new Date()) {
+            const hour = date.getHours();
+            return hour >= 18 && hour < 21;
+        }
+
         sleep(ms) {
             return new Promise((resolve) => setTimeout(resolve, ms));
         }
@@ -799,6 +804,12 @@
         }
 
         async runAccountTournaments() {
+            if (!this.isTournamentWindowOpen()) {
+                throw new Error(
+                    "Turnieje są dostępne tylko w godzinach 18:00–21:00."
+                );
+            }
+
             const characters = [...this.chars];
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
@@ -1131,6 +1142,15 @@
         }
 
         startAccountOperation(action) {
+            if (
+                action === "accountTournaments" &&
+                !this.isTournamentWindowOpen()
+            ) {
+                throw new Error(
+                    "Turnieje są dostępne tylko w godzinach 18:00–21:00."
+                );
+            }
+
             if (this.accountOperationRunning) {
                 throw new Error("Trwa już operacja na całym koncie.");
             }
