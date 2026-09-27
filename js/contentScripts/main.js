@@ -77,6 +77,7 @@
             this.currentCharacterSnapshot = null;
             this.responseWaiter = null;
             this.accountOperationRunning = false;
+            this.trainingCaptchaWaiter = null;
             this.config = { ...DEFAULT_CONFIG };
         }
 
@@ -510,7 +511,14 @@
                 this.responseWaiter = waiter;
 
                 try {
-                    console.info("[SW Tool][ACCOUNT] TX GA:", order);
+                    const safeOrder = {
+                        ...order,
+                        ...(order.captchaResponse
+                            ? { captchaResponse: "<ukryty token>" }
+                            : {})
+                    };
+
+                    console.info("[SW Tool][ACCOUNT] TX GA:", safeOrder);
 
                     if (!GAME.socket?.connected) {
                         throw new Error("Socket.IO nie jest połączone.");
@@ -872,7 +880,214 @@
             console.info("[SW Tool][ACCOUNT] Turnieje zakończone:", { joined, skipped, failed });
         }
 
-        async startMaxTrainingForCurrentCharacter() {
+        waitForGameCaptcha(timeoutMs = 15000) {
+            const startedAt = Date.now();
+
+            return new Promise((resolve, reject) => {
+                const check = () => {
+                    if (
+                        window.GameCaptcha &&
+                        typeof window.GameCaptcha.render === "function" &&
+                        typeof window.GameCaptcha.getResponse === "function"
+                    ) {
+                        resolve(window.GameCaptcha);
+                        return;
+                    }
+
+                    if (Date.now() - startedAt >= timeoutMs) {
+                        reject(
+                            new Error(
+                                "Widget Turnstile gry nie jest dostępny na stronie."
+                            )
+                        );
+                        return;
+                    }
+
+                    setTimeout(check, 100);
+                };
+
+                check();
+            });
+        }
+
+        async waitForTrainingCaptcha(characterName) {
+            if (this.trainingCaptchaWaiter) {
+                throw new Error("Trwa już weryfikacja Turnstile.");
+            }
+
+            const GameCaptcha = await this.waitForGameCaptcha();
+            const name = String(characterName || "postać");
+
+            return new Promise((resolve, reject) => {
+                let widget = null;
+                let pollId = null;
+                let timeoutId = null;
+                let finished = false;
+
+                const overlay = document.createElement("div");
+                overlay.id = "sw-tool-training-captcha";
+                Object.assign(overlay.style, {
+                    position: "fixed",
+                    inset: "0",
+                    zIndex: "2147483647",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(0, 0, 0, 0.72)"
+                });
+
+                const panel = document.createElement("div");
+                Object.assign(panel.style, {
+                    width: "min(420px, calc(100vw - 32px))",
+                    padding: "18px",
+                    border: "2px solid #c29e51",
+                    borderRadius: "10px",
+                    background: "#2b2540",
+                    color: "#fff",
+                    fontFamily: "Verdana, sans-serif",
+                    boxShadow: "0 10px 40px rgba(0,0,0,.55)"
+                });
+
+                const title = document.createElement("div");
+                title.textContent = "Potwierdź trening — " + name;
+                Object.assign(title.style, {
+                    marginBottom: "8px",
+                    color: "#c29e51",
+                    fontWeight: "700",
+                    fontSize: "16px"
+                });
+
+                const status = document.createElement("div");
+                status.textContent =
+                    "Trwa weryfikacja. Jeśli pojawi się test, rozwiąż go.";
+                Object.assign(status.style, {
+                    marginBottom: "12px",
+                    fontSize: "12px",
+                    lineHeight: "1.4",
+                    color: "#ddd"
+                });
+
+                const challenge = document.createElement("div");
+                Object.assign(challenge.style, {
+                    minHeight: "80px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginBottom: "12px"
+                });
+
+                const cancel = document.createElement("button");
+                cancel.type = "button";
+                cancel.textContent = "Anuluj treningi";
+                Object.assign(cancel.style, {
+                    width: "100%",
+                    padding: "8px",
+                    border: "1px solid #c29e51",
+                    borderRadius: "6px",
+                    background: "#3a314d",
+                    color: "#fff",
+                    cursor: "pointer"
+                });
+
+                panel.append(title, status, challenge, cancel);
+                overlay.appendChild(panel);
+                document.body.appendChild(overlay);
+
+                const cleanup = () => {
+                    if (pollId !== null) clearInterval(pollId);
+                    if (timeoutId !== null) clearTimeout(timeoutId);
+
+                    try {
+                        if (
+                            widget !== null &&
+                            typeof GameCaptcha.remove === "function"
+                        ) {
+                            GameCaptcha.remove(widget);
+                        }
+                    } catch (_) {
+                        // Usunięcie DOM poniżej wystarczy jako fallback.
+                    }
+
+                    overlay.remove();
+                    this.trainingCaptchaWaiter = null;
+                };
+
+                const finish = (callback, value) => {
+                    if (finished) return;
+                    finished = true;
+                    cleanup();
+                    callback(value);
+                };
+
+                cancel.addEventListener("click", () => {
+                    finish(
+                        reject,
+                        new Error("Weryfikacja Turnstile została anulowana.")
+                    );
+                });
+
+                this.trainingCaptchaWaiter = {
+                    cancel: () => {
+                        finish(
+                            reject,
+                            new Error("Weryfikacja Turnstile została przerwana.")
+                        );
+                    }
+                };
+
+                try {
+                    widget = GameCaptcha.render(challenge);
+                } catch (error) {
+                    finish(
+                        reject,
+                        new Error("Nie udało się uruchomić Turnstile.")
+                    );
+                    return;
+                }
+
+                pollId = setInterval(() => {
+                    if (finished) return;
+
+                    try {
+                        const token = String(
+                            GameCaptcha.getResponse(widget) || ""
+                        ).trim();
+
+                        if (!token) return;
+
+                        if (
+                            token.length < 20 ||
+                            token.length > 2048 ||
+                            /\s/.test(token)
+                        ) {
+                            status.textContent =
+                                "Weryfikacja zwróciła nieprawidłowy wynik.";
+                            return;
+                        }
+
+                        status.textContent = "Weryfikacja zakończona.";
+                        console.info(
+                            "[SW Tool][ACCOUNT] Turnstile potwierdzony dla treningu."
+                        );
+
+                        finish(resolve, token);
+                    } catch (_) {
+                        // Widget może jeszcze nie być gotowy; następny poll spróbuje ponownie.
+                    }
+                }, 500);
+
+                timeoutId = setTimeout(() => {
+                    finish(
+                        reject,
+                        new Error(
+                            "Przekroczono czas oczekiwania na potwierdzenie Turnstile."
+                        )
+                    );
+                }, 180000);
+            });
+        }
+
+        async startMaxTrainingForCurrentCharacter(characterName) {
             const maxActions = this.snapshotBonusActive(2) ? 2 : 1;
             if (this.activeTimedActionsCount() >= maxActions) {
                 return "timed";
@@ -894,8 +1109,17 @@
                 throw new Error("Serwer odrzucił dane treningu.");
             }
 
+            let captchaToken = null;
+
             if (this._enabled(trainingData.captcha)) {
-                return "captcha";
+                console.info(
+                    "[SW Tool][ACCOUNT] Trening wymaga Turnstile:",
+                    characterName
+                );
+
+                captchaToken = await this.waitForTrainingCaptcha(
+                    characterName
+                );
             }
 
             const duration = this.snapshotBonusActive(1) ? 12 : 6;
@@ -904,7 +1128,10 @@
                     a: 8,
                     type: 2,
                     stat: String(skillId),
-                    duration: String(duration)
+                    duration: String(duration),
+                    ...(captchaToken
+                        ? { captchaResponse: captchaToken }
+                        : {})
                 },
                 8,
                 (event) =>
@@ -934,7 +1161,7 @@
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
             );
-            let started = 0, skipped = 0, captcha = 0, failed = 0;
+            let started = 0, skipped = 0, failed = 0;
 
             try {
                 for (let i = 0; i < characters.length; i++) {
@@ -944,9 +1171,12 @@
 
                     try {
                         await this.switchCharacterForAccountAction(Number(char.id));
-                        const result = await this.startMaxTrainingForCurrentCharacter();
+                        const result =
+                            await this.startMaxTrainingForCurrentCharacter(
+                                label
+                            );
+
                         if (result === "started") started++;
-                        else if (result === "captcha") captcha++;
                         else skipped++;
                     } catch (error) {
                         failed++;
@@ -957,7 +1187,7 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Treningi zakończone:", { started, skipped, captcha, failed });
+            console.info("[SW Tool][ACCOUNT] Treningi zakończone:", { started, skipped, failed });
         }
 
         async attackArenaForCurrentCharacter() {
@@ -1179,6 +1409,10 @@
                     console.error("[SW Tool][ACCOUNT] Operacja nie powiodła się:", action, error);
                 })
                 .finally(() => {
+                    if (this.trainingCaptchaWaiter?.cancel) {
+                        this.trainingCaptchaWaiter.cancel();
+                    }
+
                     this.accountOperationRunning = false;
                 });
 
