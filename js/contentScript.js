@@ -267,12 +267,58 @@ function selectServerOne(select) {
   );
 
   if (!option) {
+    console.info(
+      "[SW Tool][AUTH] Opcje serwera:",
+      options.map((item) => ({
+        text: (item.textContent || "").trim(),
+        value: String(item.value || "")
+      }))
+    );
+
     throw new Error("Nie znaleziono serwera 1 na liście.");
   }
 
   select.value = option.value;
   select.dispatchEvent(new Event("input", { bubbles: true }));
   select.dispatchEvent(new Event("change", { bubbles: true }));
+
+  console.info("[SW Tool][AUTH] Wybrano serwer:", {
+    text: (option.textContent || "").trim(),
+    value: String(option.value || "")
+  });
+}
+
+function submitServerSelection(select) {
+  const form = select.closest("form");
+
+  if (form instanceof HTMLFormElement) {
+    console.info("[SW Tool][AUTH] Wysyłanie formularza wyboru serwera.");
+    form.requestSubmit();
+    return true;
+  }
+
+  const container = select.parentElement || document;
+  const submit = container.querySelector(
+    "input[type='submit'], input[type='image'], button[type='submit'], button"
+  );
+
+  if (submit && isVisible(submit)) {
+    console.info("[SW Tool][AUTH] Kliknięcie kontrolki wejścia na serwer.");
+    submit.click();
+    return true;
+  }
+
+  const fallback = document.querySelector(
+    "input[type='submit'], input[type='image'], button[type='submit']"
+  );
+
+  if (fallback && isVisible(fallback)) {
+    console.info("[SW Tool][AUTH] Kliknięcie fallback submit dla serwera.");
+    fallback.click();
+    return true;
+  }
+
+  return false;
 }
 
 async function patchPendingAccountSwitch(patch) {
@@ -355,22 +401,24 @@ async function continueAccountSwitch() {
     return { active: true, step: "login" };
   }
 
-  // 3. Po zalogowaniu wybierz serwer 1 i kliknij Graj.
+  // 3. Po zalogowaniu wybierz serwer 1 i wyślij formularz wyboru serwera.
   if (!pending.serverSelected) {
     const serverSelect = findServerSelect();
-    const playButton = findInteractiveByText(
-      /\bgraj\b|\bplay\b/i
-    );
 
-    if (serverSelect && playButton) {
+    if (serverSelect) {
       selectServerOne(serverSelect);
+
+      const submitted = submitServerSelection(serverSelect);
+
+      if (!submitted) {
+        throw new Error("Znaleziono wybór serwera, ale nie udało się wysłać formularza.");
+      }
 
       await patchPendingAccountSwitch({
         serverSelected: true
       });
 
       console.info("[SW Tool][AUTH] Wejście na serwer 1.");
-      playButton.click();
       return { active: true, step: "server" };
     }
   }
@@ -485,7 +533,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.info("[SW Tool] Bridge gotowy.");
     }
 
-    await continueAccountSwitch();
+    const authState = await continueAccountSwitch();
+
+    if (authState?.active && authState.step === "waiting") {
+      let retries = 0;
+
+      const retryAuth = setInterval(async () => {
+        retries += 1;
+
+        try {
+          const state = await continueAccountSwitch();
+
+          if (!state?.active || state.step !== "waiting" || retries >= 20) {
+            clearInterval(retryAuth);
+          }
+        } catch (error) {
+          clearInterval(retryAuth);
+          console.error("[SW Tool][AUTH] Ponowienie nie powiodło się.", error);
+        }
+      }, 500);
+    }
   } catch (error) {
     console.error("[SW Tool][CONTENT] Inicjalizacja nie powiodła się.", error);
   }
