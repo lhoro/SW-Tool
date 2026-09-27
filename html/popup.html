@@ -7,55 +7,78 @@
 </head>
 <body class="booting">
   <div class="popup">
-    <h2>SW TOOL</h2>
+    <div id="mainView" class="view">
+      <div id="accountQuickSwitch" class="account-quick-switch" aria-label="Szybkie przełączanie kont"></div>
 
-    <section class="panel">
-      <div class="switch-group">
-        <label for="dailyRewards">Dzienne nagrody</label>
-        <label class="switch">
-          <input type="checkbox" id="dailyRewards">
-          <span class="slider"></span>
-        </label>
+      <h2>SW TOOL</h2>
+
+      <section class="quick-actions">
+        <button id="accTutsBtn" class="btn btn-wide">Zapisz tuty</button>
+        <div id="mainStatus" class="status" aria-live="polite"></div>
+      </section>
+
+      <button id="settingsBtn" class="settings-btn" type="button" title="Ustawienia" aria-label="Ustawienia">
+        ⚙
+      </button>
+    </div>
+
+    <div id="settingsView" class="view hidden">
+      <div class="settings-header">
+        <button id="backBtn" class="icon-btn" type="button" title="Wróć" aria-label="Wróć">←</button>
+        <h2>USTAWIENIA</h2>
+        <span class="header-spacer"></span>
       </div>
 
-      <div class="switch-group">
-        <label for="saveTuts">Zapis na turnieje</label>
-        <label class="switch">
-          <input type="checkbox" id="saveTuts">
-          <span class="slider"></span>
-        </label>
+      <div class="tabs">
+        <button class="tab-btn active" type="button" data-tab="general">Ogólne</button>
+        <button class="tab-btn" type="button" data-tab="accounts">Konta</button>
       </div>
 
-      <div class="switch-group">
-        <label for="hideReports">Ukrywanie raportów</label>
-        <label class="switch">
-          <input type="checkbox" id="hideReports">
-          <span class="slider"></span>
-        </label>
-      </div>
+      <section id="tab-general" class="tab-panel">
+        <div class="switch-group">
+          <label for="dailyRewards">Dzienne nagrody</label>
+          <label class="switch">
+            <input type="checkbox" id="dailyRewards">
+            <span class="slider"></span>
+          </label>
+        </div>
 
-      <div class="button-row">
-        <button id="resetBtn" class="btn">Resetuj</button>
-        <button id="accTutsBtn" class="btn">Zapisz tuty</button>
-      </div>
-    </section>
+        <div class="switch-group">
+          <label for="saveTuts">Zapis na turnieje</label>
+          <label class="switch">
+            <input type="checkbox" id="saveTuts">
+            <span class="slider"></span>
+          </label>
+        </div>
 
-    <details class="accounts-panel">
-      <summary>Konta</summary>
+        <div class="switch-group">
+          <label for="hideReports">Ukrywanie raportów</label>
+          <label class="switch">
+            <input type="checkbox" id="hideReports">
+            <span class="slider"></span>
+          </label>
+        </div>
 
-      <p class="hint">
-        Maksymalnie 5 profili. Przełączenie wyloguje bieżące konto,
-        zaloguje wybrane i wejdzie na serwer 1.
-      </p>
+        <div class="button-row">
+          <button id="resetBtn" class="btn" type="button">Resetuj ustawienia</button>
+        </div>
+      </section>
 
-      <div id="accountsList"></div>
+      <section id="tab-accounts" class="tab-panel hidden">
+        <p class="hint">
+          Zapisz maksymalnie 5 kont. Przyciski na górze głównego widoku
+          pozwalają później przełączyć konto jednym kliknięciem.
+        </p>
 
-      <div class="button-row">
-        <button id="saveAccountsBtn" class="btn">Zapisz konta</button>
-      </div>
+        <div id="accountsList"></div>
 
-      <div id="accountStatus" class="status" aria-live="polite"></div>
-    </details>
+        <div class="button-row">
+          <button id="saveAccountsBtn" class="btn btn-wide" type="button">Zapisz konta</button>
+        </div>
+
+        <div id="accountStatus" class="status" aria-live="polite"></div>
+      </section>
+    </div>
   </div>
 
   <script src="../js/popup.js"></script>

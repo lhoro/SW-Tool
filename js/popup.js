@@ -7,16 +7,26 @@ const DEFAULT_CONFIG = Object.freeze({
 const ACCOUNT_LIMIT = 5;
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const mainView = document.getElementById("mainView");
+  const settingsView = document.getElementById("settingsView");
+  const settingsBtn = document.getElementById("settingsBtn");
+  const backBtn = document.getElementById("backBtn");
+  const tabButtons = [...document.querySelectorAll(".tab-btn")];
+
   const dailyRewards = document.getElementById("dailyRewards");
   const saveTuts = document.getElementById("saveTuts");
   const hideReports = document.getElementById("hideReports");
   const resetBtn = document.getElementById("resetBtn");
   const accTutsBtn = document.getElementById("accTutsBtn");
+
+  const accountQuickSwitch = document.getElementById("accountQuickSwitch");
   const accountsList = document.getElementById("accountsList");
   const saveAccountsBtn = document.getElementById("saveAccountsBtn");
   const accountStatus = document.getElementById("accountStatus");
+  const mainStatus = document.getElementById("mainStatus");
 
   let saveQueue = Promise.resolve();
+  let accountsState = [];
 
   const normalizeConfig = (config) => ({
     dailyReward: typeof config?.dailyReward === "boolean"
@@ -30,8 +40,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       : DEFAULT_CONFIG.hideReports
   });
 
-  const normalizeAccounts = (accounts) => {
-    return Array.from({ length: ACCOUNT_LIMIT }, (_, index) => {
+  const normalizeAccounts = (accounts) => (
+    Array.from({ length: ACCOUNT_LIMIT }, (_, index) => {
       const source = Array.isArray(accounts) ? accounts[index] : null;
 
       return {
@@ -41,8 +51,8 @@ document.addEventListener("DOMContentLoaded", async () => {
         login: typeof source?.login === "string" ? source.login : "",
         password: typeof source?.password === "string" ? source.password : ""
       };
-    });
-  };
+    })
+  );
 
   function sendCommand(command, payload) {
     return new Promise((resolve, reject) => {
@@ -57,15 +67,34 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
 
         if (!response || response.ok !== true) {
-          reject(new Error(
-            response?.error || "Brak odpowiedzi rozszerzenia."
-          ));
+          reject(new Error(response?.error || "Brak odpowiedzi rozszerzenia."));
           return;
         }
 
         resolve(response.data || {});
       });
     });
+  }
+
+  function showView(view) {
+    mainView.classList.toggle("hidden", view !== "main");
+    settingsView.classList.toggle("hidden", view !== "settings");
+  }
+
+  function showTab(tabName) {
+    tabButtons.forEach((button) => {
+      button.classList.toggle("active", button.dataset.tab === tabName);
+    });
+
+    document.getElementById("tab-general").classList.toggle(
+      "hidden",
+      tabName !== "general"
+    );
+
+    document.getElementById("tab-accounts").classList.toggle(
+      "hidden",
+      tabName !== "accounts"
+    );
   }
 
   function updateWindow(config) {
@@ -83,12 +112,54 @@ document.addEventListener("DOMContentLoaded", async () => {
     };
   }
 
-  function setAccountStatus(message, type = "") {
-    accountStatus.textContent = message || "";
-    accountStatus.className = "status" + (type ? " " + type : "");
+  function setStatus(element, message, type = "") {
+    element.textContent = message || "";
+    element.className = "status" + (type ? " " + type : "");
   }
 
-  function renderAccounts(accounts) {
+  function renderQuickAccounts(accounts) {
+    accountQuickSwitch.textContent = "";
+
+    normalizeAccounts(accounts).forEach((account, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "account-slot-btn";
+
+      const label = account.login.trim() || "PUSTE";
+      button.textContent = label;
+      button.title = account.login.trim()
+        ? account.login.trim()
+        : "Pusty profil " + (index + 1);
+
+      button.disabled = !account.login.trim() || !account.password;
+
+      button.addEventListener("click", async () => {
+        try {
+          setStatus(mainStatus, "Przełączanie na " + account.login + "...");
+          button.disabled = true;
+          button.classList.add("loading");
+
+          await sendCommand("account.switch", { slot: index });
+
+          setStatus(
+            mainStatus,
+            "Przełączanie uruchomione.",
+            "success"
+          );
+        } catch (error) {
+          console.error("[SW Tool][POPUP] Przełączenie konta nie powiodło się.", error);
+          setStatus(mainStatus, error.message, "error");
+        } finally {
+          button.classList.remove("loading");
+          renderQuickAccounts(accountsState);
+        }
+      });
+
+      accountQuickSwitch.appendChild(button);
+    });
+  }
+
+  function renderAccountEditor(accounts) {
     accountsList.textContent = "";
 
     normalizeAccounts(accounts).forEach((account, index) => {
@@ -98,22 +169,15 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       const title = document.createElement("div");
       title.className = "account-title";
-      title.textContent = "Profil " + (index + 1);
+      title.textContent = "Konto " + (index + 1);
 
       const fields = document.createElement("div");
       fields.className = "account-fields";
 
-      const nameInput = document.createElement("input");
-      nameInput.type = "text";
-      nameInput.className = "account-name";
-      nameInput.placeholder = "Nazwa profilu";
-      nameInput.value = account.name;
-      nameInput.autocomplete = "off";
-
       const loginInput = document.createElement("input");
       loginInput.type = "text";
       loginInput.className = "account-login";
-      loginInput.placeholder = "Login CG";
+      loginInput.placeholder = "Login";
       loginInput.value = account.login;
       loginInput.autocomplete = "off";
       loginInput.spellcheck = false;
@@ -125,47 +189,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       passwordInput.value = account.password;
       passwordInput.autocomplete = "off";
 
-      fields.append(nameInput, loginInput, passwordInput);
-
-      const actions = document.createElement("div");
-      actions.className = "account-actions";
-
-      const switchButton = document.createElement("button");
-      switchButton.type = "button";
-      switchButton.className = "btn account-switch";
-      switchButton.textContent = "Przełącz";
-      switchButton.addEventListener("click", async () => {
-        try {
-          setAccountStatus("Zapisywanie profili...");
-          const accountsToSave = readAccountsFromWindow();
-          await chrome.storage.local.set({ accounts: accountsToSave });
-
-          setAccountStatus("Rozpoczynam przełączanie...");
-          switchButton.disabled = true;
-
-          await sendCommand("account.switch", { slot: index });
-
-          setAccountStatus(
-            "Przełączanie uruchomione. Popup może się zamknąć podczas zmiany strony.",
-            "success"
-          );
-        } catch (error) {
-          console.error("[SW Tool][POPUP] Przełączenie konta nie powiodło się.", error);
-          setAccountStatus(error.message, "error");
-        } finally {
-          switchButton.disabled = false;
-        }
-      });
-
-      actions.appendChild(switchButton);
-      card.append(title, fields, actions);
+      fields.append(loginInput, passwordInput);
+      card.append(title, fields);
       accountsList.appendChild(card);
     });
   }
 
-  function readAccountsFromWindow() {
+  function readAccountsFromEditor() {
     return [...accountsList.querySelectorAll(".account-card")].map((card, index) => ({
-      name: card.querySelector(".account-name").value.trim() || "Konto " + (index + 1),
+      name: "Konto " + (index + 1),
       login: card.querySelector(".account-login").value.trim(),
       password: card.querySelector(".account-password").value
     }));
@@ -188,6 +220,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     return saveQueue;
   }
 
+  settingsBtn.addEventListener("click", () => {
+    showView("settings");
+  });
+
+  backBtn.addEventListener("click", () => {
+    showView("main");
+    setStatus(mainStatus, "");
+  });
+
+  tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      showTab(button.dataset.tab);
+    });
+  });
+
   dailyRewards.addEventListener("change", saveConfig);
   saveTuts.addEventListener("change", saveConfig);
   hideReports.addEventListener("change", saveConfig);
@@ -203,47 +250,59 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   accTutsBtn.addEventListener("click", async () => {
     try {
+      setStatus(mainStatus, "Uruchamiam zapis na turnieje...");
       await sendCommand("action.run", {
         action: "accountTournaments"
       });
+      setStatus(mainStatus, "Akcja uruchomiona.", "success");
     } catch (error) {
       console.error("[SW Tool][POPUP] Akcja zapisu na turnieje nie powiodła się.", error);
+      setStatus(mainStatus, error.message, "error");
     }
   });
 
   saveAccountsBtn.addEventListener("click", async () => {
     try {
-      const accounts = readAccountsFromWindow();
-      await chrome.storage.local.set({ accounts });
-      setAccountStatus("Profile zapisane.", "success");
+      accountsState = normalizeAccounts(readAccountsFromEditor());
+      await chrome.storage.local.set({ accounts: accountsState });
+
+      renderQuickAccounts(accountsState);
+      renderAccountEditor(accountsState);
+
+      setStatus(accountStatus, "Konta zapisane.", "success");
     } catch (error) {
-      console.error("[SW Tool][POPUP] Nie udało się zapisać profili.", error);
-      setAccountStatus(error.message, "error");
+      console.error("[SW Tool][POPUP] Nie udało się zapisać kont.", error);
+      setStatus(accountStatus, error.message, "error");
     }
   });
 
   try {
-    // Czytamy storage bezpośrednio z popupu zanim pokażemy UI.
-    // Dzięki temu checkboxy nie renderują się najpierw w stanie domyślnym.
     const stored = await chrome.storage.local.get(["config", "accounts"]);
     const config = normalizeConfig(stored.config);
-    const accounts = normalizeAccounts(stored.accounts);
+    accountsState = normalizeAccounts(stored.accounts);
 
     updateWindow(config);
-    renderAccounts(accounts);
+    renderQuickAccounts(accountsState);
+    renderAccountEditor(accountsState);
 
     if (!stored.config) {
       await chrome.storage.local.set({ config });
     }
 
     if (!stored.accounts) {
-      await chrome.storage.local.set({ accounts });
+      await chrome.storage.local.set({ accounts: accountsState });
     }
+
+    showView("main");
+    showTab("general");
   } catch (error) {
     console.error("[SW Tool][POPUP] Inicjalizacja popupu nie powiodła się.", error);
+
     updateWindow(DEFAULT_CONFIG);
-    renderAccounts([]);
-    setAccountStatus("Nie udało się odczytać danych rozszerzenia.", "error");
+    accountsState = normalizeAccounts([]);
+    renderQuickAccounts(accountsState);
+    renderAccountEditor(accountsState);
+    setStatus(mainStatus, "Nie udało się odczytać danych rozszerzenia.", "error");
   } finally {
     document.body.classList.remove("booting");
   }

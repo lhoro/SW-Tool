@@ -1,7 +1,7 @@
 html,
 body {
   margin: 0;
-  min-width: 360px;
+  min-width: 380px;
   background-color: #1d1a2a;
   font-family: Verdana, sans-serif;
   color: #fff;
@@ -12,7 +12,9 @@ body.booting .popup {
 }
 
 .popup {
-  width: 330px;
+  position: relative;
+  width: 350px;
+  min-height: 170px;
   border: 3px solid #c29e51;
   background-color: #2b2540;
   padding: 12px;
@@ -21,33 +23,138 @@ body.booting .popup {
   margin: 2px auto;
 }
 
+.view {
+  position: relative;
+}
+
+.hidden {
+  display: none !important;
+}
+
 .popup h2 {
-  margin: 0 0 8px;
+  margin: 8px 0 10px;
   font-size: 18px;
   color: #c29e51;
   text-align: center;
 }
 
-.panel,
-.accounts-panel {
-  border-top: 1px solid rgba(194, 158, 81, 0.35);
-  padding-top: 6px;
+.account-quick-switch {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 8px;
 }
 
-.accounts-panel {
-  margin-top: 10px;
-}
-
-.accounts-panel summary {
-  color: #c29e51;
-  cursor: pointer;
+.account-slot-btn {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 4px 3px;
+  border: 1px solid #c29e51;
+  border-radius: 5px;
+  background: #3a314d;
+  color: #fff;
+  font-size: 10px;
   font-weight: 700;
-  font-size: 14px;
-  user-select: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-slot-btn:hover:not(:disabled) {
+  background: #4a3e61;
+}
+
+.account-slot-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.account-slot-btn.loading {
+  opacity: 0.75;
+}
+
+.quick-actions {
+  padding-bottom: 36px;
+}
+
+.settings-btn {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #c29e51;
+  border-radius: 50%;
+  background: #3a314d;
+  color: #c29e51;
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settings-btn:hover,
+.icon-btn:hover,
+.tab-btn:hover {
+  background: #4a3e61;
+}
+
+.settings-header {
+  display: grid;
+  grid-template-columns: 34px 1fr 34px;
+  align-items: center;
+}
+
+.settings-header h2 {
+  margin: 0;
+}
+
+.header-spacer {
+  width: 34px;
+}
+
+.icon-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #c29e51;
+  border-radius: 6px;
+  background: #3a314d;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 10px 0;
+}
+
+.tab-btn {
+  border: 1px solid #665d7b;
+  border-radius: 5px;
+  background: #332c47;
+  color: #ddd4bd;
+  font-size: 12px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+
+.tab-btn.active {
+  border-color: #c29e51;
+  color: #fff;
+  background: #4a3e61;
+}
+
+.tab-panel {
+  border-top: 1px solid rgba(194, 158, 81, 0.35);
+  padding-top: 8px;
 }
 
 .hint {
-  margin: 8px 0;
+  margin: 4px 0 8px;
   color: #c8c3d4;
   font-size: 11px;
   line-height: 1.35;
@@ -115,7 +222,7 @@ body.booting .popup {
   transition: background-color 0.2s;
 }
 
-.btn:hover {
+.btn:hover:not(:disabled) {
   background-color: #4a3e61;
 }
 
@@ -124,8 +231,13 @@ body.booting .popup {
   cursor: default;
 }
 
+.btn-wide {
+  width: 100%;
+  justify-content: center;
+}
+
 .account-card {
-  margin-top: 8px;
+  margin-top: 7px;
   padding: 8px;
   border: 1px solid rgba(194, 158, 81, 0.35);
   border-radius: 6px;
@@ -134,14 +246,14 @@ body.booting .popup {
 
 .account-title {
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   color: #ddd4bd;
 }
 
 .account-fields {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 5px;
 }
 
@@ -153,17 +265,11 @@ body.booting .popup {
   color: #fff;
   border-radius: 4px;
   padding: 6px;
-  font-size: 12px;
-}
-
-.account-actions {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 6px;
+  font-size: 11px;
 }
 
 .status {
-  min-height: 16px;
+  min-height: 14px;
   margin-top: 7px;
   font-size: 11px;
   color: #c8c3d4;
