@@ -1,9 +1,4 @@
-const hideReports = () =>{
-    let report = $("#fight_view")
-    if(storageGetItem("config").hideReports){ 
-        report.addClass("hidden");
-    }
-    else{
-        report.removeClass("hidden");
-    }
-}
+const setReportsHidden = (hidden) => {
+  const report = $("#fight_view");
+  report.toggleClass("hidden", Boolean(hidden));
+};

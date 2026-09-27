@@ -1,4 +1,4 @@
-if( GAME === undefined){
+if (typeof GAME === "undefined") {
     // Poza grą nic nie robi
 }else{
     // BOT
@@ -9,17 +9,33 @@ if( GAME === undefined){
             this.currentCharacterId = 0;
             this.currentCharacterIndex = 0;
 
-            // Ustawienia bota
-            this.config = [];
+            // Ustawienia bota. Właściwa konfiguracja przychodzi z chrome.storage.local
+            // przez contentScript po uruchomieniu bridge.
+            this.config = {
+                dailyReward: true,
+                saveTuts: true,
+                hideReports: false
+            };
         };
 
-        // Pobranie danych do bota z localstorage
+        // Pobranie danych zależnych od konta gry z localStorage strony.
         getLocalData(){
-            this.chars = storageGetItem("chars")
-            this.config = storageGetItem("config");
-            if(this.chars.length == 0 ) 
+            this.chars = storageGetItem("chars", []);
+            if(this.chars.length == 0)
                 this.getChars();
-            console.log(this.chars)
+            console.log(this.chars);
+        }
+
+        // Konfiguracja rozszerzenia jest własnością EXT i przychodzi z chrome.storage.local.
+        applyConfig(config){
+            if(!config || typeof config !== "object") return;
+
+            this.config = {
+                ...this.config,
+                ...config
+            };
+
+            setReportsHidden(this.config.hideReports);
         }
 
         // Pobieranie listy postaci
@@ -27,7 +43,7 @@ if( GAME === undefined){
             setTimeout(()=>{
                 let allchars = [...$("li[data-option=select_char]")];
                 if(allchars.length == 0) {
-                    setTimeout(this.getchars, 200);
+                    setTimeout(() => this.getChars(), 200);
                 } else {
                     const chars = [];
                     allchars.forEach((element, index, array) => {
@@ -116,7 +132,10 @@ if( GAME === undefined){
         // Przerobić na sockety
         registerTut(){
             if(this.config.saveTuts){
-                if( this.chars[this.currentCharacterIndex].data.tutSave == 0 ){
+                const currentChar = this.chars[this.currentCharacterIndex];
+                if(!currentChar || !currentChar.data) return;
+
+                if( currentChar.data.tutSave == 0 ){
                     const currentTime = new Date;
                     const currentHour = currentTime.getHours();
                     if ((currentHour >= 18) && (currentHour < 21)){
@@ -174,7 +193,7 @@ if( GAME === undefined){
         BOT.updateID();
     }, 2000);
 
-    hideReports();
+    setReportsHidden(BOT.config.hideReports);
 
     // Odczytanie wciśnięcia klawiszy
     $(document).keydown((event) => {
@@ -192,34 +211,60 @@ if( GAME === undefined){
 
 
 
-    // Reakcja na polecenie z popupu (via background → contentScript)
-    window.addEventListener("message", (event) => {
-        if (event.source !== window || event.data.direction !== "inject") return;
-            if (event.data.action === "getConfig") {
-                window.postMessage({ direction: "content", payload: storageGetItem("config") }, "*");
-            }
-            if (event.data.action === "setConfig") {
-                console.log("[INIECT] Ustaw config")
-                console.log(event.data.config)
-                storageSetItem("config", event.data.config)
-            }
-            if (event.data.action === "resetConfig") {
-                storageSetDefault();
-                BOT.getChars();
-                window.postMessage({ direction: "content", payload: storageGetItem("config") }, "*");
-            }
-            if (event.data.action === "changeReports") {
-                setTimeout(()=>{
-                    hideReports();
-                }, 100);
-            }
-            if (event.data.action === "accTuts") {
-                BOT.accountTutsRegister();
+    // Bridge pomiędzy izolowanym contentScriptem a kontekstem strony.
+    // Każde żądanie posiada requestId, więc równoległe akcje nie mieszają odpowiedzi.
+    const SW_TOOL_CHANNEL = "SW_TOOL_BRIDGE_V1";
+
+    const sendBridgeResponse = (requestId, ok, payload = {}, error = null) => {
+        window.postMessage({
+            channel: SW_TOOL_CHANNEL,
+            direction: "page-to-extension",
+            requestId,
+            ok,
+            payload,
+            error
+        }, window.location.origin);
+    };
+
+    window.addEventListener("message", async (event) => {
+        if (event.source !== window || event.origin !== window.location.origin) return;
+
+        const data = event.data;
+        if(
+            !data ||
+            data.channel !== SW_TOOL_CHANNEL ||
+            data.direction !== "extension-to-page" ||
+            !data.requestId
+        ) return;
+
+        try{
+            if(data.action === "config.apply"){
+                BOT.applyConfig(data.payload?.config);
+                sendBridgeResponse(data.requestId, true, { config: BOT.config });
+                return;
             }
 
+            if(data.action === "action.run"){
+                if(data.payload?.action === "accountTournaments"){
+                    BOT.accountTutsRegister();
+                    sendBridgeResponse(data.requestId, true, { started: true });
+                    return;
+                }
+
+                throw new Error("Nieznana akcja strony: " + String(data.payload?.action));
+            }
+
+            throw new Error("Nieznana akcja bridge: " + String(data.action));
+        }catch(error){
+            console.error("[SW Tool][PAGE]", error);
+            sendBridgeResponse(
+                data.requestId,
+                false,
+                {},
+                error instanceof Error ? error.message : String(error)
+            );
+        }
     });
-
-
 
 
 

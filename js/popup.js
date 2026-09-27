@@ -1,71 +1,95 @@
-document.addEventListener('DOMContentLoaded', () => {
-  let dailyRewards = document.getElementById('dailyRewards');
-  let saveTuts = document.getElementById('saveTuts');
-  let hideReports = document.getElementById('hideReports');
-  const resetBtn = document.getElementById('resetBtn');
-  const accTutsBtn = document.getElementById('accTutsBtn');
-  
+document.addEventListener("DOMContentLoaded", () => {
+  const dailyRewards = document.getElementById("dailyRewards");
+  const saveTuts = document.getElementById("saveTuts");
+  const hideReports = document.getElementById("hideReports");
+  const resetBtn = document.getElementById("resetBtn");
+  const accTutsBtn = document.getElementById("accTutsBtn");
 
-  updateWindow = (data) =>{
-      dailyRewards.checked = data.dailyReward;
-      saveTuts.checked = data.saveTuts; 
-      hideReports.checked = data.hideReports;
-  };
+  let saveQueue = Promise.resolve();
 
-    updateConfig = (data) =>{
-      chrome.runtime.sendMessage({ from: "popup", query: "getConfig" }, (response) => {
-        if(data == "dailyRewards")
-          response.dailyReward = !response.dailyReward;
-        if(data == "saveTuts")
-          response.saveTuts = !response.saveTuts;
-        if(data == "hideReports"){
-          response.hideReports = !response.hideReports;
-          chrome.runtime.sendMessage({ from: "popup", query: "changeReports", config: response}, (response) => {
-          })
+  function sendCommand(command, payload) {
+    return new Promise((resolve, reject) => {
+      chrome.runtime.sendMessage({
+        source: "popup",
+        command,
+        ...(payload || {})
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
         }
 
-        chrome.runtime.sendMessage({ from: "popup", query: "setConfig", config: response}, (response) => {
-        })
+        if (!response || response.ok !== true) {
+          reject(new Error(response && response.error
+            ? response.error
+            : "Brak odpowiedzi rozszerzenia."));
+          return;
+        }
 
+        resolve(response.data || {});
       });
-  };
-
-  dailyRewards.addEventListener('change', () => {
-    updateConfig("dailyRewards");
-  });
-
-  saveTuts.addEventListener('change', () => {
-    updateConfig("saveTuts");
-  });
-
-  hideReports.addEventListener('change', () => {
-    updateConfig("hideReports");
-  });
-
-  resetBtn.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ from: "popup", query: "resetConfig" }, (response) => {
-      updateWindow(response);
     });
+  }
+
+  function updateWindow(config) {
+    dailyRewards.checked = Boolean(config.dailyReward);
+    saveTuts.checked = Boolean(config.saveTuts);
+    hideReports.checked = Boolean(config.hideReports);
+  }
+
+  function readWindowConfig() {
+    return {
+      dailyReward: dailyRewards.checked,
+      saveTuts: saveTuts.checked,
+      hideReports: hideReports.checked
+    };
+  }
+
+  function saveConfig() {
+    const config = readWindowConfig();
+
+    saveQueue = saveQueue
+      .catch(() => {})
+      .then(async () => {
+        const data = await sendCommand("config.set", { config });
+        updateWindow(data.config);
+      })
+      .catch((error) => {
+        console.error("[SW Tool][POPUP] Nie udało się zapisać konfiguracji.", error);
+      });
+
+    return saveQueue;
+  }
+
+  dailyRewards.addEventListener("change", saveConfig);
+  saveTuts.addEventListener("change", saveConfig);
+  hideReports.addEventListener("change", saveConfig);
+
+  resetBtn.addEventListener("click", async () => {
+    try {
+      const data = await sendCommand("config.reset");
+      updateWindow(data.config);
+    } catch (error) {
+      console.error("[SW Tool][POPUP] Reset konfiguracji nie powiódł się.", error);
+    }
   });
 
-  accTutsBtn.addEventListener('click', () => {
-    chrome.runtime.sendMessage({ from: "popup", query: "accTuts" }, (response) => {
-    });
+  accTutsBtn.addEventListener("click", async () => {
+    try {
+      await sendCommand("action.run", {
+        action: "accountTournaments"
+      });
+    } catch (error) {
+      console.error("[SW Tool][POPUP] Akcja zapisu na turnieje nie powiodła się.", error);
+    }
   });
 
-  
-  // Zapytanie o ustawienia z localstorage przy starcie
-  chrome.runtime.sendMessage({ from: "popup", query: "getConfig" }, (response) => {
-    updateWindow(response);
-  });
-
-
+  (async () => {
+    try {
+      const data = await sendCommand("config.get");
+      updateWindow(data.config);
+    } catch (error) {
+      console.error("[SW Tool][POPUP] Nie udało się pobrać konfiguracji.", error);
+    }
+  })();
 });
-
-
-  /*
-  // Oczekiwanie na widadomość z background
-  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-    console.log("[POPUP] Otrzymano wiadomość z background:", msg);
-  });
-  */

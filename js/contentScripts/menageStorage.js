@@ -1,37 +1,35 @@
-// Odczytywanie danych z local storage
-const storageSetItem = (item, data) =>  {
-    data = JSON.stringify(data),
-    localStorage.setItem(item, data)
-}
+// Dane zależne od konkretnej strony/konta gry.
+// Konfiguracja rozszerzenia jest przechowywana w chrome.storage.local
+// i trafia do tego kontekstu przez bridge contentScript -> page.
 
-// Dodawanie/Edytowanie danych w local storage
-const storageGetItem = (item) =>  {
-    return JSON.parse(localStorage.getItem(item))
-}
+const storageSetItem = (item, data) => {
+  localStorage.setItem(item, JSON.stringify(data));
+};
 
-// Ustawienia domyślne w local storage
-const storageSetDefault = () =>  {
-    const config = {
-        dailyReward: true,
-        saveTuts: true,
-        hideReports: false
-    }
+const storageGetItem = (item, fallback = null) => {
+  const raw = localStorage.getItem(item);
 
-    storageSetItem("chars", [] );
-    storageSetItem("config", config);
-}
+  if (raw === null) {
+    return fallback;
+  }
 
-// Sprawdzenie czy w local storage są dane
-const storageCheck = () =>{
-    if(!storageGetItem("chars") || !storageGetItem("config")) {
-        storageSetDefault();
-    }
-}
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    console.warn("[SW Tool][STORAGE] Uszkodzone dane dla klucza:", item, error);
+    return fallback;
+  }
+};
 
-// Resetowanie local storage w razie problemów
+const storageCheck = () => {
+  const chars = storageGetItem("chars", []);
+
+  if (!Array.isArray(chars)) {
+    storageSetItem("chars", []);
+  }
+};
+
 const storageReset = () => {
-    console.log("RESET")
-    localStorage.removeItem("chars");
-    localStorage.removeItem("config");
-    storageSetDefault();
-}
+  localStorage.removeItem("chars");
+  storageSetItem("chars", []);
+};
