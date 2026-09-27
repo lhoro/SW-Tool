@@ -2,44 +2,60 @@
 <html lang="pl">
 <head>
   <meta charset="UTF-8">
-  <title>ShinobiBOT</title>
+  <title>SW Tool</title>
   <link rel="stylesheet" href="../css/popup.css">
 </head>
-<body>
+<body class="booting">
   <div class="popup">
-    <h2>SHINOBI BOT</h2>
-    <div class="switch-group">
-      <label for="dailyRewards">Dzienne nagrody</label>
-      <label class="switch">
-        <input type="checkbox" id="dailyRewards">
-        <span class="slider"></span>
-      </label>
-    </div>
+    <h2>SW TOOL</h2>
 
-    <div class="switch-group">
-      <label for="saveTuts">Zapis na turnieje</label>
-      <label class="switch">
-        <input type="checkbox" id="saveTuts">
-        <span class="slider"></span>
-      </label>
-    </div>
+    <section class="panel">
+      <div class="switch-group">
+        <label for="dailyRewards">Dzienne nagrody</label>
+        <label class="switch">
+          <input type="checkbox" id="dailyRewards">
+          <span class="slider"></span>
+        </label>
+      </div>
 
-    <div class="switch-group">
-      <label for="hideReports">Ukrywanie Raportów</label>
-      <label class="switch">
-        <input type="checkbox" id="hideReports">
-        <span class="slider"></span>
-      </label>
-    </div>
+      <div class="switch-group">
+        <label for="saveTuts">Zapis na turnieje</label>
+        <label class="switch">
+          <input type="checkbox" id="saveTuts">
+          <span class="slider"></span>
+        </label>
+      </div>
 
-    <button id="resetBtn" class="btn">
-      Resetuj
-    </button>
+      <div class="switch-group">
+        <label for="hideReports">Ukrywanie raportów</label>
+        <label class="switch">
+          <input type="checkbox" id="hideReports">
+          <span class="slider"></span>
+        </label>
+      </div>
 
-    
-    <button id="accTutsBtn" class="btn">
-       Zapisz tuty
-    </button>
+      <div class="button-row">
+        <button id="resetBtn" class="btn">Resetuj</button>
+        <button id="accTutsBtn" class="btn">Zapisz tuty</button>
+      </div>
+    </section>
+
+    <details class="accounts-panel">
+      <summary>Konta</summary>
+
+      <p class="hint">
+        Maksymalnie 5 profili. Przełączenie wyloguje bieżące konto,
+        zaloguje wybrane i wejdzie na serwer 1.
+      </p>
+
+      <div id="accountsList"></div>
+
+      <div class="button-row">
+        <button id="saveAccountsBtn" class="btn">Zapisz konta</button>
+      </div>
+
+      <div id="accountStatus" class="status" aria-live="polite"></div>
+    </details>
   </div>
 
   <script src="../js/popup.js"></script>

@@ -4,6 +4,7 @@ const DEFAULT_CONFIG = Object.freeze({
   hideReports: false
 });
 
+const ACCOUNT_LIMIT = 5;
 const GAME_URL = /^https:\/\/([^.]+\.)?shinobiworld\.pl\//i;
 
 function normalizeConfig(config) {
@@ -19,6 +20,20 @@ function normalizeConfig(config) {
   return normalized;
 }
 
+function normalizeAccounts(accounts) {
+  return Array.from({ length: ACCOUNT_LIMIT }, (_, index) => {
+    const source = Array.isArray(accounts) ? accounts[index] : null;
+
+    return {
+      name: typeof source?.name === "string" && source.name.trim()
+        ? source.name.trim()
+        : "Konto " + (index + 1),
+      login: typeof source?.login === "string" ? source.login : "",
+      password: typeof source?.password === "string" ? source.password : ""
+    };
+  });
+}
+
 async function getStoredConfig() {
   const stored = await chrome.storage.local.get("config");
   return {
@@ -31,6 +46,11 @@ async function setStoredConfig(config) {
   const normalized = normalizeConfig(config);
   await chrome.storage.local.set({ config: normalized });
   return normalized;
+}
+
+async function getStoredAccounts() {
+  const stored = await chrome.storage.local.get("accounts");
+  return normalizeAccounts(stored.accounts);
 }
 
 async function getActiveGameTab() {
@@ -56,7 +76,20 @@ async function sendToActiveGameTab(message, optional) {
   }
 }
 
-async function handleMessage(msg) {
+async function getPendingAccountSwitch() {
+  const stored = await chrome.storage.session.get("pendingAccountSwitch");
+  return stored.pendingAccountSwitch || null;
+}
+
+async function setPendingAccountSwitch(pending) {
+  await chrome.storage.session.set({ pendingAccountSwitch: pending });
+}
+
+async function clearPendingAccountSwitch() {
+  await chrome.storage.session.remove("pendingAccountSwitch");
+}
+
+async function handleMessage(msg, sender) {
   switch (msg.command) {
     case "config.get": {
       const stored = await getStoredConfig();
@@ -109,12 +142,117 @@ async function handleMessage(msg) {
       });
 
       if (!response || response.ok !== true) {
-        throw new Error(response && response.error
-          ? response.error
-          : "Brak poprawnej odpowiedzi strony.");
+        throw new Error(
+          response?.error || "Brak poprawnej odpowiedzi strony."
+        );
       }
 
       return { ok: true, data: response.data || {} };
+    }
+
+    case "account.switch": {
+      const slot = Number(msg.slot);
+
+      if (!Number.isInteger(slot) || slot < 0 || slot >= ACCOUNT_LIMIT) {
+        throw new Error("Nieprawidłowy profil konta.");
+      }
+
+      const accounts = await getStoredAccounts();
+      const account = accounts[slot];
+
+      if (!account.login || !account.password) {
+        throw new Error("Uzupełnij login i hasło dla wybranego profilu.");
+      }
+
+      const tab = await getActiveGameTab();
+
+      await setPendingAccountSwitch({
+        tabId: tab.id,
+        slot,
+        account: {
+          login: account.login,
+          password: account.password
+        },
+        hasLoggedOut: false,
+        loginAttempts: 0,
+        serverSelected: false,
+        startedAt: Date.now()
+      });
+
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        source: "background",
+        command: "auth.continue"
+      });
+
+      if (!response || response.ok !== true) {
+        throw new Error(
+          response?.error || "Nie udało się rozpocząć przełączania konta."
+        );
+      }
+
+      return { ok: true, data: { started: true, slot } };
+    }
+
+    case "account.pending.get": {
+      const pending = await getPendingAccountSwitch();
+      const tabId = sender.tab?.id;
+
+      if (!pending || !tabId || pending.tabId !== tabId) {
+        return { ok: true, data: { pending: null } };
+      }
+
+      return { ok: true, data: { pending } };
+    }
+
+    case "account.pending.patch": {
+      const pending = await getPendingAccountSwitch();
+      const tabId = sender.tab?.id;
+
+      if (!pending || !tabId || pending.tabId !== tabId) {
+        return { ok: true, data: { pending: null } };
+      }
+
+      const patch = msg.patch && typeof msg.patch === "object"
+        ? msg.patch
+        : {};
+
+      const next = {
+        ...pending,
+        hasLoggedOut: typeof patch.hasLoggedOut === "boolean"
+          ? patch.hasLoggedOut
+          : pending.hasLoggedOut,
+        loginAttempts: Number.isInteger(patch.loginAttempts)
+          ? patch.loginAttempts
+          : pending.loginAttempts,
+        serverSelected: typeof patch.serverSelected === "boolean"
+          ? patch.serverSelected
+          : pending.serverSelected
+      };
+
+      await setPendingAccountSwitch(next);
+      return { ok: true, data: { pending: next } };
+    }
+
+    case "account.switch.complete": {
+      const pending = await getPendingAccountSwitch();
+      const tabId = sender.tab?.id;
+
+      if (pending && tabId && pending.tabId === tabId) {
+        await clearPendingAccountSwitch();
+      }
+
+      return { ok: true, data: { completed: true } };
+    }
+
+    case "account.switch.cancel": {
+      const pending = await getPendingAccountSwitch();
+      const tabId = sender.tab?.id;
+
+      if (pending && tabId && pending.tabId === tabId) {
+        await clearPendingAccountSwitch();
+      }
+
+      return { ok: true, data: { cancelled: true } };
     }
 
     default:
@@ -127,7 +265,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return false;
   }
 
-  handleMessage(msg)
+  handleMessage(msg, sender)
     .then(sendResponse)
     .catch((error) => {
       console.error("[SW Tool][BG]", error);
