@@ -11,6 +11,10 @@ if( GAME === undefined){
 
             // Ustawienia bota
             this.config = [];
+
+            // Etap odbioru nagrody dziennej: 0=bezczynny, 1=pobieranie danych, 2=oczekiwanie na odbiór
+            this.dailyRewardClaimStage = 0;
+            this.dailyRewardClaimCharacterId = null;
         };
 
         // Pobranie danych do bota z localstorage
@@ -94,22 +98,78 @@ if( GAME === undefined){
             }
         }
 
-        // Odbieranie dziennych nagród 
+        // Odbieranie dziennych nagród
         collectDailyReward() {
-            if(this.config.dailyReward){
-                if (GAME.char_id != 0 && GAME.quick_opts.online_reward) {
-                    setTimeout(() => {
-                        GAME.socket.emit('ga', {
-                            a: 26,
-                            type: 1
-                        });
-                        setTimeout(() => {
-                            $('#daily_reward').fadeOut();
-                            kom_clear();
-                        }, 400);
-                    }, 50);
-                }
+            if (!this.config.dailyReward ||
+                GAME.char_id == 0 ||
+                !GAME.quick_opts.online_reward ||
+                this.dailyRewardClaimStage !== 0) {
+                return;
             }
+
+            this.dailyRewardClaimCharacterId = GAME.char_id;
+            this.dailyRewardClaimStage = 1;
+            setTimeout(() => {
+                if (GAME.char_id != this.dailyRewardClaimCharacterId) {
+                    this.resetDailyRewardClaim();
+                    return;
+                }
+                try {
+                    // Najpierw pobieramy dane nagrody, tak jak w APP.
+                    GAME.socket.emit('ga', { a: 26, type: 0 });
+                } catch (error) {
+                    this.resetDailyRewardClaim();
+                    console.error("Nie udało się pobrać danych nagrody dziennej", error);
+                }
+            }, 50);
+        }
+
+        // Obsługa odpowiedzi serwera na pobranie i odbiór nagrody dziennej
+        handleDailyRewardResponse(response) {
+            if (!response || response.a != 26 || this.dailyRewardClaimStage === 0) {
+                return;
+            }
+
+            if (GAME.char_id != this.dailyRewardClaimCharacterId) {
+                this.resetDailyRewardClaim();
+                return;
+            }
+
+            if (Number(response.e || 0) !== 0) {
+                this.resetDailyRewardClaim();
+                console.error("Serwer odrzucił operację nagrody dziennej", response.e);
+                return;
+            }
+
+            if (this.dailyRewardClaimStage === 1) {
+                if (!Array.isArray(response.daily_data)) {
+                    this.resetDailyRewardClaim();
+                    console.error("Serwer nie zwrócił danych nagrody dziennej");
+                    return;
+                }
+
+                this.dailyRewardClaimStage = 2;
+                try {
+                    GAME.socket.emit('ga', { a: 26, type: 1 });
+                } catch (error) {
+                    this.resetDailyRewardClaim();
+                    console.error("Nie udało się odebrać nagrody dziennej", error);
+                }
+                return;
+            }
+
+            if (this.dailyRewardClaimStage === 2) {
+                this.resetDailyRewardClaim();
+                setTimeout(() => {
+                    $('#daily_reward').fadeOut();
+                    kom_clear();
+                }, 400);
+            }
+        }
+
+        resetDailyRewardClaim() {
+            this.dailyRewardClaimStage = 0;
+            this.dailyRewardClaimCharacterId = null;
         }
 
         // Zapis na turnieje 
@@ -162,6 +222,11 @@ if( GAME === undefined){
 
     // Uruchomnienie BOTA
     const BOT = new TOOL();
+
+    // Odpowiedź na protokół nagrody dziennej (a=26)
+    if (GAME.socket && typeof GAME.socket.on === "function") {
+        GAME.socket.on('ga', (response) => BOT.handleDailyRewardResponse(response));
+    }
 
     // Sprawdzenie local storage
     storageCheck();
