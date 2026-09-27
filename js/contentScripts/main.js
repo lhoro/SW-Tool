@@ -524,7 +524,7 @@
             });
         }
 
-        waitForCharacterSettled(targetId, timeoutMs = 3000) {
+        waitForCharacterSettled(targetId, timeoutMs = 3000, settleMs = 150) {
             const startedAt = Date.now();
 
             return new Promise((resolve, reject) => {
@@ -533,7 +533,7 @@
                         // Oficjalny klient potrafi jeszcze dokończyć aktualizację
                         // własnego stanu po RX a:2. Jedna krótka tura zapobiega
                         // wysłaniu kolejnej akcji zbyt wcześnie.
-                        setTimeout(resolve, 150);
+                        setTimeout(resolve, settleMs);
                         return;
                     }
 
@@ -555,7 +555,7 @@
             });
         }
 
-        async switchCharacterForAccountAction(charId) {
+        async switchCharacterForAccountAction(charId, settleMs = 150) {
             const targetId = Number(charId);
             if (targetId <= 0) throw new Error("Nieprawidłowe ID postaci.");
 
@@ -634,7 +634,7 @@
                 (char) => Number(char.id) === targetId
             );
 
-            await this.waitForCharacterSettled(targetId);
+            await this.waitForCharacterSettled(targetId, 3000, settleMs);
 
             console.info("[SW Tool][ACCOUNT] Postać gotowa:", {
                 char_id: targetId
@@ -969,7 +969,6 @@
 
             const now = Math.floor(Date.now() / 1000);
             let attacked = 0, skipped = 0, failed = 0;
-            let sentAttacks = 0;
 
             for (let index = 0; index < players.length; index++) {
                 const raw = players[index];
@@ -1020,20 +1019,7 @@
                     );
                 }
 
-                sentAttacks++;
-
-                // Bezpośredni socket jest znacznie szybszy niż klikanie UI.
-                // Ograniczamy burst, żeby nie przeciążyć sesji/autoryzacji.
-                await this.sleep(350);
-
-                if (sentAttacks % 20 === 0) {
-                    console.info(
-                        "[SW Tool][ACCOUNT] Arena PvP — przerwa po " +
-                        sentAttacks +
-                        " atakach."
-                    );
-                    await this.sleep(1000);
-                }
+                await this.sleep(80);
             }
 
             return { attacked, skipped, failed };
@@ -1053,7 +1039,13 @@
                     console.info("[SW Tool][ACCOUNT] Arena PvP " + (i + 1) + "/" + characters.length + ": " + label);
 
                     try {
-                        await this.switchCharacterForAccountAction(Number(char.id));
+                        await this.sleep(150);
+                        await this.switchCharacterForAccountAction(
+                            Number(char.id),
+                            0
+                        );
+                        await this.sleep(150);
+
                         if (this.activeTimedActionsCount() > 0) {
                             skipped++;
                             timedSkipped++;
@@ -1073,8 +1065,6 @@
                         console.warn("[SW Tool][ACCOUNT] Arena PvP — " + label + ":", error);
                     }
 
-                    // Krótki odstęp między postaciami po całej serii walk.
-                    await this.sleep(750);
                 }
             } finally {
                 await this.restoreAccountCharacter(originalId);
