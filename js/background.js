@@ -53,6 +53,141 @@ async function getStoredAccounts() {
   return normalizeAccounts(stored.accounts);
 }
 
+async function authPost(payload) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const response = await fetch("https://shinobiworld.pl/main_page_ajax", {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+      headers: {
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      throw new Error("Żądanie autoryzacji HTTP " + response.status + ".");
+    }
+
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new Error("Serwer zwrócił nieprawidłową odpowiedź JSON.");
+    }
+
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new Error("Serwer zwrócił nieprawidłową odpowiedź autoryzacji.");
+    }
+
+    const errorCode = Number(data.e || 0);
+    if (Number.isFinite(errorCode) && errorCode > 0) {
+      throw new Error("Kod błędu serwera: " + errorCode + ".");
+    }
+
+    return data;
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw new Error("Przekroczono czas oczekiwania na serwer.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+function isTrustedAuthUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+
+    return (
+      url.protocol === "https:" &&
+      (
+        url.hostname === "shinobiworld.pl" ||
+        url.hostname.endsWith(".shinobiworld.pl")
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function switchAccountViaApi(account, tabId) {
+  console.info("[SW Tool][AUTH] Wylogowanie konta przez API.");
+
+  const logout = await authPost({ c: 5 });
+
+  if (!Object.prototype.hasOwnProperty.call(logout, "e")) {
+    throw new Error("Serwer nie potwierdził wylogowania.");
+  }
+
+  console.info("[SW Tool][AUTH] Logowanie wybranego profilu przez API.");
+
+  const login = await authPost({
+    c: 4,
+    f: {
+      login: account.login,
+      pass: account.password,
+      memory: false,
+      nick: account.login
+    }
+  });
+
+  if (login.n === true) {
+    throw new Error("Konto wymaga dodatkowego kroku aktywacji.");
+  }
+
+  const pid = Number(login.pid || 0);
+  if (!Number.isFinite(pid) || pid <= 0) {
+    throw new Error("Serwer nie zwrócił prawidłowego PID.");
+  }
+
+  console.info("[SW Tool][AUTH] Wybór serwera 1 przez API.");
+
+  const server = await authPost({
+    c: 8,
+    s: 1,
+    f: false
+  });
+
+  const confirmation = server.d;
+  if (
+    confirmation === null ||
+    confirmation === undefined ||
+    confirmation === false ||
+    confirmation === 0 ||
+    confirmation === ""
+  ) {
+    throw new Error("Serwer nie potwierdził wyboru serwera 1.");
+  }
+
+  const authUrl = String(server.url || "").trim();
+
+  if (!isTrustedAuthUrl(authUrl)) {
+    throw new Error("Serwer nie zwrócił poprawnego adresu wejścia.");
+  }
+
+  const parsed = new URL(authUrl);
+  if (parsed.hostname !== "s1.shinobiworld.pl") {
+    throw new Error("Serwer zwrócił adres inny niż S1.");
+  }
+
+  console.info("[SW Tool][AUTH] Przejście na S1. Oczekiwanie na listę postaci.");
+
+  await chrome.tabs.update(tabId, { url: authUrl });
+
+  return {
+    started: true,
+    server: 1,
+    pid
+  };
+}
+
 async function getActiveGameTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
@@ -76,18 +211,6 @@ async function sendToActiveGameTab(message, optional) {
   }
 }
 
-async function getPendingAccountSwitch() {
-  const stored = await chrome.storage.session.get("pendingAccountSwitch");
-  return stored.pendingAccountSwitch || null;
-}
-
-async function setPendingAccountSwitch(pending) {
-  await chrome.storage.session.set({ pendingAccountSwitch: pending });
-}
-
-async function clearPendingAccountSwitch() {
-  await chrome.storage.session.remove("pendingAccountSwitch");
-}
 
 async function handleMessage(msg, sender) {
   switch (msg.command) {
@@ -166,94 +289,15 @@ async function handleMessage(msg, sender) {
 
       const tab = await getActiveGameTab();
 
-      await setPendingAccountSwitch({
-        tabId: tab.id,
-        slot,
-        account: {
-          login: account.login,
-          password: account.password
-        },
-        phase: "logout",
-        startedAt: Date.now(),
-        updatedAt: Date.now()
-      });
+      const result = await switchAccountViaApi(account, tab.id);
 
-      const response = await chrome.tabs.sendMessage(tab.id, {
-        source: "background",
-        command: "auth.continue"
-      });
-
-      if (!response || response.ok !== true) {
-        throw new Error(
-          response?.error || "Nie udało się rozpocząć przełączania konta."
-        );
-      }
-
-      return { ok: true, data: { started: true, slot } };
-    }
-
-    case "account.pending.get": {
-      const pending = await getPendingAccountSwitch();
-      const tabId = sender.tab?.id;
-
-      if (!pending || !tabId || pending.tabId !== tabId) {
-        return { ok: true, data: { pending: null } };
-      }
-
-      return { ok: true, data: { pending } };
-    }
-
-    case "account.pending.patch": {
-      const pending = await getPendingAccountSwitch();
-      const tabId = sender.tab?.id;
-
-      if (!pending || !tabId || pending.tabId !== tabId) {
-        return { ok: true, data: { pending: null } };
-      }
-
-      const patch = msg.patch && typeof msg.patch === "object"
-        ? msg.patch
-        : {};
-
-      const allowedPhases = new Set([
-        "logout",
-        "waitLogin",
-        "waitServer",
-        "waitCharacterList"
-      ]);
-
-      const next = {
-        ...pending,
-        phase: allowedPhases.has(patch.phase)
-          ? patch.phase
-          : pending.phase,
-        updatedAt: Date.now()
+      return {
+        ok: true,
+        data: {
+          ...result,
+          slot
+        }
       };
-
-      await setPendingAccountSwitch(next);
-      return { ok: true, data: { pending: next } };
-    }
-
-    case "account.switch.complete": {
-      const pending = await getPendingAccountSwitch();
-      const tabId = sender.tab?.id;
-
-      if (pending && tabId && pending.tabId === tabId) {
-        await clearPendingAccountSwitch();
-      }
-
-      return { ok: true, data: { completed: true } };
-    }
-
-    case "account.switch.cancel": {
-      const pending = await getPendingAccountSwitch();
-      const tabId = sender.tab?.id;
-
-      if (pending && tabId && pending.tabId === tabId) {
-        await clearPendingAccountSwitch();
-      }
-
-      return { ok: true, data: { cancelled: true } };
     }
 
     default:
