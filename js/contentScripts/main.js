@@ -429,6 +429,14 @@
             );
         }
 
+        sleep(ms) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
+        }
+
+        isFatalAccountError(error) {
+            return Boolean(error?.swToolFatalAuth);
+        }
+
         routeResponseWaiter(response) {
             const waiter = this.responseWaiter;
             if (!waiter) return;
@@ -449,6 +457,17 @@
                 type: response.type,
                 e: response.e
             });
+
+            if (initError) {
+                const error = new Error(
+                    "Serwer zgłosił błąd autoryzacji sesji (a=999, e=" +
+                    this._int(response.e) +
+                    ")."
+                );
+                error.swToolFatalAuth = true;
+                waiter.reject(error);
+                return;
+            }
 
             waiter.resolve(response);
         }
@@ -472,6 +491,7 @@
                     actions,
                     predicate,
                     resolve,
+                    reject,
                     timeoutId: null
                 };
 
@@ -949,6 +969,7 @@
 
             const now = Math.floor(Date.now() / 1000);
             let attacked = 0, skipped = 0, failed = 0;
+            let sentAttacks = 0;
 
             for (let index = 0; index < players.length; index++) {
                 const raw = players[index];
@@ -987,8 +1008,31 @@
                     if (this._int(attack.e) === 0) attacked++;
                     else failed++;
                 } catch (error) {
+                    if (this.isFatalAccountError(error)) {
+                        throw error;
+                    }
+
                     failed++;
-                    console.warn("[SW Tool][ACCOUNT] Arena PvP — atak " + index + ":", error);
+                    console.warn(
+                        "[SW Tool][ACCOUNT] Arena PvP — atak " +
+                        index + ":",
+                        error
+                    );
+                }
+
+                sentAttacks++;
+
+                // Bezpośredni socket jest znacznie szybszy niż klikanie UI.
+                // Ograniczamy burst, żeby nie przeciążyć sesji/autoryzacji.
+                await this.sleep(350);
+
+                if (sentAttacks % 20 === 0) {
+                    console.info(
+                        "[SW Tool][ACCOUNT] Arena PvP — przerwa po " +
+                        sentAttacks +
+                        " atakach."
+                    );
+                    await this.sleep(1000);
                 }
             }
 
@@ -1021,9 +1065,16 @@
                         skipped += result.skipped;
                         failed += result.failed;
                     } catch (error) {
+                        if (this.isFatalAccountError(error)) {
+                            throw error;
+                        }
+
                         failed++;
                         console.warn("[SW Tool][ACCOUNT] Arena PvP — " + label + ":", error);
                     }
+
+                    // Krótki odstęp między postaciami po całej serii walk.
+                    await this.sleep(750);
                 }
             } finally {
                 await this.restoreAccountCharacter(originalId);
