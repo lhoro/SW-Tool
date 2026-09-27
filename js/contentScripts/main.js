@@ -78,6 +78,9 @@
             this.responseWaiter = null;
             this.accountOperationRunning = false;
             this.trainingCaptchaWaiter = null;
+            this.dailyRewardClaimStage = 0;
+            this.dailyRewardClaimCharacterId = 0;
+            this.dailyRewardClaimTimeout = null;
             this.config = { ...DEFAULT_CONFIG };
         }
 
@@ -281,6 +284,30 @@
                 }
             }
 
+            if (
+                action === 607 &&
+                response.quick_opts &&
+                typeof response.quick_opts === "object"
+            ) {
+                const dailyAvailable = this._enabled(
+                    response.quick_opts.online_reward
+                );
+
+                if (this.dailyRewardClaimStage === 2 && !dailyAvailable) {
+                    this.finishDailyRewardClaim("quick_opts");
+                } else if (
+                    dailyAvailable &&
+                    this.dailyRewardClaimStage === 0 &&
+                    !this.accountOperationRunning
+                ) {
+                    this.collectDailyReward();
+                }
+            }
+
+            if (action === 26) {
+                this.handleDailyRewardResponse(response);
+            }
+
             this.routeResponseWaiter(response);
 
             const pending = this.characterSwitch;
@@ -349,6 +376,15 @@
                     charIndex: this.currentCharacterIndex
                 });
 
+                if (
+                    this.dailyRewardClaimStage !== 0 &&
+                    Number(this.dailyRewardClaimCharacterId) !== gameCharacterId
+                ) {
+                    this.resetDailyRewardClaim(
+                        "zmiana postaci podczas odbioru nagrody"
+                    );
+                }
+
                 if (!this.accountOperationRunning) {
                     this.collectDailyReward();
                 }
@@ -360,28 +396,182 @@
         }
 
         collectDailyReward() {
-            if (!this.config.dailyReward) return;
+            if (
+                !this.config.dailyReward ||
+                this.accountOperationRunning ||
+                Number(GAME.char_id || 0) <= 0 ||
+                !this._enabled(GAME.quick_opts?.online_reward) ||
+                this.dailyRewardClaimStage !== 0
+            ) {
+                return;
+            }
 
-            if (GAME.char_id != 0 && GAME.quick_opts?.online_reward) {
-                setTimeout(() => {
+            const characterId = Number(GAME.char_id);
+            this.dailyRewardClaimCharacterId = characterId;
+            this.dailyRewardClaimStage = 1;
+
+            setTimeout(() => {
+                if (
+                    this.dailyRewardClaimStage !== 1 ||
+                    Number(GAME.char_id || 0) !== characterId
+                ) {
+                    if (this.dailyRewardClaimStage !== 0) {
+                        this.resetDailyRewardClaim(
+                            "postać zmieniła się przed pobraniem danych nagrody"
+                        );
+                    }
+                    return;
+                }
+
+                try {
+                    if (!GAME.socket?.connected) {
+                        throw new Error("Socket.IO nie jest połączone.");
+                    }
+
                     console.info("[SW Tool][PAGE] Daily reward TX:", {
                         a: 26,
-                        type: 1
+                        type: 0,
+                        charId: characterId
+                    });
+
+                    GAME.socket.emit("ga", {
+                        a: 26,
+                        type: 0
+                    });
+                    this.armDailyRewardTimeout();
+                } catch (error) {
+                    console.error(
+                        "[SW Tool][PAGE] Nie udało się pobrać danych nagrody dziennej:",
+                        error
+                    );
+                    this.resetDailyRewardClaim("błąd wysyłki type=0");
+                }
+            }, 50);
+        }
+
+        handleDailyRewardResponse(response) {
+            if (
+                !response ||
+                Number(response.a) !== 26 ||
+                this.dailyRewardClaimStage === 0
+            ) {
+                return;
+            }
+
+            const characterId = Number(GAME.char_id || 0);
+            if (
+                characterId <= 0 ||
+                characterId !== Number(this.dailyRewardClaimCharacterId)
+            ) {
+                this.resetDailyRewardClaim(
+                    "odpowiedź nagrody dotyczy już innej postaci"
+                );
+                return;
+            }
+
+            const error = this._int(response.e);
+            if (error !== 0) {
+                console.error(
+                    "[SW Tool][PAGE] Serwer odrzucił operację nagrody dziennej:",
+                    { e: error, stage: this.dailyRewardClaimStage }
+                );
+                this.resetDailyRewardClaim("błąd serwera e=" + error);
+                return;
+            }
+
+            if (this.dailyRewardClaimStage === 1) {
+                if (!Array.isArray(response.daily_data)) {
+                    console.error(
+                        "[SW Tool][PAGE] Serwer nie zwrócił daily_data dla nagrody dziennej."
+                    );
+                    this.resetDailyRewardClaim("brak daily_data");
+                    return;
+                }
+
+                this.dailyRewardClaimStage = 2;
+
+                try {
+                    if (!GAME.socket?.connected) {
+                        throw new Error("Socket.IO nie jest połączone.");
+                    }
+
+                    console.info("[SW Tool][PAGE] Daily reward TX:", {
+                        a: 26,
+                        type: 1,
+                        charId: characterId
                     });
 
                     GAME.socket.emit("ga", {
                         a: 26,
                         type: 1
                     });
+                    this.armDailyRewardTimeout();
+                } catch (error) {
+                    console.error(
+                        "[SW Tool][PAGE] Nie udało się odebrać nagrody dziennej:",
+                        error
+                    );
+                    this.resetDailyRewardClaim("błąd wysyłki type=1");
+                }
+                return;
+            }
 
-                    setTimeout(() => {
-                        $("#daily_reward").fadeOut();
+            if (this.dailyRewardClaimStage === 2) {
+                this.finishDailyRewardClaim("a=26");
+            }
+        }
 
-                        if (typeof kom_clear === "function") {
-                            kom_clear();
-                        }
-                    }, 400);
-                }, 50);
+        armDailyRewardTimeout() {
+            clearTimeout(this.dailyRewardClaimTimeout);
+
+            this.dailyRewardClaimTimeout = setTimeout(() => {
+                if (this.dailyRewardClaimStage === 0) return;
+
+                console.warn(
+                    "[SW Tool][PAGE] Timeout operacji nagrody dziennej:",
+                    {
+                        stage: this.dailyRewardClaimStage,
+                        charId: this.dailyRewardClaimCharacterId
+                    }
+                );
+
+                this.resetDailyRewardClaim("timeout");
+            }, 15000);
+        }
+
+        finishDailyRewardClaim(source = "response") {
+            const characterId = this.dailyRewardClaimCharacterId;
+            this.resetDailyRewardClaim();
+
+            if (GAME.quick_opts && typeof GAME.quick_opts === "object") {
+                GAME.quick_opts.online_reward = 0;
+            }
+
+            console.info("[SW Tool][PAGE] Nagroda dzienna odebrana:", {
+                charId: characterId,
+                source
+            });
+
+            setTimeout(() => {
+                $("#daily_reward").fadeOut();
+
+                if (typeof kom_clear === "function") {
+                    kom_clear();
+                }
+            }, 400);
+        }
+
+        resetDailyRewardClaim(reason = "") {
+            clearTimeout(this.dailyRewardClaimTimeout);
+            this.dailyRewardClaimTimeout = null;
+            this.dailyRewardClaimStage = 0;
+            this.dailyRewardClaimCharacterId = 0;
+
+            if (reason) {
+                console.info(
+                    "[SW Tool][PAGE] Reset odbioru nagrody dziennej:",
+                    reason
+                );
             }
         }
 
