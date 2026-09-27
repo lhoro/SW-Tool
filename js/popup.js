@@ -18,6 +18,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const hideReports = document.getElementById("hideReports");
   const resetBtn = document.getElementById("resetBtn");
   const accTutsBtn = document.getElementById("accTutsBtn");
+  const accAbyssBtn = document.getElementById("accAbyssBtn");
+  const accArenaBtn = document.getElementById("accArenaBtn");
+  const accTrainingsBtn = document.getElementById("accTrainingsBtn");
 
   const accountQuickSwitch = document.getElementById("accountQuickSwitch");
   const accountsList = document.getElementById("accountsList");
@@ -248,17 +251,61 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  accTutsBtn.addEventListener("click", async () => {
-    try {
-      setStatus(mainStatus, "Uruchamiam zapis na turnieje...");
-      await sendCommand("action.run", {
-        action: "accountTournaments"
-      });
-      setStatus(mainStatus, "Akcja uruchomiona.", "success");
-    } catch (error) {
-      console.error("[SW Tool][POPUP] Akcja zapisu na turnieje nie powiodła się.", error);
-      setStatus(mainStatus, error.message, "error");
+  const accountActions = [
+    {
+      button: accTutsBtn,
+      action: "accountTournaments",
+      start: "Uruchamiam zapisy na turnieje...",
+      success: "Turnieje uruchomione."
+    },
+    {
+      button: accAbyssBtn,
+      action: "accountSoulAbyss",
+      start: "Uruchamiam Otchłań na koncie...",
+      success: "Otchłań uruchomiona."
+    },
+    {
+      button: accArenaBtn,
+      action: "accountArenaPvp",
+      start: "Uruchamiam Arenę PvP na koncie...",
+      success: "Arena PvP uruchomiona."
+    },
+    {
+      button: accTrainingsBtn,
+      action: "accountTrainings",
+      start: "Uruchamiam treningi na koncie...",
+      success: "Treningi uruchomione."
     }
+  ];
+
+  accountActions.forEach(({ button, action, start, success }) => {
+    button.addEventListener("click", async () => {
+      try {
+        setStatus(mainStatus, start);
+        accountActions.forEach((item) => {
+          item.button.disabled = true;
+        });
+
+        const data = await sendCommand("action.run", { action });
+
+        setStatus(
+          mainStatus,
+          success + " Postaci: " + (data.characters ?? "?"),
+          "success"
+        );
+      } catch (error) {
+        console.error(
+          "[SW Tool][POPUP] Operacja konta nie powiodła się:",
+          action,
+          error
+        );
+        setStatus(mainStatus, error.message, "error");
+      } finally {
+        accountActions.forEach((item) => {
+          item.button.disabled = false;
+        });
+      }
+    });
   });
 
   saveAccountsBtn.addEventListener("click", async () => {

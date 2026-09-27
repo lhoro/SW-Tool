@@ -79,6 +79,17 @@ body.booting .popup {
   padding-bottom: 36px;
 }
 
+.account-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.account-actions-grid .btn {
+  width: 100%;
+  min-height: 34px;
+}
+
 .settings-btn {
   position: absolute;
   right: 0;
