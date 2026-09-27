@@ -173,10 +173,9 @@ async function handleMessage(msg, sender) {
           login: account.login,
           password: account.password
         },
-        hasLoggedOut: false,
-        loginAttempts: 0,
-        serverSelected: false,
-        startedAt: Date.now()
+        phase: "logout",
+        startedAt: Date.now(),
+        updatedAt: Date.now()
       });
 
       const response = await chrome.tabs.sendMessage(tab.id, {
@@ -216,17 +215,19 @@ async function handleMessage(msg, sender) {
         ? msg.patch
         : {};
 
+      const allowedPhases = new Set([
+        "logout",
+        "waitLogin",
+        "waitServer",
+        "waitCharacterList"
+      ]);
+
       const next = {
         ...pending,
-        hasLoggedOut: typeof patch.hasLoggedOut === "boolean"
-          ? patch.hasLoggedOut
-          : pending.hasLoggedOut,
-        loginAttempts: Number.isInteger(patch.loginAttempts)
-          ? patch.loginAttempts
-          : pending.loginAttempts,
-        serverSelected: typeof patch.serverSelected === "boolean"
-          ? patch.serverSelected
-          : pending.serverSelected
+        phase: allowedPhases.has(patch.phase)
+          ? patch.phase
+          : pending.phase,
+        updatedAt: Date.now()
       };
 
       await setPendingAccountSwitch(next);

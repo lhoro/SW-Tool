@@ -338,34 +338,43 @@ async function continueAccountSwitch() {
   });
 
   let pending = data.pending;
-  if (!pending) return { active: false };
-
-  // 1. Najpierw wyloguj bieżące konto, ale tylko raz.
-  if (!pending.hasLoggedOut) {
-    const logout = findInteractiveByText(/\bwyloguj\b|\blog\s*out\b|\blogout\b/i);
-
-    pending = await patchPendingAccountSwitch({
-      hasLoggedOut: true
-    });
-
-    if (logout) {
-      console.info("[SW Tool][AUTH] Wylogowanie bieżącego konta.");
-      logout.click();
-      return { active: true, step: "logout" };
-    }
+  if (!pending) {
+    return { active: false, step: "idle" };
   }
 
-  // 2. Jeśli widzimy formularz logowania, zaloguj profil.
-  const loginForm = findLoginForm();
+  const phase = pending.phase || "logout";
 
-  if (loginForm) {
-    if ((pending.loginAttempts || 0) >= 2) {
-      await runtimeRequest({
-        source: "contentScript",
-        command: "account.switch.cancel"
-      });
+  if (phase === "logout") {
+    const loginForm = findLoginForm();
 
-      throw new Error("Logowanie nie powiodło się po dwóch próbach.");
+    if (loginForm) {
+      await patchPendingAccountSwitch({ phase: "waitLogin" });
+      return { active: true, step: "waitLogin" };
+    }
+
+    const logout = findInteractiveByText(
+      /\bwyloguj\b|\blog\s*out\b|\blogout\b/i
+    );
+
+    if (!logout) {
+      console.info("[SW Tool][AUTH] Czekam na kontrolkę wylogowania.");
+      return { active: true, step: "waiting" };
+    }
+
+    await patchPendingAccountSwitch({ phase: "waitLogin" });
+
+    console.info("[SW Tool][AUTH] Wylogowanie bieżącego konta.");
+    logout.click();
+
+    return { active: true, step: "waitLogin" };
+  }
+
+  if (phase === "waitLogin") {
+    const loginForm = findLoginForm();
+
+    if (!loginForm) {
+      console.info("[SW Tool][AUTH] Czekam na formularz logowania.");
+      return { active: true, step: "waiting" };
     }
 
     setInputValue(loginForm.login, pending.account.login);
@@ -376,74 +385,108 @@ async function continueAccountSwitch() {
         /\bzaloguj\b|\blog\s*in\b|\blogin\b|\bsign\s*in\b/i,
         loginForm.form
       ) ||
-      loginForm.form.querySelector("button[type='submit'], input[type='submit']");
+      loginForm.form.querySelector(
+        "button[type='submit'], input[type='submit'], input[type='image']"
+      );
 
-    if (!submit && loginForm.form instanceof HTMLFormElement) {
-      await patchPendingAccountSwitch({
-        loginAttempts: (pending.loginAttempts || 0) + 1
-      });
+    await patchPendingAccountSwitch({ phase: "waitServer" });
 
+    if (submit) {
+      console.info("[SW Tool][AUTH] Logowanie wybranego profilu.");
+      submit.click();
+      return { active: true, step: "waitServer" };
+    }
+
+    if (loginForm.form instanceof HTMLFormElement) {
       console.info("[SW Tool][AUTH] Wysłanie formularza logowania.");
       loginForm.form.requestSubmit();
-      return { active: true, step: "login" };
+      return { active: true, step: "waitServer" };
     }
 
-    if (!submit) {
-      throw new Error("Nie znaleziono przycisku logowania.");
-    }
-
-    await patchPendingAccountSwitch({
-      loginAttempts: (pending.loginAttempts || 0) + 1
-    });
-
-    console.info("[SW Tool][AUTH] Logowanie wybranego profilu.");
-    submit.click();
-    return { active: true, step: "login" };
+    throw new Error("Nie znaleziono sposobu wysłania formularza logowania.");
   }
 
-  // 3. Po zalogowaniu wybierz serwer 1 i wyślij formularz wyboru serwera.
-  if (!pending.serverSelected) {
+  if (phase === "waitServer") {
     const serverSelect = findServerSelect();
 
-    if (serverSelect) {
-      selectServerOne(serverSelect);
-
-      const submitted = submitServerSelection(serverSelect);
-
-      if (!submitted) {
-        throw new Error("Znaleziono wybór serwera, ale nie udało się wysłać formularza.");
-      }
-
-      await patchPendingAccountSwitch({
-        serverSelected: true
-      });
-
-      console.info("[SW Tool][AUTH] Wejście na serwer 1.");
-      return { active: true, step: "server" };
+    if (!serverSelect) {
+      console.info("[SW Tool][AUTH] Czekam na wybór serwera.");
+      return { active: true, step: "waiting" };
     }
+
+    selectServerOne(serverSelect);
+
+    await patchPendingAccountSwitch({ phase: "waitCharacterList" });
+
+    const submitted = submitServerSelection(serverSelect);
+
+    if (!submitted) {
+      throw new Error(
+        "Znaleziono wybór serwera, ale nie udało się wysłać formularza."
+      );
+    }
+
+    console.info("[SW Tool][AUTH] Wejście na serwer 1.");
+    return { active: true, step: "waitCharacterList" };
   }
 
-  // 4. Po wejściu na serwer uznaj przełączenie za zakończone.
-  const gameLoaded =
-    /^s1\./i.test(hostname) &&
-    Boolean(
-      document.getElementById("game_win") ||
-      document.getElementById("page_game_map") ||
-      document.getElementById("char_list_con")
+  if (phase === "waitCharacterList") {
+    const characterRows = document.querySelectorAll(
+      "li[data-option='select_char'], [data-option='select_char']"
     );
 
-  if (gameLoaded) {
-    await runtimeRequest({
-      source: "contentScript",
-      command: "account.switch.complete"
-    });
+    if (characterRows.length > 0) {
+      await runtimeRequest({
+        source: "contentScript",
+        command: "account.switch.complete"
+      });
 
-    console.info("[SW Tool][AUTH] Przełączanie konta zakończone.");
-    return { active: false, step: "complete" };
+      console.info(
+        "[SW Tool][AUTH] Przełączanie zakończone. Lista postaci gotowa:",
+        characterRows.length
+      );
+
+      return {
+        active: false,
+        step: "complete",
+        characters: characterRows.length
+      };
+    }
+
+    console.info("[SW Tool][AUTH] Czekam na listę postaci na S1.");
+    return { active: true, step: "waiting" };
   }
 
-  console.info("[SW Tool][AUTH] Oczekiwanie na kolejny etap przełączania.");
-  return { active: true, step: "waiting" };
+  throw new Error("Nieznany etap przełączania konta: " + String(phase));
+}
+
+let authLoopRunning = false;
+
+async function runAccountSwitchLoop() {
+  if (authLoopRunning) return;
+  authLoopRunning = true;
+
+  const startedAt = Date.now();
+  const timeoutMs = 45000;
+
+  try {
+    while (Date.now() - startedAt < timeoutMs) {
+      const state = await continueAccountSwitch();
+
+      if (!state?.active) {
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+
+    console.warn(
+      "[SW Tool][AUTH] Proces nadal oczekuje po 45 s. " +
+      "Stan zostaje zapisany i będzie wznowiony po kolejnej nawigacji."
+    );
+  } finally {
+    authLoopRunning = false;
+  }
 }
 
 const pageReady = injectPageScripts();
@@ -455,8 +498,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   (async () => {
     if (msg.command === "auth.continue") {
-      const data = await continueAccountSwitch();
-      return { ok: true, data };
+      runAccountSwitchLoop().catch((error) => {
+        console.error("[SW Tool][AUTH] Proces przełączania nie powiódł się.", error);
+      });
+
+      return {
+        ok: true,
+        data: { started: true }
+      };
     }
 
     await pageReady;
@@ -533,26 +582,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       console.info("[SW Tool] Bridge gotowy.");
     }
 
-    const authState = await continueAccountSwitch();
-
-    if (authState?.active && authState.step === "waiting") {
-      let retries = 0;
-
-      const retryAuth = setInterval(async () => {
-        retries += 1;
-
-        try {
-          const state = await continueAccountSwitch();
-
-          if (!state?.active || state.step !== "waiting" || retries >= 20) {
-            clearInterval(retryAuth);
-          }
-        } catch (error) {
-          clearInterval(retryAuth);
-          console.error("[SW Tool][AUTH] Ponowienie nie powiodło się.", error);
-        }
-      }, 500);
-    }
+    await runAccountSwitchLoop();
   } catch (error) {
     console.error("[SW Tool][CONTENT] Inicjalizacja nie powiodła się.", error);
   }
