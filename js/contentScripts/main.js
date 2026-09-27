@@ -443,6 +443,13 @@
 
             this.responseWaiter = null;
             clearTimeout(waiter.timeoutId);
+
+            console.info("[SW Tool][ACCOUNT] RX GR:", {
+                a: this._int(response.a),
+                type: response.type,
+                e: response.e
+            });
+
             waiter.resolve(response);
         }
 
@@ -478,8 +485,15 @@
                 this.responseWaiter = waiter;
 
                 try {
-                    console.info("[SW Tool][ACCOUNT] TX:", order);
-                    GAME.emitOrder(order);
+                    console.info("[SW Tool][ACCOUNT] TX GA:", order);
+
+                    if (!GAME.socket?.connected) {
+                        throw new Error("Socket.IO nie jest połączone.");
+                    }
+
+                    // APP wysyła operacje bezpośrednio jako socket.emit("ga", data).
+                    // Dla workflow całego konta robimy dokładnie to samo.
+                    GAME.socket.emit("ga", order);
                 } catch (error) {
                     clearTimeout(waiter.timeoutId);
                     if (this.responseWaiter === waiter) {
@@ -487,6 +501,37 @@
                     }
                     reject(error);
                 }
+            });
+        }
+
+        waitForCharacterSettled(targetId, timeoutMs = 3000) {
+            const startedAt = Date.now();
+
+            return new Promise((resolve, reject) => {
+                const check = () => {
+                    if (Number(GAME.char_id || 0) === Number(targetId)) {
+                        // Oficjalny klient potrafi jeszcze dokończyć aktualizację
+                        // własnego stanu po RX a:2. Jedna krótka tura zapobiega
+                        // wysłaniu kolejnej akcji zbyt wcześnie.
+                        setTimeout(resolve, 150);
+                        return;
+                    }
+
+                    if (Date.now() - startedAt >= timeoutMs) {
+                        reject(
+                            new Error(
+                                "Klient WWW nie ustawił aktywnej postaci " +
+                                targetId +
+                                " po odpowiedzi a:2."
+                            )
+                        );
+                        return;
+                    }
+
+                    setTimeout(check, 25);
+                };
+
+                check();
             });
         }
 
@@ -568,6 +613,12 @@
             this.currentCharacterIndex = this.chars.findIndex(
                 (char) => Number(char.id) === targetId
             );
+
+            await this.waitForCharacterSettled(targetId);
+
+            console.info("[SW Tool][ACCOUNT] Postać gotowa:", {
+                char_id: targetId
+            });
 
             return response;
         }
