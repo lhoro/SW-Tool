@@ -74,6 +74,9 @@
             this.lastCharacterId = 0;
             this.characterSwitch = null;
             this.characterSwitchTimeout = null;
+            this.currentCharacterSnapshot = null;
+            this.responseWaiter = null;
+            this.accountOperationRunning = false;
             this.config = { ...DEFAULT_CONFIG };
         }
 
@@ -123,7 +126,8 @@
                         surname: String(char?.surname || ""),
                         level: Number(char?.level || 0),
                         data: {
-                            tutSave: Number(cached?.data?.tutSave || 0)
+                            tutSave: Number(cached?.data?.tutSave || 0),
+                            tutSaveUntil: Number(cached?.data?.tutSaveUntil || 0)
                         }
                     };
                 })
@@ -158,6 +162,11 @@
         }
 
         switchRelative(delta) {
+            if (this.accountOperationRunning) {
+                console.info("[SW Tool][PAGE] Trwa operacja całego konta.");
+                return;
+            }
+
             if (this.characterSwitch) {
                 console.info("[SW Tool][PAGE] Zmiana postaci już trwa.");
                 return;
@@ -245,8 +254,33 @@
 
             if (action === 1 && error === 0 && Array.isArray(response.chars)) {
                 this.syncCharactersFromResponse(response);
-                return;
             }
+
+            if (
+                action === 2 &&
+                error === 0 &&
+                response.char_data &&
+                typeof response.char_data === "object"
+            ) {
+                const responseCharId = Number(
+                    response.char_id ||
+                    GAME.char_id ||
+                    this.currentCharacterId ||
+                    0
+                );
+
+                this.currentCharacterSnapshot = response;
+
+                if (responseCharId > 0) {
+                    this.lastCharacterId = responseCharId;
+                    this.currentCharacterId = responseCharId;
+                    this.currentCharacterIndex = this.chars.findIndex(
+                        (char) => Number(char.id) === responseCharId
+                    );
+                }
+            }
+
+            this.routeResponseWaiter(response);
 
             const pending = this.characterSwitch;
             if (!pending) return;
@@ -314,7 +348,9 @@
                     charIndex: this.currentCharacterIndex
                 });
 
-                this.collectDailyReward();
+                if (!this.accountOperationRunning) {
+                    this.collectDailyReward();
+                }
 
                 // Tymczasowo wyłączone na dev.
                 // Stara wersja jest oparta o kliknięcia DOM.
@@ -377,25 +413,623 @@
             }, 200);
         }
 
-        accountTutsRegister(index = 0) {
-            if (this.chars.length === 0) return;
+        _int(value) {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
+        }
 
-            if (index === 0) {
-                setTimeout(() => {
-                    GAME.emitOrder({
-                        a: 2,
-                        char_id: this.chars[index].id
-                    });
-                }, 200);
+        _enabled(value) {
+            return !(
+                value === null ||
+                value === undefined ||
+                value === false ||
+                value === 0 ||
+                value === "0" ||
+                value === ""
+            );
+        }
+
+        routeResponseWaiter(response) {
+            const waiter = this.responseWaiter;
+            if (!waiter) return;
+
+            const action = this._int(response.a);
+            const initError = action === 999 && this._int(response.e) !== 0;
+
+            if (!waiter.actions.has(action) && !initError) return;
+            if (!initError && waiter.predicate && !waiter.predicate(response)) {
+                return;
             }
 
-            console.log("[SW Tool][PAGE] Turnieje, index:", index);
+            this.responseWaiter = null;
+            clearTimeout(waiter.timeoutId);
+            waiter.resolve(response);
+        }
 
-            if (index < this.chars.length - 1) {
-                setTimeout(() => this.registerTut(), 1000);
-                setTimeout(() => this.nextChar(), 2000);
-                setTimeout(() => this.accountTutsRegister(index + 1), 3000);
+        sendAndWait(order, expectedActions, predicate = null, timeoutMs = 15000) {
+            if (this.responseWaiter) {
+                return Promise.reject(
+                    new Error("Trwa już oczekiwanie na odpowiedź serwera.")
+                );
             }
+
+            const actions = new Set(
+                (Array.isArray(expectedActions)
+                    ? expectedActions
+                    : [expectedActions]
+                ).map(Number)
+            );
+
+            return new Promise((resolve, reject) => {
+                const waiter = {
+                    actions,
+                    predicate,
+                    resolve,
+                    timeoutId: null
+                };
+
+                waiter.timeoutId = setTimeout(() => {
+                    if (this.responseWaiter === waiter) {
+                        this.responseWaiter = null;
+                    }
+                    reject(new Error("Timeout odpowiedzi serwera."));
+                }, timeoutMs);
+
+                this.responseWaiter = waiter;
+
+                try {
+                    console.info("[SW Tool][ACCOUNT] TX:", order);
+                    GAME.emitOrder(order);
+                } catch (error) {
+                    clearTimeout(waiter.timeoutId);
+                    if (this.responseWaiter === waiter) {
+                        this.responseWaiter = null;
+                    }
+                    reject(error);
+                }
+            });
+        }
+
+        async switchCharacterForAccountAction(charId) {
+            const targetId = Number(charId);
+            if (targetId <= 0) throw new Error("Nieprawidłowe ID postaci.");
+
+            if (
+                Number(GAME.char_id || this.currentCharacterId || 0) === targetId &&
+                this.currentCharacterSnapshot?.char_data
+            ) {
+                return this.currentCharacterSnapshot;
+            }
+
+            const response = await this.sendAndWait(
+                { a: 2, char_id: targetId },
+                2,
+                (event) =>
+                    this._int(event.e) !== 0 ||
+                    (
+                        this._int(event.char_id || targetId) === targetId &&
+                        event.char_data &&
+                        typeof event.char_data === "object"
+                    ),
+                20000
+            );
+
+            if (this._int(response.e) !== 0) {
+                throw new Error("Serwer odrzucił zmianę postaci.");
+            }
+
+            this.currentCharacterSnapshot = response;
+            this.lastCharacterId = targetId;
+            this.currentCharacterId = targetId;
+            this.currentCharacterIndex = this.chars.findIndex(
+                (char) => Number(char.id) === targetId
+            );
+            return response;
+        }
+
+        characterData() {
+            const data = this.currentCharacterSnapshot?.char_data;
+            return data && typeof data === "object" ? data : null;
+        }
+
+        snapshotBonusActive(bonusId) {
+            const bonuses = this.currentCharacterSnapshot?.char_tables?.bonusy;
+            if (!Array.isArray(bonuses)) return false;
+            const now = Math.floor(Date.now() / 1000);
+
+            return bonuses.some((bonus) =>
+                bonus &&
+                typeof bonus === "object" &&
+                this._int(bonus.bonus_id) === bonusId &&
+                this._int(bonus.expires) > now
+            );
+        }
+
+        activeTimedActionsCount() {
+            const timed = this.currentCharacterSnapshot?.char_tables?.timed_actions;
+            if (!Array.isArray(timed)) return 0;
+            const now = Math.floor(Date.now() / 1000);
+
+            return timed.filter((item) =>
+                item &&
+                typeof item === "object" &&
+                this._int(item.end) > now
+            ).length;
+        }
+
+        defaultTrainingSkill() {
+            const character = this.characterData();
+            if (!character) return null;
+
+            const skills = [
+                [8, "tai"], [9, "ken"], [10, "shuriken"], [11, "nin"],
+                [1, "nin_fire"], [2, "nin_water"], [3, "nin_earth"],
+                [4, "nin_wind"], [5, "nin_thunder"], [6, "gen"],
+                [7, "kin"], [13, "sen"], [12, "fuin"]
+            ];
+
+            let bestId = null;
+            let bestValue = -1;
+
+            for (const [id, field] of skills) {
+                const value = this._int(character[field]);
+                if (value <= 0) continue;
+                if (bestId === null || value > bestValue) {
+                    bestId = id;
+                    bestValue = value;
+                }
+            }
+
+            return bestId;
+        }
+
+        isTournamentCategoryForCharacter(cat, reborn, level) {
+            if (reborn !== 0 || cat < 1 || cat > 16) return false;
+            const minLevel = 15 + ((cat - 1) * 15);
+            return cat === 16
+                ? level >= minLevel
+                : level >= minLevel && level <= minLevel + 14;
+        }
+
+        tourServerSaysJoined(tour, characterId) {
+            const directKeys = [
+                "signed", "joined", "registered", "is_signed",
+                "is_member", "in_tour", "my", "mine"
+            ];
+
+            if (directKeys.some((key) => this._enabled(tour?.[key]))) {
+                return true;
+            }
+
+            for (const key of ["members", "member_ids", "players", "participants"]) {
+                const members = tour?.[key];
+                if (!Array.isArray(members)) continue;
+
+                for (const member of members) {
+                    if (this._int(member) === characterId) return true;
+                    if (
+                        member &&
+                        typeof member === "object" &&
+                        (
+                            this._int(member.id) === characterId ||
+                            this._int(member.char_id) === characterId
+                        )
+                    ) {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        findJoinableTournament(tours, characterId) {
+            const character = this.characterData();
+            if (!character || !Array.isArray(tours)) return null;
+
+            const now = Math.floor(Date.now() / 1000);
+            const level = this._int(character.level);
+            const reborn = this._int(character.reborn);
+
+            const candidates = tours.filter((tour) => {
+                if (!tour || typeof tour !== "object") return false;
+                if (this._int(tour.type) !== 0 || this._int(tour.status) !== 0) {
+                    return false;
+                }
+                if (this._int(tour.end_time) <= now) return false;
+
+                const maxMembers = this._int(tour.max_members);
+                if (
+                    maxMembers > 0 &&
+                    this._int(tour.members_in) >= maxMembers
+                ) {
+                    return false;
+                }
+
+                return this.isTournamentCategoryForCharacter(
+                    this._int(tour.cat),
+                    reborn,
+                    level
+                );
+            });
+
+            candidates.sort(
+                (a, b) => this._int(a.end_time) - this._int(b.end_time)
+            );
+
+            for (const tour of candidates) {
+                if (this._int(tour.id) <= 0) continue;
+                if (this.tourServerSaysJoined(tour, characterId)) return null;
+                return tour;
+            }
+
+            return null;
+        }
+
+        async restoreAccountCharacter(originalCharacterId) {
+            const originalId = Number(originalCharacterId || 0);
+            if (
+                originalId <= 0 ||
+                Number(GAME.char_id || this.currentCharacterId || 0) === originalId
+            ) {
+                return;
+            }
+
+            try {
+                await this.switchCharacterForAccountAction(originalId);
+            } catch (error) {
+                console.warn("[SW Tool][ACCOUNT] Przywrócenie postaci:", error);
+            }
+        }
+
+        async runAccountTournaments() {
+            const characters = [...this.chars];
+            const originalId = Number(
+                GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
+            );
+            let joined = 0, skipped = 0, failed = 0;
+
+            try {
+                for (let i = 0; i < characters.length; i++) {
+                    const char = characters[i];
+                    const id = Number(char.id);
+                    const label = char.name || ("#" + id);
+                    const now = Math.floor(Date.now() / 1000);
+
+                    console.info("[SW Tool][ACCOUNT] Turnieje " + (i + 1) + "/" + characters.length + ": " + label);
+
+                    if (Number(char.data?.tutSaveUntil || 0) > now) {
+                        skipped++;
+                        continue;
+                    }
+
+                    try {
+                        await this.switchCharacterForAccountAction(id);
+                        const list = await this.sendAndWait(
+                            { a: 57, type: 0, type2: 0, page: 1 },
+                            57
+                        );
+
+                        if (this._int(list.e) !== 0 || !Array.isArray(list.tours)) {
+                            throw new Error("Błąd listy turniejów.");
+                        }
+
+                        const tour = this.findJoinableTournament(list.tours, id);
+                        if (!tour) {
+                            skipped++;
+                            continue;
+                        }
+
+                        const join = await this.sendAndWait(
+                            { a: 57, type: 1, tid: this._int(tour.id) },
+                            57
+                        );
+
+                        if (this._int(join.e) !== 0) {
+                            throw new Error("Serwer odrzucił zapis.");
+                        }
+
+                        char.data = char.data || {};
+                        char.data.tutSaveUntil = this._int(tour.end_time);
+                        storageSetItem("chars", this.chars);
+                        joined++;
+                    } catch (error) {
+                        failed++;
+                        console.warn("[SW Tool][ACCOUNT] Turnieje — " + label + ":", error);
+                    }
+                }
+            } finally {
+                await this.restoreAccountCharacter(originalId);
+            }
+
+            console.info("[SW Tool][ACCOUNT] Turnieje zakończone:", { joined, skipped, failed });
+        }
+
+        async startMaxTrainingForCurrentCharacter() {
+            const maxActions = this.snapshotBonusActive(2) ? 2 : 1;
+            if (this.activeTimedActionsCount() >= maxActions) {
+                return "timed";
+            }
+
+            const skillId = this.defaultTrainingSkill();
+            if (!skillId) return "skill";
+
+            const trainingData = await this.sendAndWait(
+                { a: 8, type: 1 },
+                8,
+                (event) =>
+                    this._int(event.type) === 1 ||
+                    (event.train_res && typeof event.train_res === "object") ||
+                    this._int(event.e) !== 0
+            );
+
+            if (this._int(trainingData.e) !== 0) {
+                throw new Error("Serwer odrzucił dane treningu.");
+            }
+
+            if (this._enabled(trainingData.captcha)) {
+                return "captcha";
+            }
+
+            const duration = this.snapshotBonusActive(1) ? 12 : 6;
+            const started = await this.sendAndWait(
+                {
+                    a: 8,
+                    type: 2,
+                    stat: String(skillId),
+                    duration: String(duration)
+                },
+                8,
+                (event) =>
+                    this._int(event.type) === 2 ||
+                    Array.isArray(event.timed) ||
+                    event.done !== undefined ||
+                    this._int(event.e) !== 0,
+                20000
+            );
+
+            if (this._int(started.e) !== 0) {
+                throw new Error("Serwer odrzucił rozpoczęcie treningu.");
+            }
+
+            if (
+                Array.isArray(started.timed) &&
+                this.currentCharacterSnapshot?.char_tables
+            ) {
+                this.currentCharacterSnapshot.char_tables.timed_actions = started.timed;
+            }
+
+            return "started";
+        }
+
+        async runAccountTrainings() {
+            const characters = [...this.chars];
+            const originalId = Number(
+                GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
+            );
+            let started = 0, skipped = 0, captcha = 0, failed = 0;
+
+            try {
+                for (let i = 0; i < characters.length; i++) {
+                    const char = characters[i];
+                    const label = char.name || ("#" + Number(char.id));
+                    console.info("[SW Tool][ACCOUNT] Treningi " + (i + 1) + "/" + characters.length + ": " + label);
+
+                    try {
+                        await this.switchCharacterForAccountAction(Number(char.id));
+                        const result = await this.startMaxTrainingForCurrentCharacter();
+                        if (result === "started") started++;
+                        else if (result === "captcha") captcha++;
+                        else skipped++;
+                    } catch (error) {
+                        failed++;
+                        console.warn("[SW Tool][ACCOUNT] Treningi — " + label + ":", error);
+                    }
+                }
+            } finally {
+                await this.restoreAccountCharacter(originalId);
+            }
+
+            console.info("[SW Tool][ACCOUNT] Treningi zakończone:", { started, skipped, captcha, failed });
+        }
+
+        async attackArenaForCurrentCharacter() {
+            const list = await this.sendAndWait(
+                { a: 46, type: 0 },
+                46,
+                (event) =>
+                    (event.area_oponents && typeof event.area_oponents === "object") ||
+                    this._int(event.e) !== 0
+            );
+
+            if (this._int(list.e) !== 0) {
+                throw new Error("Serwer odrzucił listę Areny PvP.");
+            }
+
+            const players = list.area_oponents?.players;
+            if (!Array.isArray(players)) {
+                throw new Error("Brak listy graczy Areny PvP.");
+            }
+
+            const now = Math.floor(Date.now() / 1000);
+            let attacked = 0, skipped = 0, failed = 0;
+
+            for (let index = 0; index < players.length; index++) {
+                const raw = players[index];
+
+                if (
+                    !raw ||
+                    typeof raw !== "object" ||
+                    !raw.data ||
+                    typeof raw.data !== "object" ||
+                    this._int(raw.data.id) <= 0
+                ) {
+                    skipped++;
+                    continue;
+                }
+
+                if (this._int(raw.cd) > now) {
+                    skipped++;
+                    continue;
+                }
+
+                try {
+                    const attack = await this.sendAndWait(
+                        { a: 46, type: 1, index },
+                        [7, 46],
+                        (event) =>
+                            this._int(event.e) !== 0 ||
+                            event.result !== undefined ||
+                            event.apvp_cd !== undefined ||
+                            (
+                                this._int(event.a) === 46 &&
+                                this._int(event.type) === 1
+                            ),
+                        30000
+                    );
+
+                    if (this._int(attack.e) === 0) attacked++;
+                    else failed++;
+                } catch (error) {
+                    failed++;
+                    console.warn("[SW Tool][ACCOUNT] Arena PvP — atak " + index + ":", error);
+                }
+            }
+
+            return { attacked, skipped, failed };
+        }
+
+        async runAccountArenaPvp() {
+            const characters = [...this.chars];
+            const originalId = Number(
+                GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
+            );
+            let attacked = 0, skipped = 0, timedSkipped = 0, failed = 0;
+
+            try {
+                for (let i = 0; i < characters.length; i++) {
+                    const char = characters[i];
+                    const label = char.name || ("#" + Number(char.id));
+                    console.info("[SW Tool][ACCOUNT] Arena PvP " + (i + 1) + "/" + characters.length + ": " + label);
+
+                    try {
+                        await this.switchCharacterForAccountAction(Number(char.id));
+                        if (this.activeTimedActionsCount() > 0) {
+                            skipped++;
+                            timedSkipped++;
+                            continue;
+                        }
+
+                        const result = await this.attackArenaForCurrentCharacter();
+                        attacked += result.attacked;
+                        skipped += result.skipped;
+                        failed += result.failed;
+                    } catch (error) {
+                        failed++;
+                        console.warn("[SW Tool][ACCOUNT] Arena PvP — " + label + ":", error);
+                    }
+                }
+            } finally {
+                await this.restoreAccountCharacter(originalId);
+            }
+
+            console.info("[SW Tool][ACCOUNT] Arena PvP zakończona:", { attacked, skipped, timedSkipped, failed });
+        }
+
+        async attackSoulAbyssForCurrentCharacter() {
+            const info = await this.sendAndWait({ a: 59, type: 0 }, 59);
+
+            if (this._int(info.e) !== 0) {
+                throw new Error("Serwer odrzucił dane Otchłani Dusz.");
+            }
+
+            const now = Math.floor(Date.now() / 1000);
+            const cooldownUntil = this._int(info.cd);
+
+            if (cooldownUntil > now) {
+                return false;
+            }
+
+            const attack = await this.sendAndWait(
+                { a: 59, type: 1 },
+                59,
+                null,
+                30000
+            );
+
+            if (this._int(attack.e) !== 0) {
+                throw new Error("Serwer odrzucił atak w Otchłani Dusz.");
+            }
+
+            return true;
+        }
+
+        async runAccountSoulAbyss() {
+            const characters = [...this.chars];
+            const originalId = Number(
+                GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
+            );
+            let attacked = 0, cooldown = 0, failed = 0;
+
+            try {
+                for (let i = 0; i < characters.length; i++) {
+                    const char = characters[i];
+                    const label = char.name || ("#" + Number(char.id));
+                    console.info("[SW Tool][ACCOUNT] Otchłań " + (i + 1) + "/" + characters.length + ": " + label);
+
+                    try {
+                        await this.switchCharacterForAccountAction(Number(char.id));
+                        if (await this.attackSoulAbyssForCurrentCharacter()) attacked++;
+                        else cooldown++;
+                    } catch (error) {
+                        failed++;
+                        console.warn("[SW Tool][ACCOUNT] Otchłań — " + label + ":", error);
+                    }
+                }
+            } finally {
+                await this.restoreAccountCharacter(originalId);
+            }
+
+            console.info("[SW Tool][ACCOUNT] Otchłań zakończona:", { attacked, cooldown, failed });
+        }
+
+        startAccountOperation(action) {
+            if (this.accountOperationRunning) {
+                throw new Error("Trwa już operacja na całym koncie.");
+            }
+            if (this.characterSwitch) {
+                throw new Error("Poczekaj na zakończenie zmiany postaci.");
+            }
+            if (!Array.isArray(this.chars) || this.chars.length === 0) {
+                throw new Error("Brak zapisanej listy postaci.");
+            }
+
+            const runners = {
+                accountTournaments: () => this.runAccountTournaments(),
+                accountSoulAbyss: () => this.runAccountSoulAbyss(),
+                accountArenaPvp: () => this.runAccountArenaPvp(),
+                accountTrainings: () => this.runAccountTrainings()
+            };
+            const runner = runners[action];
+            if (!runner) {
+                throw new Error("Nieznana operacja konta: " + String(action));
+            }
+
+            this.accountOperationRunning = true;
+            Promise.resolve()
+                .then(runner)
+                .catch((error) => {
+                    console.error("[SW Tool][ACCOUNT] Operacja nie powiodła się:", action, error);
+                })
+                .finally(() => {
+                    this.accountOperationRunning = false;
+                });
+
+            return {
+                started: true,
+                action,
+                characters: this.chars.length
+            };
         }
     }
 
@@ -475,18 +1109,12 @@
             if (data.action === "action.run") {
                 const tool = await toolReadyPromise;
 
-                if (data.payload?.action === "accountTournaments") {
-                    tool.accountTutsRegister();
-
-                    sendBridgeResponse(data.requestId, true, {
-                        started: true
-                    });
-                    return;
-                }
-
-                throw new Error(
-                    "Nieznana akcja strony: " + String(data.payload?.action)
+                const result = tool.startAccountOperation(
+                    data.payload?.action
                 );
+
+                sendBridgeResponse(data.requestId, true, result);
+                return;
             }
 
             throw new Error(
