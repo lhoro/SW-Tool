@@ -175,24 +175,58 @@
                 return;
             }
 
+            if (!Array.isArray(this.chars) || this.chars.length === 0) {
+                console.warn("[SW Tool][PAGE] Brak zapisanej listy postaci.");
+                return;
+            }
+
+            const sourceIndex = this.chars.findIndex(
+                (char) => Number(char.id) === sourceId
+            );
+
+            if (sourceIndex < 0) {
+                console.warn(
+                    "[SW Tool][PAGE] Aktualnej postaci nie ma w zapisanej liście:",
+                    sourceId
+                );
+                return;
+            }
+
+            const targetIndex =
+                (sourceIndex + delta + this.chars.length) %
+                this.chars.length;
+            const targetId = Number(this.chars[targetIndex]?.id || 0);
+
+            if (targetId <= 0 || targetId === sourceId) {
+                console.warn("[SW Tool][PAGE] Brak innej postaci do przełączenia.");
+                return;
+            }
+
             this.characterSwitch = {
                 delta,
                 sourceId,
-                phase: "waitList",
-                targetId: 0
+                phase: "waitCharacter",
+                targetId
             };
 
             this.characterSwitchTimeout = setTimeout(() => {
                 this.clearCharacterSwitch("timeout odpowiedzi serwera");
             }, 15000);
 
-            console.info("[SW Tool][PAGE] TX powrót do listy postaci:", {
-                a: 5,
+            console.info("[SW Tool][PAGE] TX bezpośrednia zmiana postaci:", {
+                a: 2,
+                char_id: targetId,
                 sourceId,
+                sourceIndex,
+                targetIndex,
+                count: this.chars.length,
                 direction: delta < 0 ? "prev" : "next"
             });
 
-            GAME.emitOrder({ a: 5 });
+            GAME.emitOrder({
+                a: 2,
+                char_id: targetId
+            });
         }
 
         nextChar() {
@@ -211,53 +245,13 @@
 
             if (action === 1 && error === 0 && Array.isArray(response.chars)) {
                 this.syncCharactersFromResponse(response);
-
-                const pending = this.characterSwitch;
-                if (!pending || pending.phase !== "waitList") return;
-
-                if (this.chars.length === 0) {
-                    this.clearCharacterSwitch("serwer zwrócił pustą listę postaci");
-                    return;
-                }
-
-                const sourceIndex = this.chars.findIndex(
-                    (char) => Number(char.id) === Number(pending.sourceId)
-                );
-
-                if (sourceIndex < 0) {
-                    this.clearCharacterSwitch(
-                        "aktywnej postaci nie ma na liście zwróconej przez serwer"
-                    );
-                    return;
-                }
-
-                const targetIndex =
-                    (sourceIndex + pending.delta + this.chars.length) %
-                    this.chars.length;
-                const target = this.chars[targetIndex];
-
-                pending.phase = "waitCharacter";
-                pending.targetId = Number(target.id);
-
-                console.info("[SW Tool][PAGE] TX wybór postaci:", {
-                    a: 2,
-                    char_id: pending.targetId,
-                    index: targetIndex,
-                    count: this.chars.length
-                });
-
-                GAME.emitOrder({
-                    a: 2,
-                    char_id: pending.targetId
-                });
-
                 return;
             }
 
             const pending = this.characterSwitch;
             if (!pending) return;
 
-            if (error !== 0 && [1, 2, 5, 999].includes(action)) {
+            if (error !== 0 && [2, 999].includes(action)) {
                 this.clearCharacterSwitch(
                     "serwer zwrócił błąd a=" + action + ", e=" + error
                 );
