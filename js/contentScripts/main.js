@@ -70,22 +70,21 @@
         constructor() {
             this.chars = [];
             this.currentCharacterId = 0;
-            this.currentCharacterIndex = 0;
+            this.currentCharacterIndex = -1;
+            this.lastCharacterId = 0;
+            this.characterSwitch = null;
+            this.characterSwitchTimeout = null;
             this.config = { ...DEFAULT_CONFIG };
         }
 
         getLocalData() {
-            this.chars = storageGetItem("chars", []);
+            const cachedChars = storageGetItem("chars", []);
 
-            if (!Array.isArray(this.chars)) {
-                this.chars = [];
-            }
+            this.chars = Array.isArray(cachedChars)
+                ? cachedChars
+                : [];
 
-            if (this.chars.length === 0) {
-                this.getChars();
-            }
-
-            console.log("[SW Tool][PAGE] Postacie:", this.chars);
+            console.log("[SW Tool][PAGE] Cache postaci:", this.chars);
         }
 
         applyConfig(config) {
@@ -98,56 +97,198 @@
             console.log("[SW Tool][PAGE] Zastosowano konfigurację:", this.config);
         }
 
-        getChars() {
-            setTimeout(() => {
-                const allchars = [...$("li[data-option=select_char]")];
+        syncCharactersFromResponse(response) {
+            const serverChars = Array.isArray(response?.chars)
+                ? response.chars
+                : [];
 
-                if (allchars.length === 0) {
-                    setTimeout(() => this.getChars(), 200);
-                    return;
-                }
+            if (serverChars.length === 0) {
+                return false;
+            }
 
-                this.chars = allchars.map((element) => ({
-                    id: element.getAttribute("data-char_id"),
-                    data: {
-                        tutSave: 0
-                    }
-                }));
+            const previous = new Map(
+                this.chars.map((char) => [String(char.id), char])
+            );
 
-                storageSetItem("chars", this.chars);
-            }, 50);
+            this.chars = serverChars
+                .map((char) => {
+                    const id = Number(char?.id || 0);
+                    if (id <= 0) return null;
+
+                    const cached = previous.get(String(id));
+
+                    return {
+                        id,
+                        name: String(char?.name || ""),
+                        surname: String(char?.surname || ""),
+                        level: Number(char?.level || 0),
+                        data: {
+                            tutSave: Number(cached?.data?.tutSave || 0)
+                        }
+                    };
+                })
+                .filter(Boolean);
+
+            storageSetItem("chars", this.chars);
+
+            const activeId = Number(GAME.char_id || this.lastCharacterId || 0);
+            this.currentCharacterIndex = this.chars.findIndex(
+                (char) => Number(char.id) === activeId
+            );
+
+            console.info("[SW Tool][PAGE] RX lista postaci:", {
+                count: this.chars.length,
+                activeId
+            });
+
+            return this.chars.length > 0;
+        }
+
+        clearCharacterSwitch(reason = null) {
+            if (this.characterSwitchTimeout) {
+                clearTimeout(this.characterSwitchTimeout);
+                this.characterSwitchTimeout = null;
+            }
+
+            if (reason) {
+                console.warn("[SW Tool][PAGE] Zmiana postaci przerwana:", reason);
+            }
+
+            this.characterSwitch = null;
+        }
+
+        switchRelative(delta) {
+            if (this.characterSwitch) {
+                console.info("[SW Tool][PAGE] Zmiana postaci już trwa.");
+                return;
+            }
+
+            const sourceId = Number(
+                GAME.char_id ||
+                this.lastCharacterId ||
+                this.currentCharacterId ||
+                0
+            );
+
+            if (sourceId <= 0) {
+                console.warn("[SW Tool][PAGE] Brak aktywnej postaci do zmiany.");
+                return;
+            }
+
+            this.characterSwitch = {
+                delta,
+                sourceId,
+                phase: "waitList",
+                targetId: 0
+            };
+
+            this.characterSwitchTimeout = setTimeout(() => {
+                this.clearCharacterSwitch("timeout odpowiedzi serwera");
+            }, 15000);
+
+            console.info("[SW Tool][PAGE] TX powrót do listy postaci:", {
+                a: 5,
+                sourceId,
+                direction: delta < 0 ? "prev" : "next"
+            });
+
+            GAME.emitOrder({ a: 5 });
         }
 
         nextChar() {
-            if (this.chars.length === 0) return;
-
-            let nextChar;
-
-            if (this.currentCharacterIndex === this.chars.length - 1) {
-                nextChar = this.chars[0];
-                this.currentCharacterIndex = 0;
-            } else {
-                nextChar = this.chars[this.currentCharacterIndex + 1];
-                this.currentCharacterIndex += 1;
-            }
-
-            GAME.emitOrder({ a: 2, char_id: nextChar.id });
+            this.switchRelative(1);
         }
 
         prevChar() {
-            if (this.chars.length === 0) return;
+            this.switchRelative(-1);
+        }
 
-            let prevChar;
+        handleGameResponse(response) {
+            if (!response || typeof response !== "object") return;
 
-            if (this.currentCharacterIndex === 0) {
-                prevChar = this.chars[this.chars.length - 1];
-                this.currentCharacterIndex = this.chars.length - 1;
-            } else {
-                prevChar = this.chars[this.currentCharacterIndex - 1];
-                this.currentCharacterIndex -= 1;
+            const action = Number(response.a);
+            const error = Number(response.e || 0);
+
+            if (action === 1 && error === 0 && Array.isArray(response.chars)) {
+                this.syncCharactersFromResponse(response);
+
+                const pending = this.characterSwitch;
+                if (!pending || pending.phase !== "waitList") return;
+
+                if (this.chars.length === 0) {
+                    this.clearCharacterSwitch("serwer zwrócił pustą listę postaci");
+                    return;
+                }
+
+                const sourceIndex = this.chars.findIndex(
+                    (char) => Number(char.id) === Number(pending.sourceId)
+                );
+
+                if (sourceIndex < 0) {
+                    this.clearCharacterSwitch(
+                        "aktywnej postaci nie ma na liście zwróconej przez serwer"
+                    );
+                    return;
+                }
+
+                const targetIndex =
+                    (sourceIndex + pending.delta + this.chars.length) %
+                    this.chars.length;
+                const target = this.chars[targetIndex];
+
+                pending.phase = "waitCharacter";
+                pending.targetId = Number(target.id);
+
+                console.info("[SW Tool][PAGE] TX wybór postaci:", {
+                    a: 2,
+                    char_id: pending.targetId,
+                    index: targetIndex,
+                    count: this.chars.length
+                });
+
+                GAME.emitOrder({
+                    a: 2,
+                    char_id: pending.targetId
+                });
+
+                return;
             }
 
-            GAME.emitOrder({ a: 2, char_id: prevChar.id });
+            const pending = this.characterSwitch;
+            if (!pending) return;
+
+            if (error !== 0 && [1, 2, 5, 999].includes(action)) {
+                this.clearCharacterSwitch(
+                    "serwer zwrócił błąd a=" + action + ", e=" + error
+                );
+                return;
+            }
+
+            if (
+                action === 2 &&
+                error === 0 &&
+                pending.phase === "waitCharacter"
+            ) {
+                const responseCharId = Number(response.char_id || pending.targetId);
+
+                if (
+                    responseCharId === pending.targetId ||
+                    Number(GAME.char_id || 0) === pending.targetId
+                ) {
+                    this.lastCharacterId = pending.targetId;
+                    this.currentCharacterId = pending.targetId;
+                    this.currentCharacterIndex = this.chars.findIndex(
+                        (char) => Number(char.id) === pending.targetId
+                    );
+
+                    console.info("[SW Tool][PAGE] RX zmiana postaci potwierdzona:", {
+                        a: 2,
+                        char_id: pending.targetId
+                    });
+
+                    this.clearCharacterSwitch();
+                }
+            }
         }
 
         gameDebug() {
@@ -159,10 +300,19 @@
         }
 
         updateID() {
-            if (GAME.char_id != this.currentCharacterId) {
-                this.currentCharacterId = GAME.char_id;
+            const gameCharacterId = Number(GAME.char_id || 0);
+
+            // Podczas a:5 klient może chwilowo ustawić char_id=0.
+            // Nie nadpisujemy wtedy ostatniej aktywnej postaci, bo jest ona
+            // punktem odniesienia dla "," i ".".
+            if (
+                gameCharacterId > 0 &&
+                gameCharacterId !== Number(this.currentCharacterId)
+            ) {
+                this.currentCharacterId = gameCharacterId;
+                this.lastCharacterId = gameCharacterId;
                 this.currentCharacterIndex = this.chars.findIndex(
-                    (char) => char.id == GAME.char_id
+                    (char) => Number(char.id) === gameCharacterId
                 );
 
                 console.info("[SW Tool][PAGE] Zmiana postaci:", {
@@ -173,9 +323,7 @@
                 this.collectDailyReward();
 
                 // Tymczasowo wyłączone na dev.
-                // Stara wersja jest oparta o kliknięcia DOM i potrafi uruchomić
-                // loader gry w nieprzewidywalnym stanie. Wrócimy do tej funkcji
-                // po przeniesieniu zapisu turniejów na emity.
+                // Stara wersja jest oparta o kliknięcia DOM.
                 // this.registerTut();
             }
         }
@@ -265,17 +413,29 @@
         BOT = new TOOL();
         BOT.applyConfig(pendingConfig);
         BOT.getLocalData();
+        BOT.updateID();
+
+        GAME.socket.on("gr", (response) => {
+            BOT.handleGameResponse(response);
+        });
 
         setInterval(() => {
             BOT.updateID();
-        }, 2000);
+        }, 500);
 
         $(document).keydown((event) => {
-            if ($("input, textarea").is(":focus")) return;
+            if (
+                event.repeat ||
+                $("input, textarea, [contenteditable='true']").is(":focus")
+            ) {
+                return;
+            }
 
             if (event.key === ",") {
+                event.preventDefault();
                 BOT.prevChar();
             } else if (event.key === ".") {
+                event.preventDefault();
                 BOT.nextChar();
             }
         });
