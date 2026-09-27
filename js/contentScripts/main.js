@@ -330,9 +330,9 @@
         updateID() {
             const gameCharacterId = Number(GAME.char_id || 0);
 
-            // Podczas a:5 klient może chwilowo ustawić char_id=0.
-            // Nie nadpisujemy wtedy ostatniej aktywnej postaci, bo jest ona
-            // punktem odniesienia dla "," i ".".
+            // Podczas a:5 (np. synchronizacji operacji całego konta)
+            // klient może chwilowo ustawić char_id=0. Nie nadpisujemy wtedy
+            // ostatniej aktywnej postaci.
             if (
                 gameCharacterId > 0 &&
                 gameCharacterId !== Number(this.currentCharacterId)
@@ -501,12 +501,52 @@
                 return this.currentCharacterSnapshot;
             }
 
-            const response = await this.sendAndWait(
-                { a: 2, char_id: targetId },
-                2,
+            // Operacje całego konta naśladują synchronizację z APP:
+            // relog a:5 -> lista a:1 -> wybór a:2 -> pełne char_data.
+            // Skróty "," i "." nadal przełączają postać bezpośrednim a:2.
+            const listResponse = await this.sendAndWait(
+                { a: 5 },
+                [1, 999],
                 (event) =>
                     this._int(event.e) !== 0 ||
                     (
+                        this._int(event.a) === 1 &&
+                        Array.isArray(event.chars)
+                    ),
+                15000
+            );
+
+            if (this._int(listResponse.e) !== 0) {
+                throw new Error(
+                    "Serwer odrzucił synchronizację listy postaci."
+                );
+            }
+
+            if (!Array.isArray(listResponse.chars)) {
+                throw new Error("Serwer nie zwrócił listy postaci.");
+            }
+
+            // handleGameResponse() synchronizuje this.chars przed rozwiązaniem
+            // waitera, ale sprawdzamy target także na surowej odpowiedzi.
+            const targetExists = listResponse.chars.some((char) =>
+                this._int(char?.id) === targetId
+            );
+
+            if (!targetExists) {
+                throw new Error(
+                    "Wybranej postaci nie ma na liście zwróconej przez serwer."
+                );
+            }
+
+            this.currentCharacterSnapshot = null;
+
+            const response = await this.sendAndWait(
+                { a: 2, char_id: targetId },
+                [2, 999],
+                (event) =>
+                    this._int(event.e) !== 0 ||
+                    (
+                        this._int(event.a) === 2 &&
                         this._int(event.char_id || targetId) === targetId &&
                         event.char_data &&
                         typeof event.char_data === "object"
@@ -518,12 +558,17 @@
                 throw new Error("Serwer odrzucił zmianę postaci.");
             }
 
+            if (!response.char_data || typeof response.char_data !== "object") {
+                throw new Error("Serwer nie zwrócił pełnych danych postaci.");
+            }
+
             this.currentCharacterSnapshot = response;
             this.lastCharacterId = targetId;
             this.currentCharacterId = targetId;
             this.currentCharacterIndex = this.chars.findIndex(
                 (char) => Number(char.id) === targetId
             );
+
             return response;
         }
 
