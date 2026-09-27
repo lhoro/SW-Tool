@@ -251,6 +251,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  function isTournamentWindowOpen(date = new Date()) {
+    const hour = date.getHours();
+    return hour >= 18 && hour < 21;
+  }
+
+  function updateAccountActionAvailability() {
+    const tournamentOpen = isTournamentWindowOpen();
+
+    accTutsBtn.disabled = !tournamentOpen;
+    accTutsBtn.title = tournamentOpen
+      ? "Zapisz wszystkie postacie na dostępne turnieje"
+      : "Turnieje dostępne w godzinach 18:00–21:00";
+  }
+
   const accountActions = [
     {
       button: accTutsBtn,
@@ -304,6 +318,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         accountActions.forEach((item) => {
           item.button.disabled = false;
         });
+        updateAccountActionAvailability();
       }
     });
   });
@@ -342,6 +357,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     showView("main");
     showTab("general");
+    updateAccountActionAvailability();
   } catch (error) {
     console.error("[SW Tool][POPUP] Inicjalizacja popupu nie powiodła się.", error);
 
@@ -349,6 +365,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     accountsState = normalizeAccounts([]);
     renderQuickAccounts(accountsState);
     renderAccountEditor(accountsState);
+    updateAccountActionAvailability();
     setStatus(mainStatus, "Nie udało się odczytać danych rozszerzenia.", "error");
   } finally {
     document.body.classList.remove("booting");
