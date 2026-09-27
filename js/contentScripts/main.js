@@ -1110,13 +1110,22 @@
             }
 
             let captchaToken = null;
+            const captchaRequired = this._enabled(trainingData.captcha);
 
-            if (this._enabled(trainingData.captcha)) {
+            console.info("[SW Tool][ACCOUNT] Sprawdzenie Turnstile:", {
+                character: characterName,
+                required: captchaRequired
+            });
+
+            if (captchaRequired) {
                 console.info(
                     "[SW Tool][ACCOUNT] Trening wymaga Turnstile:",
                     characterName
                 );
 
+                // Token jest jednorazowy i dotyczy wyłącznie tej postaci.
+                // Kolejna postać zawsze wykonuje własne a:8/type:1
+                // i ponownie sprawdza pole captcha.
                 captchaToken = await this.waitForTrainingCaptcha(
                     characterName
                 );
