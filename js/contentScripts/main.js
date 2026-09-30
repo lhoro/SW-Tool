@@ -1407,6 +1407,10 @@
                 throw new Error("Brak listy graczy Areny PvP.");
             }
 
+            // Klient WWW dostaje chwilę na przetworzenie odpowiedzi listy Areny
+            // zanim wyślemy pierwszą akcję ataku.
+            await this.sleep(100);
+
             const now = Math.floor(Date.now() / 1000);
             let attacked = 0, skipped = 0, failed = 0;
 
@@ -1459,7 +1463,8 @@
                     );
                 }
 
-                await this.sleep(80);
+                // Każdą kolejną akcję na tej samej postaci oddzielamy 100 ms.
+                await this.sleep(100);
             }
 
             return { attacked, skipped, failed };
@@ -1479,12 +1484,14 @@
                     console.info("[SW Tool][ACCOUNT] Arena PvP " + (i + 1) + "/" + characters.length + ": " + label);
 
                     try {
-                        await this.sleep(150);
                         await this.switchCharacterForAccountAction(
                             Number(char.id),
                             0
                         );
-                        await this.sleep(150);
+
+                        // Po pełnym a:2 pozwalamy oficjalnemu klientowi WWW
+                        // dokończyć aktualizację GAME i stanu aktywnej postaci.
+                        await this.sleep(200);
 
                         if (this.activeTimedActionsCount() > 0) {
                             skipped++;
@@ -1503,8 +1510,11 @@
 
                         failed++;
                         console.warn("[SW Tool][ACCOUNT] Arena PvP — " + label + ":", error);
+                    } finally {
+                        // Zostawiamy 200 ms po zakończeniu pracy na postaci,
+                        // zanim rozpocznie się kolejne a:5/a:2.
+                        await this.sleep(200);
                     }
-
                 }
             } finally {
                 await this.restoreAccountCharacter(originalId);
