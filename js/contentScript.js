@@ -171,6 +171,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return { ok: true, data };
     }
 
+    if (msg.command === "debug.portalMap.get") {
+      if (!isGameServerHost) {
+        throw new Error("Eksport portali wymaga otwartej strony serwera gry.");
+      }
+
+      const data = await bridgeRequest("portalMap.get");
+      return { ok: true, data };
+    }
+
+    if (msg.command === "debug.portalMap.clear") {
+      if (!isGameServerHost) {
+        throw new Error("Czyszczenie portali wymaga otwartej strony serwera gry.");
+      }
+
+      const data = await bridgeRequest("portalMap.clear");
+      return { ok: true, data };
+    }
+
     throw new Error("Nieznane polecenie background: " + String(msg.command));
   })()
     .then(sendResponse)
