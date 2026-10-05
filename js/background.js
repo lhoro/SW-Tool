@@ -273,6 +273,22 @@ async function handleMessage(msg, sender) {
       return { ok: true, data: response.data || {} };
     }
 
+    case "debug.portalMap.get":
+    case "debug.portalMap.clear": {
+      const response = await sendToActiveGameTab({
+        source: "background",
+        command: msg.command
+      });
+
+      if (!response || response.ok !== true) {
+        throw new Error(
+          response?.error || "Brak poprawnej odpowiedzi strony."
+        );
+      }
+
+      return { ok: true, data: response.data || {} };
+    }
+
     case "account.switch": {
       const slot = Number(msg.slot);
 
