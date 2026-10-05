@@ -138,7 +138,7 @@ body.booting .popup {
 
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   margin: 10px 0;
 }
@@ -292,4 +292,39 @@ body.booting .popup {
 
 .status.success {
   color: #b8f3c0;
+}
+
+
+.debug-card {
+  padding: 8px;
+  border: 1px solid rgba(194, 158, 81, 0.35);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.debug-card-title {
+  margin-bottom: 5px;
+  color: #ddd4bd;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.debug-stats {
+  margin: 8px 0;
+  padding: 7px 8px;
+  border: 1px solid #665d7b;
+  border-radius: 5px;
+  background: #1d1a2a;
+  color: #c8c3d4;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.btn-danger {
+  border-color: #8f5555;
+  color: #ffd6d6;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #56363f;
 }
