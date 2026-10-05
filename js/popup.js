@@ -27,6 +27,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   const saveAccountsBtn = document.getElementById("saveAccountsBtn");
   const accountStatus = document.getElementById("accountStatus");
   const mainStatus = document.getElementById("mainStatus");
+  const portalDebugStats = document.getElementById("portalDebugStats");
+  const exportPortalsBtn = document.getElementById("exportPortalsBtn");
+  const clearPortalsBtn = document.getElementById("clearPortalsBtn");
+  const debugStatus = document.getElementById("debugStatus");
 
   let saveQueue = Promise.resolve();
   let accountsState = [];
@@ -98,6 +102,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       "hidden",
       tabName !== "accounts"
     );
+
+    document.getElementById("tab-debug").classList.toggle(
+      "hidden",
+      tabName !== "debug"
+    );
+
+    if (tabName === "debug") {
+      refreshPortalDebug();
+    }
   }
 
   function updateWindow(config) {
@@ -118,6 +131,61 @@ document.addEventListener("DOMContentLoaded", async () => {
   function setStatus(element, message, type = "") {
     element.textContent = message || "";
     element.className = "status" + (type ? " " + type : "");
+  }
+
+  function portalMapSummary(portalMap) {
+    const locations = portalMap?.locations && typeof portalMap.locations === "object"
+      ? Object.values(portalMap.locations)
+      : [];
+
+    const portals = locations.reduce((sum, location) => (
+      sum + (Array.isArray(location?.portals) ? location.portals.length : 0)
+    ), 0);
+
+    return {
+      locations: locations.length,
+      portals,
+      updatedAt: portalMap?.updatedAt || null
+    };
+  }
+
+  function renderPortalDebug(portalMap) {
+    const summary = portalMapSummary(portalMap);
+    const updated = summary.updatedAt
+      ? new Date(summary.updatedAt).toLocaleString("pl-PL")
+      : "brak";
+
+    portalDebugStats.textContent =
+      "Mapy: " + summary.locations +
+      " • Portale: " + summary.portals +
+      " • Ostatnia aktualizacja: " + updated;
+  }
+
+  async function refreshPortalDebug() {
+    try {
+      setStatus(debugStatus, "Odczytuję rejestr portali...");
+      const data = await sendCommand("debug.portalMap.get");
+      renderPortalDebug(data.portalMap);
+      setStatus(debugStatus, "");
+    } catch (error) {
+      portalDebugStats.textContent = "Brak dostępu do danych portali.";
+      setStatus(debugStatus, error.message, "error");
+    }
+  }
+
+  function downloadJson(filename, data) {
+    const blob = new Blob(
+      [JSON.stringify(data, null, 2)],
+      { type: "application/json;charset=utf-8" }
+    );
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function renderQuickAccounts(accounts) {
@@ -236,6 +304,59 @@ document.addEventListener("DOMContentLoaded", async () => {
     button.addEventListener("click", () => {
       showTab(button.dataset.tab);
     });
+  });
+
+  exportPortalsBtn.addEventListener("click", async () => {
+    try {
+      exportPortalsBtn.disabled = true;
+      setStatus(debugStatus, "Przygotowuję eksport...");
+
+      const data = await sendCommand("debug.portalMap.get");
+      const portalMap = data.portalMap || {
+        version: 1,
+        updatedAt: null,
+        locations: {}
+      };
+      const summary = portalMapSummary(portalMap);
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      downloadJson("sw-tool-portals-" + stamp + ".json", portalMap);
+      renderPortalDebug(portalMap);
+
+      setStatus(
+        debugStatus,
+        "Wyeksportowano: " +
+          summary.locations + " map, " +
+          summary.portals + " portali.",
+        "success"
+      );
+    } catch (error) {
+      console.error("[SW Tool][POPUP] Eksport portali nie powiódł się.", error);
+      setStatus(debugStatus, error.message, "error");
+    } finally {
+      exportPortalsBtn.disabled = false;
+    }
+  });
+
+  clearPortalsBtn.addEventListener("click", async () => {
+    if (!confirm("Wyczyścić cały lokalny rejestr portali?")) {
+      return;
+    }
+
+    try {
+      clearPortalsBtn.disabled = true;
+      setStatus(debugStatus, "Czyszczę rejestr portali...");
+
+      const data = await sendCommand("debug.portalMap.clear");
+      renderPortalDebug(data.portalMap);
+
+      setStatus(debugStatus, "Rejestr portali wyczyszczony.", "success");
+    } catch (error) {
+      console.error("[SW Tool][POPUP] Czyszczenie portali nie powiodło się.", error);
+      setStatus(debugStatus, error.message, "error");
+    } finally {
+      clearPortalsBtn.disabled = false;
+    }
   });
 
   dailyRewards.addEventListener("change", saveConfig);
