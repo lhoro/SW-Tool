@@ -171,6 +171,13 @@
                 return;
             }
 
+            if (this.dailyRewardClaimStage !== 0 || this.responseWaiter) {
+                console.info(
+                    "[SW Tool][PAGE] Trwa poprzednie zapytanie — zmiana postaci poczeka."
+                );
+                return;
+            }
+
             if (this.characterSwitch) {
                 console.info("[SW Tool][PAGE] Zmiana postaci już trwa.");
                 return;
@@ -399,6 +406,8 @@
             if (
                 !this.config.dailyReward ||
                 this.accountOperationRunning ||
+                this.characterSwitch ||
+                this.responseWaiter ||
                 Number(GAME.char_id || 0) <= 0 ||
                 !this._enabled(GAME.quick_opts?.online_reward) ||
                 this.dailyRewardClaimStage !== 0
@@ -1592,6 +1601,11 @@
 
             if (this.accountOperationRunning) {
                 throw new Error("Trwa już operacja na całym koncie.");
+            }
+            if (this.dailyRewardClaimStage !== 0 || this.responseWaiter) {
+                throw new Error(
+                    "Poczekaj na odpowiedź serwera dla poprzedniego zapytania."
+                );
             }
             if (this.characterSwitch) {
                 throw new Error("Poczekaj na zakończenie zmiany postaci.");
