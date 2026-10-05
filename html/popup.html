@@ -37,6 +37,7 @@
       <div class="tabs">
         <button class="tab-btn active" type="button" data-tab="general">Ogólne</button>
         <button class="tab-btn" type="button" data-tab="accounts">Konta</button>
+        <button class="tab-btn" type="button" data-tab="debug">Debug</button>
       </div>
 
       <section id="tab-general" class="tab-panel">
@@ -82,6 +83,29 @@
         </div>
 
         <div id="accountStatus" class="status" aria-live="polite"></div>
+      </section>
+
+      <section id="tab-debug" class="tab-panel hidden">
+        <div class="debug-card">
+          <div class="debug-card-title">Mapa portali</div>
+          <p class="hint">
+            Rejestr budowany automatycznie z odpowiedzi mapy podczas chodzenia
+            po świecie. Eksport zawiera ID map, współrzędne i kierunki portali.
+          </p>
+
+          <div id="portalDebugStats" class="debug-stats">Brak danych.</div>
+
+          <div class="button-row">
+            <button id="exportPortalsBtn" class="btn btn-wide" type="button">
+              Eksportuj portale JSON
+            </button>
+            <button id="clearPortalsBtn" class="btn btn-danger btn-wide" type="button">
+              Wyczyść rejestr portali
+            </button>
+          </div>
+
+          <div id="debugStatus" class="status" aria-live="polite"></div>
+        </div>
       </section>
     </div>
   </div>
