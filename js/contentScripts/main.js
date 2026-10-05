@@ -291,6 +291,10 @@
                 }
             }
 
+            if (action === 3 && error === 0) {
+                this.recordPortalsFromMapResponse(response);
+            }
+
             if (
                 action === 607 &&
                 response.quick_opts &&
@@ -352,6 +356,173 @@
                     this.clearCharacterSwitch();
                 }
             }
+        }
+
+        getPortalMap() {
+            const stored = storageGetItem("portalMap", null);
+            const locations =
+                stored &&
+                typeof stored === "object" &&
+                !Array.isArray(stored) &&
+                stored.locations &&
+                typeof stored.locations === "object" &&
+                !Array.isArray(stored.locations)
+                    ? stored.locations
+                    : {};
+
+            return {
+                version: 1,
+                updatedAt:
+                    stored &&
+                    typeof stored === "object" &&
+                    typeof stored.updatedAt === "string"
+                        ? stored.updatedAt
+                        : null,
+                locations
+            };
+        }
+
+        clearPortalMap() {
+            const empty = {
+                version: 1,
+                updatedAt: new Date().toISOString(),
+                locations: {}
+            };
+            storageSetItem("portalMap", empty);
+            console.info("[SW Tool][PORTALS] Rejestr portali wyczyszczony.");
+            return empty;
+        }
+
+        portalLocationName(rawLoc) {
+            if (!rawLoc || typeof rawLoc !== "object") return "";
+            const pl = String(rawLoc.pl || "").trim();
+            if (pl) return pl;
+            return String(rawLoc.en || rawLoc.name || "").trim();
+        }
+
+        portalTargetName(rawPortal) {
+            const data = rawPortal?.loc_data;
+            if (!data || typeof data !== "object") return "";
+            const pl = String(data.pl || "").trim();
+            if (pl) return pl;
+            return String(data.en || data.name || "").trim();
+        }
+
+        recordPortalsFromMapResponse(response) {
+            const rawLoc = response?.loc;
+            const rawPortals = response?.tps;
+
+            if (
+                !rawLoc ||
+                typeof rawLoc !== "object" ||
+                !Array.isArray(rawPortals)
+            ) {
+                return;
+            }
+
+            const locationId = this._int(rawLoc.id);
+            if (locationId <= 0) return;
+
+            const registry = this.getPortalMap();
+            const locationKey = String(locationId);
+            const existing = registry.locations[locationKey];
+            const current =
+                existing && typeof existing === "object"
+                    ? existing
+                    : {
+                        id: locationId,
+                        name: "",
+                        portals: []
+                    };
+
+            current.id = locationId;
+            current.name = this.portalLocationName(rawLoc) || current.name || "";
+
+            const portalMap = new Map();
+            if (Array.isArray(current.portals)) {
+                for (const portal of current.portals) {
+                    if (!portal || typeof portal !== "object") continue;
+                    const key = [
+                        this._int(portal.x),
+                        this._int(portal.y),
+                        this._int(portal.targetLocationId),
+                        String(portal.targetLocationName || "")
+                    ].join(":");
+                    portalMap.set(key, portal);
+                }
+            }
+
+            for (const raw of rawPortals) {
+                if (!raw || typeof raw !== "object") continue;
+
+                const x = this._int(raw.x);
+                const y = this._int(raw.y);
+                if (x <= 0 || y <= 0) continue;
+
+                const targetLocationId = this._int(raw.target_loc);
+                const targetLocationName = this.portalTargetName(raw);
+                const locData =
+                    raw.loc_data && typeof raw.loc_data === "object"
+                        ? raw.loc_data
+                        : {};
+
+                const portal = {
+                    fromLocationId: locationId,
+                    fromLocationName: current.name,
+                    x,
+                    y,
+                    targetLocationId,
+                    targetLocationName,
+                    levelRequirementEnabled: this._enabled(raw.lvl_req),
+                    requiredLevel: this._int(locData.level),
+                    requiredReborn: this._int(locData.reborn),
+                    questRequirementEnabled: this._enabled(raw.need_quest),
+                    questDone: this._enabled(raw.quest_done)
+                };
+
+                const key = [
+                    x,
+                    y,
+                    targetLocationId,
+                    targetLocationName
+                ].join(":");
+
+                portalMap.set(key, portal);
+            }
+
+            current.portals = [...portalMap.values()].sort((left, right) => {
+                const byX = this._int(left.x) - this._int(right.x);
+                if (byX !== 0) return byX;
+                const byY = this._int(left.y) - this._int(right.y);
+                if (byY !== 0) return byY;
+                return (
+                    this._int(left.targetLocationId) -
+                    this._int(right.targetLocationId)
+                );
+            });
+            current.updatedAt = new Date().toISOString();
+
+            registry.locations[locationKey] = current;
+            registry.updatedAt = current.updatedAt;
+            storageSetItem("portalMap", registry);
+
+            const totalLocations = Object.keys(registry.locations).length;
+            const totalPortals = Object.values(registry.locations).reduce(
+                (sum, location) =>
+                    sum +
+                    (Array.isArray(location?.portals)
+                        ? location.portals.length
+                        : 0),
+                0
+            );
+
+            console.info("[SW Tool][PORTALS] Zapisano mapę:", {
+                locationId,
+                locationName: current.name,
+                portalsOnMap: current.portals.length,
+                totalLocations,
+                totalPortals
+            });
         }
 
         gameDebug() {
@@ -1657,6 +1828,16 @@
         BOT.getLocalData();
         BOT.updateID();
 
+        // Pomocniczy dostęp z DevTools do jednego, zbiorczego rejestru portali.
+        // SW_TOOL_PORTALS.get()    -> obiekt
+        // SW_TOOL_PORTALS.export() -> sformatowany JSON
+        // SW_TOOL_PORTALS.clear()  -> wyczyszczenie rejestru
+        window.SW_TOOL_PORTALS = {
+            get: () => BOT.getPortalMap(),
+            export: () => JSON.stringify(BOT.getPortalMap(), null, 2),
+            clear: () => BOT.clearPortalMap()
+        };
+
         GAME.socket.on("gr", (response) => {
             BOT.handleGameResponse(response);
         });
@@ -1728,6 +1909,26 @@
                 );
 
                 sendBridgeResponse(data.requestId, true, result);
+                return;
+            }
+
+            if (data.action === "portalMap.get") {
+                const tool = await toolReadyPromise;
+                sendBridgeResponse(
+                    data.requestId,
+                    true,
+                    { portalMap: tool.getPortalMap() }
+                );
+                return;
+            }
+
+            if (data.action === "portalMap.clear") {
+                const tool = await toolReadyPromise;
+                sendBridgeResponse(
+                    data.requestId,
+                    true,
+                    { portalMap: tool.clearPortalMap() }
+                );
                 return;
             }
 
