@@ -8,6 +8,7 @@
         constructor(tool) {
             this.tool = tool;
             this.map = null;
+            this.field = null;
             this.active = false;
             this.target = null;
             this.path = [];
@@ -42,6 +43,11 @@
 
             if (action === 4 && error === 0) {
                 this.applyMovementResponse(response);
+                return;
+            }
+
+            if (action === 602 && error === 0) {
+                this.applyFieldResponse(response);
                 return;
             }
 
@@ -116,6 +122,7 @@
                 }
             }
 
+            this.field = null;
             this.map = {
                 locationId: this._int(rawLoc.id),
                 locationName: String(rawLoc.pl || rawLoc.en || rawLoc.name || ""),
@@ -139,6 +146,23 @@
                 x: this.map.x,
                 y: this.map.y
             });
+        }
+
+        applyFieldResponse(response) {
+            const x = this._int(response.x);
+            const y = this._int(response.y);
+            if (x <= 0 || y <= 0) return;
+
+            this.field = {
+                x,
+                y,
+                resources:
+                    response.res &&
+                    typeof response.res === "object" &&
+                    !Array.isArray(response.res)
+                        ? response.res
+                        : {}
+            };
         }
 
         applyMovementResponse(response) {
@@ -353,6 +377,280 @@
                 console.warn(LOG, "Błąd trasy:", error);
                 throw error;
             }
+        }
+
+        characterCanUsePortal(portal) {
+            const character = this.tool.currentCharacterSnapshot?.char_data;
+            if (!character || typeof character !== "object") return true;
+
+            if (portal.levelRequirementEnabled) {
+                const level = this._int(character.level);
+                const reborn = this._int(character.reborn);
+                const requiredLevel = this._int(portal.requiredLevel);
+                const requiredReborn = this._int(portal.requiredReborn);
+
+                if (reborn < requiredReborn) return false;
+                if (
+                    reborn === requiredReborn &&
+                    level < requiredLevel
+                ) {
+                    return false;
+                }
+            }
+
+            if (
+                portal.questRequirementEnabled &&
+                !portal.questDone
+            ) {
+                return false;
+            }
+
+            return true;
+        }
+
+        findPortalRoute(sourceLocationId, targetLocationId) {
+            const source = this._int(sourceLocationId);
+            const target = this._int(targetLocationId);
+            if (source <= 0 || target <= 0) return null;
+            if (source === target) return [];
+
+            const registry = this.tool.getPortalMap?.();
+            const locations =
+                registry &&
+                registry.locations &&
+                typeof registry.locations === "object"
+                    ? registry.locations
+                    : {};
+
+            const queue = [source];
+            const visited = new Set([source]);
+            const parent = new Map();
+
+            while (queue.length > 0) {
+                const locationId = queue.shift();
+                const location = locations[String(locationId)];
+                const portals = Array.isArray(location?.portals)
+                    ? location.portals
+                    : [];
+
+                for (const portal of portals) {
+                    if (
+                        !portal ||
+                        typeof portal !== "object" ||
+                        !this.characterCanUsePortal(portal)
+                    ) {
+                        continue;
+                    }
+
+                    const next = this._int(portal.targetLocationId);
+                    if (next <= 0 || visited.has(next)) continue;
+
+                    visited.add(next);
+                    parent.set(next, {
+                        previous: locationId,
+                        portal
+                    });
+
+                    if (next === target) {
+                        const route = [];
+                        let cursor = target;
+
+                        while (cursor !== source) {
+                            const step = parent.get(cursor);
+                            if (!step) return null;
+                            route.push(step.portal);
+                            cursor = step.previous;
+                        }
+
+                        return route.reverse();
+                    }
+
+                    queue.push(next);
+                }
+            }
+
+            return null;
+        }
+
+        async waitForPortalIndex(targetLocationId, x, y, timeoutMs = 2500) {
+            const targetId = this._int(targetLocationId);
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const field = this.field;
+
+                if (
+                    field &&
+                    this._int(field.x) === this._int(x) &&
+                    this._int(field.y) === this._int(y)
+                ) {
+                    const rawPortals = field.resources?.tps;
+                    if (Array.isArray(rawPortals)) {
+                        let fallback = null;
+
+                        for (let index = 0; index < rawPortals.length; index++) {
+                            const raw = rawPortals[index];
+                            if (!raw || typeof raw !== "object") continue;
+
+                            if (fallback === null) fallback = index;
+
+                            const candidate = this._int(
+                                raw.target_loc ||
+                                raw.loc ||
+                                raw.loc_id ||
+                                raw.location_id
+                            );
+
+                            if (targetId > 0 && candidate === targetId) {
+                                return index;
+                            }
+                        }
+
+                        if (targetId <= 0 && fallback !== null) {
+                            return fallback;
+                        }
+                    }
+                }
+
+                await this.tool.sleep(25);
+            }
+
+            return null;
+        }
+
+        async refreshMap() {
+            const response = await this.tool.sendAndWait(
+                { a: 3, vo: [1, 1, 0] },
+                [3, 999],
+                (event) =>
+                    this._int(event.e) !== 0 ||
+                    (
+                        this._int(event.a) === 3 &&
+                        event.map &&
+                        typeof event.map === "object" &&
+                        event.loc &&
+                        typeof event.loc === "object"
+                    ),
+                12000
+            );
+
+            if (this._int(response.e) !== 0) {
+                throw new Error("Serwer odrzucił pobranie mapy.");
+            }
+
+            return this.map;
+        }
+
+        async navigateToLocation(locationId, x, y, options = {}) {
+            const targetLocationId = this._int(locationId);
+            const targetX = this._int(x);
+            const targetY = this._int(y);
+
+            if (targetLocationId <= 0 || targetX <= 0 || targetY <= 0) {
+                throw new Error("Nieprawidłowy cel nawigacji.");
+            }
+
+            if (!this.map) {
+                await this.refreshMap();
+            }
+
+            let currentLocationId = this._int(this.map?.locationId);
+            if (currentLocationId <= 0) {
+                throw new Error("Nie znam aktualnej lokalizacji postaci.");
+            }
+
+            if (currentLocationId !== targetLocationId) {
+                const route = this.findPortalRoute(
+                    currentLocationId,
+                    targetLocationId
+                );
+
+                if (!route || route.length === 0) {
+                    throw new Error(
+                        "Brak znanej trasy portalami z mapy " +
+                        currentLocationId +
+                        " do " +
+                        targetLocationId +
+                        "."
+                    );
+                }
+
+                for (const portal of route) {
+                    const fromLocationId = this._int(portal.fromLocationId);
+                    const portalTargetId = this._int(portal.targetLocationId);
+
+                    if (
+                        fromLocationId > 0 &&
+                        this._int(this.map?.locationId) !== fromLocationId
+                    ) {
+                        throw new Error(
+                            "Trasa portali rozjechała się z aktualną mapą."
+                        );
+                    }
+
+                    await this.navigateTo(
+                        this._int(portal.x),
+                        this._int(portal.y),
+                        {
+                            source: options.source || "portal-route",
+                            allowBusy: true
+                        }
+                    );
+
+                    const index = await this.waitForPortalIndex(
+                        portalTargetId,
+                        portal.x,
+                        portal.y
+                    );
+
+                    if (index === null) {
+                        throw new Error(
+                            "Nie znaleziono aktywnego portalu na polu X:" +
+                            this._int(portal.x) +
+                            " Y:" +
+                            this._int(portal.y) +
+                            "."
+                        );
+                    }
+
+                    const transition = await this.tool.sendAndWait(
+                        { a: 6, tpid: index },
+                        [6, 999],
+                        (event) =>
+                            this._int(event.e) !== 0 ||
+                            this._int(event.a) === 6,
+                        12000
+                    );
+
+                    if (this._int(transition.e) !== 0) {
+                        throw new Error(
+                            "Serwer odrzucił przejście portalem."
+                        );
+                    }
+
+                    await this.tool.sleep(250);
+                    await this.refreshMap();
+
+                    currentLocationId = this._int(this.map?.locationId);
+                    if (
+                        portalTargetId > 0 &&
+                        currentLocationId !== portalTargetId
+                    ) {
+                        throw new Error(
+                            "Portal przeniósł postać na inną mapę niż oczekiwano."
+                        );
+                    }
+                }
+            }
+
+            if (this._int(this.map?.locationId) !== targetLocationId) {
+                throw new Error("Nie udało się dotrzeć na mapę celu.");
+            }
+
+            return this.navigateTo(targetX, targetY, {
+                source: options.source || "location-target",
+                allowBusy: true
+            });
         }
 
         directionForStep(from, to) {
@@ -771,7 +1069,10 @@
                 mapSize: this.map
                     ? { x: this.map.maxX, y: this.map.maxY }
                     : null,
-                pathLength: this.path.length
+                pathLength: this.path.length,
+                field: this.field
+                    ? { x: this.field.x, y: this.field.y }
+                    : null
             };
         }
     }
