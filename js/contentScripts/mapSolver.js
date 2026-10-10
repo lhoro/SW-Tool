@@ -520,6 +520,21 @@
             return null;
         }
 
+        async waitForLocation(locationId, timeoutMs = 3000) {
+            const targetId = this._int(locationId);
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                if (this._int(this.map?.locationId) === targetId) {
+                    return true;
+                }
+
+                await this.tool.sleep(25);
+            }
+
+            return false;
+        }
+
         async refreshMap() {
             const response = await this.tool.sendAndWait(
                 { a: 3, vo: [1, 1, 0] },
@@ -621,10 +636,26 @@
 
                     const transition = await this.tool.sendAndWait(
                         { a: 6, tpid: index },
-                        [6, 999],
-                        (event) =>
-                            this._int(event.e) !== 0 ||
-                            this._int(event.a) === 6,
+                        [3, 6, 999],
+                        (event) => {
+                            if (this._int(event.e) !== 0) return true;
+
+                            const action = this._int(event.a);
+                            if (action === 6) return true;
+
+                            if (
+                                action === 3 &&
+                                event.loc &&
+                                typeof event.loc === "object"
+                            ) {
+                                return (
+                                    this._int(event.loc.id) ===
+                                    portalTargetId
+                                );
+                            }
+
+                            return false;
+                        },
                         12000
                     );
 
@@ -634,16 +665,31 @@
                         );
                     }
 
-                    // Odpowiedź a:6 potwierdza przyjęcie teleportu, ale klient
-                    // WWW i stan serwera potrzebują jeszcze chwili na faktyczną
-                    // zmianę lokacji. Zbyt szybkie a:3/a:4 potrafiło blokować
-                    // postać na wejściu do kolejnej mapy.
-                    await this.tool.sleep(PORTAL_SETTLE_BEFORE_MAP_MS);
-                    await this.refreshMap();
+                    // Jeśli od razu przyszło a:3 docelowej mapy, handleResponse
+                    // już zaktualizował this.map. Jeśli dostaliśmy tylko a:6,
+                    // czekamy aż oficjalny klient WWW sam pobierze nową mapę.
+                    let mapReady =
+                        this._int(this.map?.locationId) === portalTargetId;
 
-                    // Po otrzymaniu świeżego a:3 dajemy klientowi WWW jeszcze
-                    // pół sekundy na przetworzenie mapy/pozycji przed kolejnym
-                    // ruchem albo następnym portalem.
+                    if (!mapReady) {
+                        await this.tool.sleep(PORTAL_SETTLE_BEFORE_MAP_MS);
+                        mapReady = await this.waitForLocation(
+                            portalTargetId,
+                            2500
+                        );
+                    }
+
+                    // Dopiero gdy klient WWW sam nie odświeży mapy, wykonujemy
+                    // własne a:3 jako fallback. Dzięki temu nie ścigamy się
+                    // z requestem mapy wysyłanym przez klienta po teleporcie.
+                    if (!mapReady) {
+                        console.info(
+                            LOG,
+                            "Brak automatycznego a:3 po portalu — fallback refreshMap()."
+                        );
+                        await this.refreshMap();
+                    }
+
                     await this.tool.sleep(PORTAL_SETTLE_AFTER_MAP_MS);
 
                     currentLocationId = this._int(this.map?.locationId);
