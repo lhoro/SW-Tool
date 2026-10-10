@@ -51,6 +51,7 @@
       "resources": [ 
         "js/contentScripts/menageCSS.js",
         "js/contentScripts/menageStorage.js",
+        "js/contentScripts/mapSolver.js",
         "js/contentScripts/main.js",
         "js/oldBot.js"
       ],
