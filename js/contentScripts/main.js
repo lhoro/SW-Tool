@@ -1463,7 +1463,7 @@
                 await unitDelay(1); key("d");
                 await unitDelay(1); key("r");
 
-                for (let i = 0; i < 12; i++) {
+                for (let i = 0; i < 11; i++) {
                     await unitDelay(1); key("s");
                     await unitDelay(1); key("r");
                 }
@@ -1477,7 +1477,7 @@
                 await unitDelay(1); key("s");
                 await unitDelay(1); attack(8);
 
-                for (let i = 0; i < 7; i++) {
+                for (let i = 0; i < 8; i++) {
                     await unitDelay(1); key("s");
                     await unitDelay(1); key("r");
                 }
