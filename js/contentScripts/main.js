@@ -77,6 +77,9 @@
             this.currentCharacterSnapshot = null;
             this.responseWaiter = null;
             this.accountOperationRunning = false;
+            this.quickActionRunning = false;
+            this.quickPanelButtons = [];
+            this.quickPanelStatus = null;
             this.trainingCaptchaWaiter = null;
             this.dailyRewardClaimStage = 0;
             this.dailyRewardClaimCharacterId = 0;
@@ -173,8 +176,8 @@
         }
 
         switchRelative(delta) {
-            if (this.accountOperationRunning) {
-                console.info("[SW Tool][PAGE] Trwa operacja całego konta.");
+            if (this.accountOperationRunning || this.quickActionRunning) {
+                console.info("[SW Tool][PAGE] Trwa inna operacja.");
                 return;
             }
 
@@ -591,7 +594,10 @@
                     );
                 }
 
-                if (!this.accountOperationRunning) {
+                if (
+                    !this.accountOperationRunning &&
+                    !this.quickActionRunning
+                ) {
                     this.collectDailyReward();
                 }
 
@@ -605,6 +611,7 @@
             if (
                 !this.config.dailyReward ||
                 this.accountOperationRunning ||
+                this.quickActionRunning ||
                 this.characterSwitch ||
                 this.responseWaiter ||
                 Number(GAME.char_id || 0) <= 0 ||
@@ -862,6 +869,475 @@
 
         mapNavigationState() {
             return this.mapSolver?.debugState() || null;
+        }
+
+        currentCharacterLabel() {
+            const character = this.characterData();
+            const name = String(character?.name || "").trim();
+            if (name) return name;
+
+            const cached = this.chars.find(
+                (char) =>
+                    Number(char.id) ===
+                    Number(
+                        GAME.char_id ||
+                        this.currentCharacterId ||
+                        0
+                    )
+            );
+
+            return cached?.name || ("#" + Number(GAME.char_id || 0));
+        }
+
+        highestAvailableMissionRank() {
+            const character = this.characterData();
+            if (!character) return 0;
+
+            for (let rank = 5; rank >= 1; rank--) {
+                if (this._int(character["a_" + rank]) > 0) {
+                    return rank;
+                }
+            }
+
+            return 0;
+        }
+
+        missionFromResponse(response) {
+            const raw = response?.mission;
+            if (!raw || typeof raw !== "object") return null;
+
+            const mission = { ...raw };
+            const rank = this._int(mission.rank);
+            const loc = this._int(mission.loc);
+            const x = this._int(mission.x);
+            const y = this._int(mission.y);
+
+            if (rank <= 0 || loc <= 0 || x <= 0 || y <= 0) {
+                return null;
+            }
+
+            return mission;
+        }
+
+        missionRankCode(rank) {
+            return ({
+                1: "D",
+                2: "C",
+                3: "B",
+                4: "A",
+                5: "S"
+            })[this._int(rank)] || "?";
+        }
+
+        async runQuickMissionForCurrentCharacter() {
+            if (!this.mapSolver) {
+                throw new Error("Solver mapy nie jest dostępny.");
+            }
+
+            if (this.activeTimedActionsCount() > 0) {
+                return {
+                    status: "timed",
+                    message: "Trwa akcja czasowa."
+                };
+            }
+
+            this.setQuickPanelStatus("Misje: sprawdzanie...");
+            const status = await this.sendAndWait(
+                { a: 207, type: 0 },
+                [207, 999],
+                (event) =>
+                    this._int(event.e) !== 0 ||
+                    this._int(event.a) === 207,
+                15000
+            );
+
+            if (this._int(status.e) !== 0) {
+                throw new Error(
+                    "Serwer odrzucił sprawdzenie misji (e=" +
+                    this._int(status.e) +
+                    ")."
+                );
+            }
+
+            let mission = this.missionFromResponse(status);
+            let started = false;
+
+            if (!mission) {
+                const rank = this.highestAvailableMissionRank();
+                if (rank <= 0) {
+                    return {
+                        status: "none",
+                        message: "Brak dostępnej misji."
+                    };
+                }
+
+                this.setQuickPanelStatus(
+                    "Misje: podejmowanie rangi " +
+                    this.missionRankCode(rank) +
+                    "..."
+                );
+
+                await this.sleep(100);
+
+                const start = await this.sendAndWait(
+                    { a: 207, type: 1, rank },
+                    [207, 999],
+                    (event) =>
+                        this._int(event.e) !== 0 ||
+                        (
+                            this._int(event.a) === 207 &&
+                            event.mission &&
+                            typeof event.mission === "object"
+                        ),
+                    15000
+                );
+
+                if (this._int(start.e) !== 0) {
+                    throw new Error(
+                        "Serwer odrzucił podjęcie misji (e=" +
+                        this._int(start.e) +
+                        ")."
+                    );
+                }
+
+                mission = this.missionFromResponse(start);
+                if (!mission) {
+                    throw new Error(
+                        "Serwer nie zwrócił celu podjętej misji."
+                    );
+                }
+
+                started = true;
+            }
+
+            const locationId = this._int(mission.loc);
+            const x = this._int(mission.x);
+            const y = this._int(mission.y);
+            const locationName = String(
+                mission.pl || mission.en || ""
+            ).trim();
+
+            this.setQuickPanelStatus(
+                "Misje: dojście do " +
+                (locationName || ("mapy " + locationId)) +
+                "..."
+            );
+
+            await this.mapSolver.navigateToLocation(
+                locationId,
+                x,
+                y,
+                { source: "quick-mission" }
+            );
+
+            this.setQuickPanelStatus("Misje: wykonywanie...");
+            await this.sleep(100);
+
+            const execute = await this.sendAndWait(
+                { a: 207, type: 3 },
+                [207, 999],
+                (event) =>
+                    this._int(event.e) !== 0 ||
+                    (
+                        this._int(event.a) === 207 &&
+                        (
+                            Array.isArray(event.timed) ||
+                            event.done !== undefined
+                        )
+                    ),
+                20000
+            );
+
+            if (this._int(execute.e) !== 0) {
+                throw new Error(
+                    "Serwer odrzucił wykonanie misji (e=" +
+                    this._int(execute.e) +
+                    ")."
+                );
+            }
+
+            if (
+                Array.isArray(execute.timed) &&
+                this.currentCharacterSnapshot?.char_tables
+            ) {
+                this.currentCharacterSnapshot.char_tables.timed_actions =
+                    execute.timed;
+            }
+
+            return {
+                status: "done",
+                started,
+                rank: this._int(mission.rank),
+                message:
+                    "Misja " +
+                    this.missionRankCode(mission.rank) +
+                    " wykonana."
+            };
+        }
+
+        setQuickPanelStatus(message, type = "") {
+            const status = this.quickPanelStatus;
+            if (!status) return;
+
+            status.textContent = String(message || "");
+            status.style.color =
+                type === "error"
+                    ? "#ffb3b3"
+                    : type === "success"
+                        ? "#b8f3c0"
+                        : "#c8c3d4";
+        }
+
+        setQuickPanelBusy(busy) {
+            for (const button of this.quickPanelButtons) {
+                button.disabled = Boolean(busy);
+                button.style.opacity = busy ? "0.55" : "1";
+                button.style.cursor = busy ? "default" : "pointer";
+            }
+        }
+
+        async runQuickAction(action) {
+            if (
+                this.quickActionRunning ||
+                this.accountOperationRunning ||
+                this.dailyRewardClaimStage !== 0 ||
+                this.characterSwitch ||
+                this.responseWaiter ||
+                this.mapSolver?.active
+            ) {
+                throw new Error("Poczekaj na zakończenie bieżącej operacji.");
+            }
+
+            if (
+                Number(GAME.char_id || this.currentCharacterId || 0) <= 0 ||
+                !this.characterData()
+            ) {
+                throw new Error("Brak aktywnej postaci.");
+            }
+
+            const label = this.currentCharacterLabel();
+            this.quickActionRunning = true;
+            this.setQuickPanelBusy(true);
+
+            try {
+                if (this.config.dailyReward) {
+                    this.setQuickPanelStatus("Sprawdzanie nagrody dziennej...");
+                    await this.claimDailyRewardForAccountAction(label);
+                }
+
+                if (action === "training") {
+                    this.setQuickPanelStatus("Quick Trening...");
+                    const result =
+                        await this.startMaxTrainingForCurrentCharacter(label);
+
+                    if (result === "started") {
+                        this.setQuickPanelStatus(
+                            "Trening uruchomiony.",
+                            "success"
+                        );
+                    } else if (result === "timed") {
+                        this.setQuickPanelStatus(
+                            "Akcja czasowa już trwa."
+                        );
+                    } else {
+                        this.setQuickPanelStatus(
+                            "Brak umiejętności do treningu."
+                        );
+                    }
+                    return;
+                }
+
+                if (action === "arena") {
+                    if (this.activeTimedActionsCount() > 0) {
+                        this.setQuickPanelStatus(
+                            "Arena pominięta — trwa akcja czasowa."
+                        );
+                        return;
+                    }
+
+                    this.setQuickPanelStatus("Quick Arena...");
+                    const result =
+                        await this.attackArenaForCurrentCharacter();
+
+                    this.setQuickPanelStatus(
+                        "Arena: ataki " +
+                        result.attacked +
+                        ", pominięto " +
+                        result.skipped +
+                        ", błędy " +
+                        result.failed +
+                        ".",
+                        result.failed > 0 ? "" : "success"
+                    );
+                    return;
+                }
+
+                if (action === "abyss") {
+                    this.setQuickPanelStatus("Quick Otchłań...");
+                    const attacked =
+                        await this.attackSoulAbyssForCurrentCharacter();
+
+                    this.setQuickPanelStatus(
+                        attacked
+                            ? "Otchłań wykonana."
+                            : "Otchłań — cooldown.",
+                        attacked ? "success" : ""
+                    );
+                    return;
+                }
+
+                if (action === "mission") {
+                    const result =
+                        await this.runQuickMissionForCurrentCharacter();
+
+                    this.setQuickPanelStatus(
+                        result.message,
+                        result.status === "done" ? "success" : ""
+                    );
+                    return;
+                }
+
+                throw new Error(
+                    "Nieznana szybka akcja: " + String(action)
+                );
+            } catch (error) {
+                console.error(
+                    "[SW Tool][QUICK] Akcja nie powiodła się:",
+                    action,
+                    error
+                );
+                this.setQuickPanelStatus(
+                    error instanceof Error
+                        ? error.message
+                        : String(error),
+                    "error"
+                );
+            } finally {
+                this.quickActionRunning = false;
+                this.setQuickPanelBusy(false);
+            }
+        }
+
+        mountQuickPanel() {
+            document.getElementById("sw-tool-quick-panel")?.remove();
+
+            const panel = document.createElement("div");
+            panel.id = "sw-tool-quick-panel";
+            Object.assign(panel.style, {
+                position: "fixed",
+                right: "8px",
+                bottom: "8px",
+                zIndex: "2147483000",
+                width: "188px",
+                padding: "7px",
+                border: "2px solid #c29e51",
+                borderRadius: "7px",
+                background: "#1a1a39",
+                color: "#fff",
+                fontFamily: "Verdana, sans-serif",
+                fontSize: "11px",
+                boxShadow: "0 4px 16px rgba(0,0,0,.55)"
+            });
+
+            const header = document.createElement("div");
+            Object.assign(header.style, {
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "6px",
+                color: "#c29e51",
+                fontWeight: "700"
+            });
+
+            const title = document.createElement("span");
+            title.textContent = "SW TOOL — QUICK";
+
+            const collapse = document.createElement("button");
+            collapse.type = "button";
+            collapse.textContent = "−";
+            Object.assign(collapse.style, {
+                width: "24px",
+                height: "22px",
+                padding: "0",
+                border: "1px solid #c29e51",
+                borderRadius: "4px",
+                background: "#30294a",
+                color: "#fff",
+                cursor: "pointer"
+            });
+
+            header.append(title, collapse);
+
+            const body = document.createElement("div");
+            body.style.display = "grid";
+            body.style.gap = "5px";
+
+            const actions = [
+                ["training", "Quick Trening"],
+                ["arena", "Quick Arena"],
+                ["abyss", "Quick Otchłań"],
+                ["mission", "Quick Misje"]
+            ];
+
+            this.quickPanelButtons = [];
+
+            for (const [action, label] of actions) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.textContent = label;
+                Object.assign(button.style, {
+                    width: "100%",
+                    padding: "6px 7px",
+                    border: "1px solid #c29e51",
+                    borderRadius: "5px",
+                    background: "#30294a",
+                    color: "#fff",
+                    fontSize: "11px",
+                    fontFamily: "Verdana, sans-serif",
+                    cursor: "pointer"
+                });
+
+                button.addEventListener("mouseenter", () => {
+                    if (!button.disabled) {
+                        button.style.background = "#463b63";
+                    }
+                });
+                button.addEventListener("mouseleave", () => {
+                    button.style.background = "#30294a";
+                });
+                button.addEventListener("click", () => {
+                    this.runQuickAction(action);
+                });
+
+                this.quickPanelButtons.push(button);
+                body.appendChild(button);
+            }
+
+            const status = document.createElement("div");
+            Object.assign(status.style, {
+                minHeight: "26px",
+                marginTop: "6px",
+                paddingTop: "5px",
+                borderTop: "1px solid rgba(194,158,81,.35)",
+                color: "#c8c3d4",
+                fontSize: "10px",
+                lineHeight: "1.3",
+                wordBreak: "break-word"
+            });
+            status.textContent = "Gotowy.";
+            this.quickPanelStatus = status;
+
+            let collapsed = false;
+            collapse.addEventListener("click", () => {
+                collapsed = !collapsed;
+                body.style.display = collapsed ? "none" : "grid";
+                status.style.display = collapsed ? "none" : "block";
+                collapse.textContent = collapsed ? "+" : "−";
+                panel.style.width = collapsed ? "150px" : "188px";
+            });
+
+            panel.append(header, body, status);
+            document.body.appendChild(panel);
         }
 
         isFatalAccountError(error) {
@@ -2062,6 +2538,9 @@
             if (this.accountOperationRunning) {
                 throw new Error("Trwa już operacja na całym koncie.");
             }
+            if (this.quickActionRunning || this.mapSolver?.active) {
+                throw new Error("Trwa szybka akcja lub nawigacja.");
+            }
             if (this.dailyRewardClaimStage !== 0 || this.responseWaiter) {
                 throw new Error(
                     "Poczekaj na odpowiedź serwera dla poprzedniego zapytania."
@@ -2116,6 +2595,7 @@
         BOT.applyConfig(pendingConfig);
         BOT.getLocalData();
         BOT.updateID();
+        BOT.mountQuickPanel();
 
         // Pomocniczy dostęp z DevTools do jednego, zbiorczego rejestru portali.
         // SW_TOOL_PORTALS.get()    -> obiekt
@@ -2131,8 +2611,22 @@
         // korzystał z tego samego goTo(x, y), co ręczny klik na mapie.
         window.SW_TOOL_PATH = {
             goTo: (x, y, options = {}) => BOT.navigateTo(x, y, options),
+            goToLocation: (locationId, x, y, options = {}) =>
+                BOT.mapSolver?.navigateToLocation(
+                    locationId,
+                    x,
+                    y,
+                    options
+                ),
             stop: (reason = "debug") => BOT.stopNavigation(reason),
             state: () => BOT.mapNavigationState()
+        };
+
+        window.SW_TOOL_QUICK = {
+            training: () => BOT.runQuickAction("training"),
+            arena: () => BOT.runQuickAction("arena"),
+            abyss: () => BOT.runQuickAction("abyss"),
+            mission: () => BOT.runQuickAction("mission")
         };
 
         GAME.socket.on("gr", (response) => {
