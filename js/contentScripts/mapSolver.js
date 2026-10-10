@@ -3,6 +3,8 @@
     const LOGICAL_VIEWPORT = 520;
     const TILE_SIZE = 40;
     const STEP_DELAY_MS = 100;
+    const PORTAL_SETTLE_BEFORE_MAP_MS = 750;
+    const PORTAL_SETTLE_AFTER_MAP_MS = 500;
 
     class SWMapClickSolver {
         constructor(tool) {
@@ -613,6 +615,10 @@
                         );
                     }
 
+                    // Nie zostawiamy danych pola poprzedniej mapy jako
+                    // potencjalnego źródła prawdy po przejściu portalem.
+                    this.field = null;
+
                     const transition = await this.tool.sendAndWait(
                         { a: 6, tpid: index },
                         [6, 999],
@@ -628,8 +634,17 @@
                         );
                     }
 
-                    await this.tool.sleep(250);
+                    // Odpowiedź a:6 potwierdza przyjęcie teleportu, ale klient
+                    // WWW i stan serwera potrzebują jeszcze chwili na faktyczną
+                    // zmianę lokacji. Zbyt szybkie a:3/a:4 potrafiło blokować
+                    // postać na wejściu do kolejnej mapy.
+                    await this.tool.sleep(PORTAL_SETTLE_BEFORE_MAP_MS);
                     await this.refreshMap();
+
+                    // Po otrzymaniu świeżego a:3 dajemy klientowi WWW jeszcze
+                    // pół sekundy na przetworzenie mapy/pozycji przed kolejnym
+                    // ruchem albo następnym portalem.
+                    await this.tool.sleep(PORTAL_SETTLE_AFTER_MAP_MS);
 
                     currentLocationId = this._int(this.map?.locationId);
                     if (
