@@ -1737,7 +1737,7 @@
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
             );
-            let started = 0, skipped = 0, failed = 0;
+            let started = 0, skipped = 0, failed = 0, dailyClaimed = 0;
 
             try {
                 for (let i = 0; i < characters.length; i++) {
@@ -1754,6 +1754,12 @@
                         // Po pełnym a:2 dajemy klientowi WWW czas na
                         // zsynchronizowanie aktywnej postaci przed a:8.
                         await this.sleep(200);
+
+                        if (
+                            await this.claimDailyRewardForAccountAction(label)
+                        ) {
+                            dailyClaimed++;
+                        }
 
                         const result =
                             await this.startMaxTrainingForCurrentCharacter(
@@ -1778,7 +1784,12 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Treningi zakończone:", { started, skipped, failed });
+            console.info("[SW Tool][ACCOUNT] Treningi zakończone:", {
+                started,
+                skipped,
+                failed,
+                dailyClaimed
+            });
         }
 
         async attackArenaForCurrentCharacter() {
@@ -1867,7 +1878,7 @@
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
             );
-            let attacked = 0, skipped = 0, timedSkipped = 0, failed = 0;
+            let attacked = 0, skipped = 0, timedSkipped = 0, failed = 0, dailyClaimed = 0;
 
             try {
                 for (let i = 0; i < characters.length; i++) {
@@ -1884,6 +1895,12 @@
                         // Po pełnym a:2 pozwalamy oficjalnemu klientowi WWW
                         // dokończyć aktualizację GAME i stanu aktywnej postaci.
                         await this.sleep(200);
+
+                        if (
+                            await this.claimDailyRewardForAccountAction(label)
+                        ) {
+                            dailyClaimed++;
+                        }
 
                         if (this.activeTimedActionsCount() > 0) {
                             skipped++;
@@ -1912,7 +1929,13 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Arena PvP zakończona:", { attacked, skipped, timedSkipped, failed });
+            console.info("[SW Tool][ACCOUNT] Arena PvP zakończona:", {
+                attacked,
+                skipped,
+                timedSkipped,
+                failed,
+                dailyClaimed
+            });
         }
 
         async attackSoulAbyssForCurrentCharacter() {
@@ -1952,7 +1975,7 @@
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
             );
-            let attacked = 0, cooldown = 0, failed = 0;
+            let attacked = 0, cooldown = 0, failed = 0, dailyClaimed = 0;
 
             try {
                 for (let i = 0; i < characters.length; i++) {
@@ -1969,6 +1992,12 @@
                         // Ten sam bezpieczny rytm co w Arenie: po zmianie
                         // postaci czekamy, aż oficjalny klient WWW ją przetworzy.
                         await this.sleep(200);
+
+                        if (
+                            await this.claimDailyRewardForAccountAction(label)
+                        ) {
+                            dailyClaimed++;
+                        }
 
                         if (await this.attackSoulAbyssForCurrentCharacter()) attacked++;
                         else cooldown++;
@@ -1988,7 +2017,12 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Otchłań zakończona:", { attacked, cooldown, failed });
+            console.info("[SW Tool][ACCOUNT] Otchłań zakończona:", {
+                attacked,
+                cooldown,
+                failed,
+                dailyClaimed
+            });
         }
 
         startAccountOperation(action) {
