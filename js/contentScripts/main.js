@@ -1502,6 +1502,11 @@
             }
 
             const duration = this.snapshotBonusActive(1) ? 12 : 6;
+
+            // Po odpowiedzi a:8/type:1 (i ewentualnym Turnstile) zostawiamy
+            // klientowi WWW 100 ms przed wysłaniem właściwego startu treningu.
+            await this.sleep(100);
+
             const started = await this.sendAndWait(
                 {
                     a: 8,
@@ -1549,7 +1554,15 @@
                     console.info("[SW Tool][ACCOUNT] Treningi " + (i + 1) + "/" + characters.length + ": " + label);
 
                     try {
-                        await this.switchCharacterForAccountAction(Number(char.id));
+                        await this.switchCharacterForAccountAction(
+                            Number(char.id),
+                            0
+                        );
+
+                        // Po pełnym a:2 dajemy klientowi WWW czas na
+                        // zsynchronizowanie aktywnej postaci przed a:8.
+                        await this.sleep(200);
+
                         const result =
                             await this.startMaxTrainingForCurrentCharacter(
                                 label
@@ -1558,8 +1571,15 @@
                         if (result === "started") started++;
                         else skipped++;
                     } catch (error) {
+                        if (this.isFatalAccountError(error)) {
+                            throw error;
+                        }
+
                         failed++;
                         console.warn("[SW Tool][ACCOUNT] Treningi — " + label + ":", error);
+                    } finally {
+                        // Nie przechodzimy od razu do kolejnego a:5/a:2.
+                        await this.sleep(200);
                     }
                 }
             } finally {
@@ -1717,6 +1737,10 @@
                 return false;
             }
 
+            // a:59/type:0 zostało już potwierdzone przez serwer. Dajemy
+            // klientowi WWW 100 ms przed właściwym atakiem type:1.
+            await this.sleep(100);
+
             const attack = await this.sendAndWait(
                 { a: 59, type: 1 },
                 59,
@@ -1745,12 +1769,27 @@
                     console.info("[SW Tool][ACCOUNT] Otchłań " + (i + 1) + "/" + characters.length + ": " + label);
 
                     try {
-                        await this.switchCharacterForAccountAction(Number(char.id));
+                        await this.switchCharacterForAccountAction(
+                            Number(char.id),
+                            0
+                        );
+
+                        // Ten sam bezpieczny rytm co w Arenie: po zmianie
+                        // postaci czekamy, aż oficjalny klient WWW ją przetworzy.
+                        await this.sleep(200);
+
                         if (await this.attackSoulAbyssForCurrentCharacter()) attacked++;
                         else cooldown++;
                     } catch (error) {
+                        if (this.isFatalAccountError(error)) {
+                            throw error;
+                        }
+
                         failed++;
                         console.warn("[SW Tool][ACCOUNT] Otchłań — " + label + ":", error);
+                    } finally {
+                        // 200 ms przed kolejną zmianą postaci.
+                        await this.sleep(200);
                     }
                 }
             } finally {
