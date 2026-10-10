@@ -80,6 +80,8 @@
             this.quickActionRunning = false;
             this.quickPanelButtons = [];
             this.quickPanelStatus = null;
+            this.roninCounter = 0;
+            this.roninTimers = [];
             this.trainingCaptchaWaiter = null;
             this.dailyRewardClaimStage = 0;
             this.dailyRewardClaimCharacterId = 0;
@@ -1097,6 +1099,425 @@
             }
         }
 
+        async waitForRoninDom(getter, description, timeoutMs = 5000) {
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                try {
+                    const value = getter();
+                    if (value) return value;
+                } catch (_) {
+                    // DOM instancji może być właśnie przebudowywany.
+                }
+
+                await this.sleep(50);
+            }
+
+            throw new Error(
+                "Ronin: nie znaleziono elementu: " + description + "."
+            );
+        }
+
+        roninPressKey(key) {
+            const normalized = String(key || "").toLowerCase();
+            const codes = {
+                w: ["KeyW", 87],
+                s: ["KeyS", 83],
+                a: ["KeyA", 65],
+                d: ["KeyD", 68],
+                q: ["KeyQ", 81],
+                e: ["KeyE", 69],
+                z: ["KeyZ", 90],
+                c: ["KeyC", 67],
+                f: ["KeyF", 70],
+                r: ["KeyR", 82],
+                x: ["KeyX", 88],
+                h: ["KeyH", 72]
+            };
+            const entry = codes[normalized];
+            if (!entry) {
+                throw new Error("Ronin: nieznany klawisz " + normalized + ".");
+            }
+
+            document.dispatchEvent(
+                new KeyboardEvent("keydown", {
+                    key: normalized,
+                    code: entry[0],
+                    keyCode: entry[1],
+                    which: entry[1],
+                    shiftKey: false,
+                    ctrlKey: false,
+                    altKey: false,
+                    metaKey: false,
+                    bubbles: true
+                })
+            );
+        }
+
+        roninTrackTimer(callback, delayMs) {
+            const timerId = setTimeout(() => {
+                this.roninTimers = this.roninTimers.filter(
+                    (id) => id !== timerId
+                );
+
+                if (!this.quickActionRunning) return;
+
+                try {
+                    callback();
+                } catch (error) {
+                    console.warn(
+                        "[SW Tool][RONIN] Zaplanowana akcja nie powiodła się:",
+                        error
+                    );
+                }
+            }, delayMs);
+
+            this.roninTimers.push(timerId);
+            return timerId;
+        }
+
+        clearRoninTimers() {
+            for (const timerId of this.roninTimers) {
+                clearTimeout(timerId);
+            }
+            this.roninTimers = [];
+        }
+
+        roninMove(count, direction) {
+            const total = Math.max(0, this._int(count));
+            for (let i = 0; i < total; i++) {
+                this.roninTrackTimer(
+                    () => this.roninPressKey(direction),
+                    i * 300
+                );
+            }
+        }
+
+        roninAttackNormal(count = 8) {
+            const total = Math.max(0, this._int(count));
+            for (let i = 0; i < total; i++) {
+                this.roninTrackTimer(
+                    () => this.roninPressKey("f"),
+                    i * 50
+                );
+            }
+        }
+
+        async roninQuestNext() {
+            const button = await this.waitForRoninDom(
+                () =>
+                    document.querySelector(
+                        ".quest_win .newBtn3"
+                    ),
+                "przycisk Dalej w queście",
+                3000
+            );
+            button.dispatchEvent(new MouseEvent("click", {
+                bubbles: true
+            }));
+        }
+
+        async roninQuestFight() {
+            const button = await this.waitForRoninDom(
+                () =>
+                    document.querySelector(
+                        ".quest_win .quest_btn"
+                    ),
+                "przycisk walki questa",
+                3000
+            );
+            button.dispatchEvent(new MouseEvent("click", {
+                bubbles: true
+            }));
+        }
+
+        async roninQuestH() {
+            const questWindow = await this.waitForRoninDom(
+                () => document.querySelector(".quest_win"),
+                "okno questa H",
+                3000
+            );
+
+            if (!String(questWindow.innerHTML || "").includes("klawisz H")) {
+                throw new Error(
+                    "Ronin: aktualny etap questa nie oczekuje klawisza H."
+                );
+            }
+
+            const counter =
+                questWindow.querySelector(".red [data-count][data-max]") ||
+                questWindow.querySelector("[data-count][data-max]");
+
+            if (!counter) {
+                throw new Error(
+                    "Ronin: nie znaleziono licznika akcji H."
+                );
+            }
+
+            let current = this._int(counter.getAttribute("data-count"));
+            const max = this._int(counter.getAttribute("data-max"));
+
+            while (current < max) {
+                current++;
+                this.roninPressKey("h");
+            }
+        }
+
+        roninCloseInfo() {
+            const close =
+                document.querySelector("#kom_con .close_koment");
+            if (close) {
+                close.dispatchEvent(new MouseEvent("click", {
+                    bubbles: true
+                }));
+            }
+        }
+
+        async enterRoninInstance() {
+            this.setQuickPanelStatus("Ronin: otwieranie instancji...");
+
+            const instanceMenu = await this.waitForRoninDom(
+                () => {
+                    const pages =
+                        document.getElementsByClassName("select_page");
+                    return pages.length > 28 ? pages[28] : null;
+                },
+                "zakładka Instancje"
+            );
+            instanceMenu.dispatchEvent(new MouseEvent("click", {
+                bubbles: true
+            }));
+
+            await this.sleep(250);
+
+            const roninOption = await this.waitForRoninDom(
+                () => {
+                    const list =
+                        document.getElementById("instance_list");
+                    if (!list) return null;
+                    const options =
+                        list.getElementsByClassName("option");
+                    return options.length > 1 ? options[1] : null;
+                },
+                "druga pozycja listy instancji (Ronin)"
+            );
+
+            console.info("[SW Tool][RONIN] Wybrana instancja:", {
+                text: String(roninOption.textContent || "").trim()
+            });
+
+            roninOption.dispatchEvent(new MouseEvent("click", {
+                bubbles: true
+            }));
+
+            await this.sleep(250);
+
+            const createRoom = await this.waitForRoninDom(
+                () =>
+                    document.querySelector(
+                        "#instance_view .newBtn[data-option='instance_create_room']"
+                    ),
+                "Utwórz pokój Ronina"
+            );
+            createRoom.dispatchEvent(new MouseEvent("click", {
+                bubbles: true
+            }));
+
+            await this.sleep(250);
+
+            const startRoom = await this.waitForRoninDom(
+                () =>
+                    document.querySelector(
+                        "#instance_view .newBtn[data-option='start_instance_room']"
+                    ),
+                "Start instancji Ronina"
+            );
+            startRoom.dispatchEvent(new MouseEvent("click", {
+                bubbles: true
+            }));
+
+            await this.sleep(250);
+
+            const enterButtons = await this.waitForRoninDom(
+                () => {
+                    const buttons = [
+                        ...document.querySelectorAll(
+                            "#instance_view .newBtn[data-option='enter_instance_room']"
+                        )
+                    ];
+                    return buttons.length > 0 ? buttons : null;
+                },
+                "Wejdź do instancji Ronina"
+            );
+
+            for (const button of enterButtons) {
+                button.dispatchEvent(new MouseEvent("click", {
+                    bubbles: true
+                }));
+                await this.sleep(250);
+            }
+
+            this.setQuickPanelStatus("Ronin: wejście na mapę...");
+            await this.sleep(1500);
+
+            const mapButton = await this.waitForRoninDom(
+                () => document.getElementById("map_link_btn"),
+                "przycisk mapy"
+            );
+            mapButton.dispatchEvent(new MouseEvent("click", {
+                bubbles: true
+            }));
+
+            await this.sleep(100);
+            this.roninCloseInfo();
+            await this.sleep(150);
+        }
+
+        async runRoninRoute() {
+            const unitDelay = async (units) => {
+                await this.sleep((this._int(units) + 1) * 300);
+            };
+
+            const waitSeconds = async (seconds) => {
+                await this.sleep(this._int(seconds) * 1000);
+            };
+
+            const key = (value) => this.roninPressKey(value);
+            const move = (count, direction) =>
+                this.roninMove(count, direction);
+            const attack = (count = 8) =>
+                this.roninAttackNormal(count);
+
+            this.setQuickPanelStatus("Ronin: wykonywanie trasy...");
+
+            key("x");
+
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); move(2, "e");
+            await unitDelay(2); move(12, "d");
+            await unitDelay(12); move(2, "e");
+            await unitDelay(2); key("x");
+            await unitDelay(1); await this.roninQuestH();
+            await unitDelay(5); key("x");
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); key("x");
+            await unitDelay(1); await this.roninQuestH();
+            await unitDelay(5); key("x");
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); move(2, "c");
+            await unitDelay(2); move(2, "d");
+            await unitDelay(2); move(2, "c");
+            await unitDelay(2); key("x");
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); move(1, "a");
+            await unitDelay(1); key("x");
+
+            this.setQuickPanelStatus("Ronin: oczekiwanie 31 s...");
+            await waitSeconds(31);
+
+            key("x");
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); move(1, "d");
+            await unitDelay(1); key("x");
+            await unitDelay(1); await this.roninQuestH();
+            await unitDelay(5); key("x");
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); await this.roninQuestFight();
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); move(3, "q");
+            await unitDelay(3); move(4, "w");
+            await unitDelay(4); move(7, "d");
+            await unitDelay(7); move(4, "c");
+            await unitDelay(4); move(1, "s");
+            await unitDelay(1); key("x");
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); move(2, "d");
+            await unitDelay(3); key("x");
+            await unitDelay(1); await this.roninQuestFight();
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); await this.roninQuestNext();
+
+            const evenRun = this.roninCounter % 2 === 0;
+            console.info("[SW Tool][RONIN] Wariant końcówki:", {
+                run: this.roninCounter + 1,
+                variant: evenRun ? "A" : "B"
+            });
+
+            if (evenRun) {
+                await unitDelay(1); attack(8);
+                await unitDelay(1); key("w");
+                await unitDelay(1); attack(8);
+                await unitDelay(1); key("w");
+                await unitDelay(1); attack(8);
+
+                for (let i = 0; i < 10; i++) {
+                    await unitDelay(1); key("w");
+                    await unitDelay(1); key("r");
+                }
+
+                await unitDelay(1); key("d");
+                await unitDelay(1); key("r");
+
+                for (let i = 0; i < 12; i++) {
+                    await unitDelay(1); key("s");
+                    await unitDelay(1); key("r");
+                }
+
+                await unitDelay(1); key("s");
+                await unitDelay(1); key("a");
+            } else {
+                await unitDelay(1); attack(8);
+                await unitDelay(1); key("s");
+                await unitDelay(1); attack(8);
+                await unitDelay(1); key("s");
+                await unitDelay(1); attack(8);
+
+                for (let i = 0; i < 7; i++) {
+                    await unitDelay(1); key("s");
+                    await unitDelay(1); key("r");
+                }
+
+                await unitDelay(1); key("d");
+                await unitDelay(1); key("r");
+
+                for (let i = 0; i < 10; i++) {
+                    await unitDelay(1); key("w");
+                    await unitDelay(1); key("r");
+                }
+
+                await unitDelay(1); key("a");
+            }
+
+            await unitDelay(1); key("x");
+            await unitDelay(1); await this.roninQuestNext();
+            await unitDelay(1); move(2, "d");
+            await unitDelay(2); await this.roninQuestNext();
+
+            this.roninCounter++;
+            await this.sleep(1000);
+        }
+
+        async runQuickRonin() {
+            this.clearRoninTimers();
+
+            try {
+                await this.enterRoninInstance();
+                await this.runRoninRoute();
+            } finally {
+                this.clearRoninTimers();
+            }
+
+            return {
+                status: "done",
+                run: this.roninCounter
+            };
+        }
+
         async runQuickAction(action) {
             if (
                 this.quickActionRunning ||
@@ -1194,6 +1615,19 @@
                     return;
                 }
 
+                if (action === "ronin") {
+                    this.setQuickPanelStatus("Quick Ronin...");
+                    const result = await this.runQuickRonin();
+
+                    this.setQuickPanelStatus(
+                        "Ronin wykonany. Próba #" +
+                        result.run +
+                        ".",
+                        "success"
+                    );
+                    return;
+                }
+
                 throw new Error(
                     "Nieznana szybka akcja: " + String(action)
                 );
@@ -1273,7 +1707,8 @@
                 ["training", "Quick Trening"],
                 ["arena", "Quick Arena"],
                 ["abyss", "Quick Otchłań"],
-                ["mission", "Quick Misje"]
+                ["mission", "Quick Misje"],
+                ["ronin", "Quick Ronin"]
             ];
 
             this.quickPanelButtons = [];
@@ -2788,7 +3223,8 @@
             training: () => BOT.runQuickAction("training"),
             arena: () => BOT.runQuickAction("arena"),
             abyss: () => BOT.runQuickAction("abyss"),
-            mission: () => BOT.runQuickAction("mission")
+            mission: () => BOT.runQuickAction("mission"),
+            ronin: () => BOT.runQuickAction("ronin")
         };
 
         GAME.socket.on("gr", (response) => {
