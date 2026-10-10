@@ -8,10 +8,10 @@ const isGameServerHost =
 
 const PAGE_SCRIPTS = isGameServerHost
   ? [
-      "js/contentScripts/menageCSS.js",
-      "js/contentScripts/menageStorage.js",
-      "js/contentScripts/mapSolver.js",
-      "js/contentScripts/main.js"
+      { path: "js/contentScripts/menageCSS.js" },
+      { path: "js/contentScripts/menageStorage.js" },
+      { path: "js/contentScripts/mapSolver.js", optional: true },
+      { path: "js/contentScripts/main.js" }
     ]
   : [];
 
@@ -39,8 +39,20 @@ function injectScript(path) {
 }
 
 async function injectPageScripts() {
-  for (const path of PAGE_SCRIPTS) {
-    await injectScript(path);
+  for (const entry of PAGE_SCRIPTS) {
+    try {
+      await injectScript(entry.path);
+    } catch (error) {
+      if (!entry.optional) {
+        throw error;
+      }
+
+      console.warn(
+        "[SW Tool][CONTENT] Opcjonalny moduł nie został wstrzyknięty:",
+        entry.path,
+        error
+      );
+    }
   }
 }
 
