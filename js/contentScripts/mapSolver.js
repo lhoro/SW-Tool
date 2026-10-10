@@ -15,7 +15,9 @@
             this.runId = 0;
 
             this.onMapClick = this.onMapClick.bind(this);
-            document.addEventListener("click", this.onMapClick, false);
+            // Capture: klient gry może zatrzymywać propagację kliknięcia
+            // wewnątrz mapy, więc solver musi zobaczyć je jako pierwszy.
+            document.addEventListener("click", this.onMapClick, true);
         }
 
         _int(value) {
