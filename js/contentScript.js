@@ -10,6 +10,7 @@ const PAGE_SCRIPTS = isGameServerHost
   ? [
       "js/contentScripts/menageCSS.js",
       "js/contentScripts/menageStorage.js",
+      "js/contentScripts/mapSolver.js",
       "js/contentScripts/main.js"
     ]
   : [];
