@@ -312,6 +312,14 @@
                 }
             }
 
+            if (
+                Array.isArray(response.timed) &&
+                this.currentCharacterSnapshot?.char_tables
+            ) {
+                this.currentCharacterSnapshot.char_tables.timed_actions =
+                    response.timed;
+            }
+
             if (action === 3 && error === 0) {
                 this.recordPortalsFromMapResponse(response);
             }
@@ -934,13 +942,6 @@
                 throw new Error("Solver mapy nie jest dostępny.");
             }
 
-            if (this.activeTimedActionsCount() > 0) {
-                return {
-                    status: "timed",
-                    message: "Trwa akcja czasowa."
-                };
-            }
-
             this.setQuickPanelStatus("Misje: sprawdzanie...");
             const status = await this.sendAndWait(
                 { a: 207, type: 0 },
@@ -1128,7 +1129,10 @@
                 if (action === "training") {
                     this.setQuickPanelStatus("Quick Trening...");
                     const result =
-                        await this.startMaxTrainingForCurrentCharacter(label);
+                        await this.startMaxTrainingForCurrentCharacter(
+                            label,
+                            { trustServerTimedState: true }
+                        );
 
                     if (result === "started") {
                         this.setQuickPanelStatus(
@@ -1148,13 +1152,6 @@
                 }
 
                 if (action === "arena") {
-                    if (this.activeTimedActionsCount() > 0) {
-                        this.setQuickPanelStatus(
-                            "Arena pominięta — trwa akcja czasowa."
-                        );
-                        return;
-                    }
-
                     this.setQuickPanelStatus("Quick Arena...");
                     const result =
                         await this.attackArenaForCurrentCharacter();
@@ -2161,9 +2158,19 @@
             });
         }
 
-        async startMaxTrainingForCurrentCharacter(characterName) {
+        async startMaxTrainingForCurrentCharacter(
+            characterName,
+            { trustServerTimedState = false } = {}
+        ) {
             const maxActions = this.snapshotBonusActive(2) ? 2 : 1;
-            if (this.activeTimedActionsCount() >= maxActions) {
+
+            // W operacjach całego konta snapshot po a:2 jest świeży, więc
+            // możemy oszczędzić request. W Quick akcjach klient WWW potrafi
+            // mieć przestarzałe timed_actions — wtedy pytamy serwer.
+            if (
+                !trustServerTimedState &&
+                this.activeTimedActionsCount() >= maxActions
+            ) {
                 return "timed";
             }
 
