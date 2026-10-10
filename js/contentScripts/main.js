@@ -2560,6 +2560,132 @@
             });
         }
 
+        async runAccountMissions() {
+            const characters = [...this.chars];
+            const originalId = Number(
+                GAME.char_id ||
+                this.lastCharacterId ||
+                this.currentCharacterId ||
+                0
+            );
+
+            let completed = 0;
+            let started = 0;
+            let continued = 0;
+            let skipped = 0;
+            let timedSkipped = 0;
+            let failed = 0;
+            let dailyClaimed = 0;
+
+            try {
+                for (let i = 0; i < characters.length; i++) {
+                    const char = characters[i];
+                    const label =
+                        char.name || ("#" + Number(char.id));
+
+                    console.info(
+                        "[SW Tool][ACCOUNT] Misje " +
+                        (i + 1) +
+                        "/" +
+                        characters.length +
+                        ": " +
+                        label
+                    );
+
+                    try {
+                        await this.switchCharacterForAccountAction(
+                            Number(char.id),
+                            0
+                        );
+
+                        // Ten sam settle co w pozostałych operacjach konta.
+                        await this.sleep(200);
+
+                        if (
+                            await this.claimDailyRewardForAccountAction(label)
+                        ) {
+                            dailyClaimed++;
+                        }
+
+                        // Po a:2 snapshot jest świeży, więc dla operacji całego
+                        // konta możemy bezpiecznie pominąć postać zajętą akcją
+                        // czasową zamiast próbować uruchamiać misję.
+                        if (this.activeTimedActionsCount() > 0) {
+                            skipped++;
+                            timedSkipped++;
+                            console.info(
+                                "[SW Tool][ACCOUNT] Misje — " +
+                                label +
+                                ": pominięto, trwa akcja czasowa."
+                            );
+                            continue;
+                        }
+
+                        const result =
+                            await this.runQuickMissionForCurrentCharacter();
+
+                        if (result?.status === "done") {
+                            completed++;
+
+                            if (result.started) {
+                                started++;
+                            } else {
+                                continued++;
+                            }
+
+                            console.info(
+                                "[SW Tool][ACCOUNT] Misje — " +
+                                label +
+                                ": " +
+                                result.message
+                            );
+                        } else {
+                            skipped++;
+
+                            console.info(
+                                "[SW Tool][ACCOUNT] Misje — " +
+                                label +
+                                ": " +
+                                (result?.message || "pominięto.")
+                            );
+                        }
+                    } catch (error) {
+                        if (this.isFatalAccountError(error)) {
+                            throw error;
+                        }
+
+                        failed++;
+                        console.warn(
+                            "[SW Tool][ACCOUNT] Misje — " +
+                            label +
+                            ":",
+                            error
+                        );
+                    } finally {
+                        this.stopNavigation(
+                            "koniec misji dla bieżącej postaci"
+                        );
+
+                        // Zostawiamy klientowi WWW czas przed kolejnym a:5/a:2.
+                        await this.sleep(200);
+                    }
+                }
+            } finally {
+                this.stopNavigation("koniec operacji misji konta");
+                await this.restoreAccountCharacter(originalId);
+            }
+
+            console.info("[SW Tool][ACCOUNT] Misje zakończone:", {
+                completed,
+                started,
+                continued,
+                skipped,
+                timedSkipped,
+                failed,
+                dailyClaimed
+            });
+        }
+
         startAccountOperation(action) {
             if (
                 action === "accountTournaments" &&
@@ -2592,7 +2718,8 @@
                 accountTournaments: () => this.runAccountTournaments(),
                 accountSoulAbyss: () => this.runAccountSoulAbyss(),
                 accountArenaPvp: () => this.runAccountArenaPvp(),
-                accountTrainings: () => this.runAccountTrainings()
+                accountTrainings: () => this.runAccountTrainings(),
+                accountMissions: () => this.runAccountMissions()
             };
             const runner = runners[action];
             if (!runner) {
