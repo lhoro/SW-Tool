@@ -1306,7 +1306,19 @@
                     button.style.background = "#30294a";
                 });
                 button.addEventListener("click", () => {
-                    this.runQuickAction(action);
+                    this.runQuickAction(action).catch((error) => {
+                        console.warn(
+                            "[SW Tool][QUICK] Nie można uruchomić akcji:",
+                            action,
+                            error
+                        );
+                        this.setQuickPanelStatus(
+                            error instanceof Error
+                                ? error.message
+                                : String(error),
+                            "error"
+                        );
+                    });
                 });
 
                 this.quickPanelButtons.push(button);
