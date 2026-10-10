@@ -1415,7 +1415,23 @@
                     if (this.responseWaiter === waiter) {
                         this.responseWaiter = null;
                     }
-                    reject(new Error("Timeout odpowiedzi serwera."));
+
+                    const expected = [...actions].join("/");
+                    const typeInfo =
+                        order.type !== undefined
+                            ? ", type=" + String(order.type)
+                            : "";
+
+                    reject(
+                        new Error(
+                            "Timeout odpowiedzi serwera (TX a=" +
+                            String(order.a) +
+                            typeInfo +
+                            ", oczekiwano a=" +
+                            expected +
+                            ")."
+                        )
+                    );
                 }, timeoutMs);
 
                 this.responseWaiter = waiter;
