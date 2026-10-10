@@ -21,6 +21,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const accAbyssBtn = document.getElementById("accAbyssBtn");
   const accArenaBtn = document.getElementById("accArenaBtn");
   const accTrainingsBtn = document.getElementById("accTrainingsBtn");
+  const accMissionsBtn = document.getElementById("accMissionsBtn");
 
   const accountQuickSwitch = document.getElementById("accountQuickSwitch");
   const accountsList = document.getElementById("accountsList");
@@ -410,6 +411,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       action: "accountTrainings",
       start: "Uruchamiam treningi na koncie...",
       success: "Treningi uruchomione."
+    },
+    {
+      button: accMissionsBtn,
+      action: "accountMissions",
+      start: "Uruchamiam misje na koncie...",
+      success: "Misje uruchomione."
     }
   ];
 
