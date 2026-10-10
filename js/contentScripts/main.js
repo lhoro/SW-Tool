@@ -85,6 +85,10 @@
             this.currentQuickOptionsCharacterId = 0;
             this.currentQuickOptionsFresh = false;
             this.config = { ...DEFAULT_CONFIG };
+            this.mapSolver =
+                typeof window.SWMapClickSolver === "function"
+                    ? new window.SWMapClickSolver(this)
+                    : null;
         }
 
         getLocalData() {
@@ -262,6 +266,8 @@
 
         handleGameResponse(response) {
             if (!response || typeof response !== "object") return;
+
+            this.mapSolver?.handleResponse(response);
 
             const action = Number(response.a);
             const error = Number(response.e || 0);
@@ -838,6 +844,24 @@
 
         sleep(ms) {
             return new Promise((resolve) => setTimeout(resolve, ms));
+        }
+
+        navigateTo(x, y, options = {}) {
+            if (!this.mapSolver) {
+                return Promise.reject(
+                    new Error("Solver mapy nie został zainicjalizowany.")
+                );
+            }
+
+            return this.mapSolver.navigateTo(x, y, options);
+        }
+
+        stopNavigation(reason = "manual") {
+            this.mapSolver?.stop(reason);
+        }
+
+        mapNavigationState() {
+            return this.mapSolver?.debugState() || null;
         }
 
         isFatalAccountError(error) {
@@ -2101,6 +2125,14 @@
             get: () => BOT.getPortalMap(),
             export: () => JSON.stringify(BOT.getPortalMap(), null, 2),
             clear: () => BOT.clearPortalMap()
+        };
+
+        // Wspólny interfejs solvera mapy. Później automat misji będzie
+        // korzystał z tego samego goTo(x, y), co ręczny klik na mapie.
+        window.SW_TOOL_PATH = {
+            goTo: (x, y, options = {}) => BOT.navigateTo(x, y, options),
+            stop: (reason = "debug") => BOT.stopNavigation(reason),
+            state: () => BOT.mapNavigationState()
         };
 
         GAME.socket.on("gr", (response) => {
