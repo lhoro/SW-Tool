@@ -90,6 +90,10 @@ body.booting .popup {
   min-height: 34px;
 }
 
+#accMissionsBtn {
+  grid-column: 1 / -1;
+}
+
 .settings-btn {
   position: absolute;
   right: 0;
