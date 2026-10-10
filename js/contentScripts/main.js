@@ -81,6 +81,9 @@
             this.dailyRewardClaimStage = 0;
             this.dailyRewardClaimCharacterId = 0;
             this.dailyRewardClaimTimeout = null;
+            this.currentQuickOptions = null;
+            this.currentQuickOptionsCharacterId = 0;
+            this.currentQuickOptionsFresh = false;
             this.config = { ...DEFAULT_CONFIG };
         }
 
@@ -288,6 +291,15 @@
                     this.currentCharacterIndex = this.chars.findIndex(
                         (char) => Number(char.id) === responseCharId
                     );
+
+                    if (
+                        Number(this.currentQuickOptionsCharacterId) !==
+                        responseCharId
+                    ) {
+                        this.currentQuickOptions = null;
+                        this.currentQuickOptionsCharacterId = responseCharId;
+                        this.currentQuickOptionsFresh = false;
+                    }
                 }
             }
 
@@ -300,6 +312,16 @@
                 response.quick_opts &&
                 typeof response.quick_opts === "object"
             ) {
+                const quickCharacterId = Number(
+                    GAME.char_id || this.currentCharacterId || 0
+                );
+
+                this.currentQuickOptions = {
+                    ...response.quick_opts
+                };
+                this.currentQuickOptionsCharacterId = quickCharacterId;
+                this.currentQuickOptionsFresh = quickCharacterId > 0;
+
                 const dailyAvailable = this._enabled(
                     response.quick_opts.online_reward
                 );
@@ -727,6 +749,15 @@
                 GAME.quick_opts.online_reward = 0;
             }
 
+            if (
+                this.currentQuickOptions &&
+                typeof this.currentQuickOptions === "object" &&
+                Number(this.currentQuickOptionsCharacterId) === Number(characterId)
+            ) {
+                this.currentQuickOptions.online_reward = 0;
+                this.currentQuickOptionsFresh = true;
+            }
+
             console.info("[SW Tool][PAGE] Nagroda dzienna odebrana:", {
                 charId: characterId,
                 source
@@ -987,6 +1018,9 @@
             }
 
             this.currentCharacterSnapshot = null;
+            this.currentQuickOptions = null;
+            this.currentQuickOptionsCharacterId = targetId;
+            this.currentQuickOptionsFresh = false;
 
             const response = await this.sendAndWait(
                 { a: 2, char_id: targetId },
@@ -1029,6 +1063,164 @@
         characterData() {
             const data = this.currentCharacterSnapshot?.char_data;
             return data && typeof data === "object" ? data : null;
+        }
+
+        async waitForAccountQuickOptions(characterId, timeoutMs = 1500) {
+            const targetId = Number(characterId || 0);
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                if (
+                    this.currentQuickOptionsFresh &&
+                    Number(this.currentQuickOptionsCharacterId) === targetId &&
+                    this.currentQuickOptions &&
+                    typeof this.currentQuickOptions === "object"
+                ) {
+                    return this.currentQuickOptions;
+                }
+
+                await this.sleep(25);
+            }
+
+            // Fallback dla sytuacji, gdy oficjalny klient WWW zdążył już
+            // zaktualizować GAME.quick_opts, ale a:607 nie został przechwycony.
+            if (
+                Number(GAME.char_id || 0) === targetId &&
+                GAME.quick_opts &&
+                typeof GAME.quick_opts === "object"
+            ) {
+                this.currentQuickOptions = {
+                    ...GAME.quick_opts
+                };
+                this.currentQuickOptionsCharacterId = targetId;
+                this.currentQuickOptionsFresh = true;
+                return this.currentQuickOptions;
+            }
+
+            return null;
+        }
+
+        async claimDailyRewardForAccountAction(characterName) {
+            if (!this.config.dailyReward) return false;
+
+            const characterId = Number(
+                GAME.char_id || this.currentCharacterId || 0
+            );
+            if (characterId <= 0) return false;
+
+            const quickOptions = await this.waitForAccountQuickOptions(
+                characterId
+            );
+
+            if (
+                !quickOptions ||
+                !this._enabled(quickOptions.online_reward)
+            ) {
+                return false;
+            }
+
+            try {
+                console.info(
+                    "[SW Tool][ACCOUNT] Nagroda dzienna — odbieranie:",
+                    {
+                        character: characterName,
+                        charId: characterId
+                    }
+                );
+
+                const data = await this.sendAndWait(
+                    { a: 26, type: 0 },
+                    [26, 999],
+                    (event) =>
+                        this._int(event.e) !== 0 ||
+                        (
+                            this._int(event.a) === 26 &&
+                            Array.isArray(event.daily_data)
+                        ),
+                    15000
+                );
+
+                if (this._int(data.e) !== 0) {
+                    throw new Error(
+                        "Serwer odrzucił pobranie danych nagrody dziennej."
+                    );
+                }
+
+                if (!Array.isArray(data.daily_data)) {
+                    throw new Error(
+                        "Serwer nie zwrócił danych nagrody dziennej."
+                    );
+                }
+
+                await this.sleep(100);
+
+                const claimed = await this.sendAndWait(
+                    { a: 26, type: 1 },
+                    [26, 607, 999],
+                    (event) =>
+                        this._int(event.e) !== 0 ||
+                        this._int(event.a) === 26 ||
+                        (
+                            this._int(event.a) === 607 &&
+                            event.quick_opts &&
+                            typeof event.quick_opts === "object" &&
+                            !this._enabled(event.quick_opts.online_reward)
+                        ),
+                    15000
+                );
+
+                if (this._int(claimed.e) !== 0) {
+                    throw new Error(
+                        "Serwer odrzucił odbiór nagrody dziennej."
+                    );
+                }
+
+                if (
+                    GAME.quick_opts &&
+                    typeof GAME.quick_opts === "object"
+                ) {
+                    GAME.quick_opts.online_reward = 0;
+                }
+
+                if (
+                    this.currentQuickOptions &&
+                    typeof this.currentQuickOptions === "object" &&
+                    Number(this.currentQuickOptionsCharacterId) === characterId
+                ) {
+                    this.currentQuickOptions.online_reward = 0;
+                    this.currentQuickOptionsFresh = true;
+                }
+
+                setTimeout(() => {
+                    $("#daily_reward").fadeOut();
+
+                    if (typeof kom_clear === "function") {
+                        kom_clear();
+                    }
+                }, 400);
+
+                console.info(
+                    "[SW Tool][ACCOUNT] Nagroda dzienna odebrana:",
+                    {
+                        character: characterName,
+                        charId: characterId
+                    }
+                );
+
+                await this.sleep(100);
+                return true;
+            } catch (error) {
+                if (this.isFatalAccountError(error)) {
+                    throw error;
+                }
+
+                console.warn(
+                    "[SW Tool][ACCOUNT] Nagroda dzienna — " +
+                    characterName + ":",
+                    error
+                );
+                return false;
+            }
         }
 
         snapshotBonusActive(bonusId) {
