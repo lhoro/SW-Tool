@@ -93,6 +93,8 @@
             this.roninFinishedAt = 0;
             this.currentHQuest = null;
             this.acceleratedHPending = false;
+            this.currentQuestMove = null;
+            this.questMoveVersion = 0;
             this.trainingCaptchaWaiter = null;
             this.dailyRewardClaimStage = 0;
             this.dailyRewardClaimCharacterId = 0;
@@ -372,6 +374,7 @@
             }
 
             if (action === 22) {
+                this.handleQuestMoveResponse(response);
                 this.handleHQuestResponse(response);
             }
 
@@ -1271,6 +1274,153 @@
             }));
         }
 
+        handleQuestMoveResponse(response) {
+            if (
+                !response ||
+                typeof response !== "object" ||
+                !Object.prototype.hasOwnProperty.call(
+                    response,
+                    "quest_move"
+                )
+            ) {
+                return;
+            }
+
+            this.questMoveVersion++;
+
+            const move = response.quest_move;
+            if (!move || typeof move !== "object") {
+                this.currentQuestMove = null;
+                return;
+            }
+
+            const qbId = this._int(move.qb_id);
+            const locationId = this._int(move.loc);
+            const x = this._int(move.x);
+            const y = this._int(move.y);
+
+            // Końcowy komunikat questa może zawierać tylko qb_id bez celu.
+            if (
+                qbId <= 0 ||
+                locationId <= 0 ||
+                x <= 0 ||
+                y <= 0
+            ) {
+                this.currentQuestMove = null;
+                console.info("[SW Tool][QUEST] Cel ruchu wyczyszczony.", {
+                    qbId,
+                    version: this.questMoveVersion
+                });
+                return;
+            }
+
+            this.currentQuestMove = {
+                qbId,
+                locationId,
+                x,
+                y,
+                version: this.questMoveVersion,
+                receivedAt: Date.now()
+            };
+
+            console.info("[SW Tool][QUEST] Nowy cel ruchu:", {
+                ...this.currentQuestMove
+            });
+        }
+
+        async waitForQuestMove(
+            qbId,
+            afterVersion = 0,
+            timeoutMs = 4000
+        ) {
+            const targetQbId = this._int(qbId);
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const move = this.currentQuestMove;
+
+                if (
+                    move &&
+                    this._int(move.qbId) === targetQbId &&
+                    this._int(move.version) > this._int(afterVersion) &&
+                    this._int(move.locationId) > 0 &&
+                    this._int(move.x) > 0 &&
+                    this._int(move.y) > 0
+                ) {
+                    return move;
+                }
+
+                await this.sleep(25);
+            }
+
+            return null;
+        }
+
+        async navigateToRoninQuestMove(
+            afterVersion,
+            fallback = null,
+            label = ""
+        ) {
+            const RONIN_QB_ID = 122739;
+
+            const move = await this.waitForQuestMove(
+                RONIN_QB_ID,
+                afterVersion,
+                4000
+            );
+
+            if (!move) {
+                console.warn(
+                    "[SW Tool][RONIN] Brak quest_move — używam starej trasy.",
+                    { afterVersion, label }
+                );
+
+                if (typeof fallback === "function") {
+                    await fallback();
+                    return null;
+                }
+
+                throw new Error(
+                    "Ronin: serwer nie zwrócił celu quest_move."
+                );
+            }
+
+            if (!this.mapSolver) {
+                throw new Error(
+                    "Ronin: solver mapy nie jest dostępny."
+                );
+            }
+
+            this.setQuickPanelStatus(
+                "Ronin: dojście do celu" +
+                (label ? " (" + label + ")" : "") +
+                " X:" +
+                move.x +
+                " Y:" +
+                move.y +
+                "..."
+            );
+
+            console.info("[SW Tool][RONIN] Solver do quest_move:", {
+                label,
+                ...move
+            });
+
+            await this.mapSolver.navigateToLocation(
+                move.locationId,
+                move.x,
+                move.y,
+                {
+                    source: "ronin-quest",
+                    allowBusy: true
+                }
+            );
+
+            // Krótki settle po osiągnięciu pola, zanim otworzymy quest/X.
+            await this.sleep(100);
+            return move;
+        }
+
         handleHQuestResponse(response) {
             if (!response || typeof response !== "object") return;
 
@@ -1762,52 +1912,101 @@
 
             key("x");
 
-            await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); move(2, "e");
-            await unitDelay(2); move(12, "d");
-            await unitDelay(12); move(2, "e");
-            await unitDelay(2); key("x");
+            await unitDelay(1);
+            let moveVersion = this.questMoveVersion;
+            await this.roninQuestNext();
+            await this.navigateToRoninQuestMove(
+                moveVersion,
+                async () => {
+                    await unitDelay(1); move(2, "e");
+                    await unitDelay(2); move(12, "d");
+                    await unitDelay(12); move(2, "e");
+                    await unitDelay(2);
+                },
+                "1"
+            );
+            key("x");
             await unitDelay(1); await this.roninQuestH();
             await unitDelay(5); key("x");
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); key("x");
             await unitDelay(1); await this.roninQuestH();
             await unitDelay(5); key("x");
+            moveVersion = this.questMoveVersion;
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); move(2, "c");
-            await unitDelay(2); move(2, "d");
-            await unitDelay(2); move(2, "c");
-            await unitDelay(2); key("x");
+            await this.navigateToRoninQuestMove(
+                moveVersion,
+                async () => {
+                    await unitDelay(1); move(2, "c");
+                    await unitDelay(2); move(2, "d");
+                    await unitDelay(2); move(2, "c");
+                    await unitDelay(2);
+                },
+                "2"
+            );
+            key("x");
+            moveVersion = this.questMoveVersion;
             await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); move(1, "a");
-            await unitDelay(1); key("x");
+            await this.navigateToRoninQuestMove(
+                moveVersion,
+                async () => {
+                    await unitDelay(1); move(1, "a");
+                    await unitDelay(1);
+                },
+                "3"
+            );
+            key("x");
 
             this.setQuickPanelStatus("Ronin: oczekiwanie 31 s...");
             await waitSeconds(31);
 
             key("x");
+            moveVersion = this.questMoveVersion;
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); move(1, "d");
-            await unitDelay(1); key("x");
+            await this.navigateToRoninQuestMove(
+                moveVersion,
+                async () => {
+                    await unitDelay(1); move(1, "d");
+                    await unitDelay(1);
+                },
+                "4"
+            );
+            key("x");
             await unitDelay(1); await this.roninQuestH();
             await unitDelay(5); key("x");
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestFight();
+            moveVersion = this.questMoveVersion;
             await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); move(3, "q");
-            await unitDelay(3); move(4, "w");
-            await unitDelay(4); move(7, "d");
-            await unitDelay(7); move(4, "c");
-            await unitDelay(4); move(1, "s");
-            await unitDelay(1); key("x");
+            await this.navigateToRoninQuestMove(
+                moveVersion,
+                async () => {
+                    await unitDelay(1); move(3, "q");
+                    await unitDelay(3); move(4, "w");
+                    await unitDelay(4); move(7, "d");
+                    await unitDelay(7); move(4, "c");
+                    await unitDelay(4); move(1, "s");
+                    await unitDelay(1);
+                },
+                "5"
+            );
+            key("x");
+            moveVersion = this.questMoveVersion;
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); move(2, "d");
-            await unitDelay(3); key("x");
+            await this.navigateToRoninQuestMove(
+                moveVersion,
+                async () => {
+                    await unitDelay(1); move(2, "d");
+                    await unitDelay(3);
+                },
+                "6"
+            );
+            key("x");
             await unitDelay(1); await this.roninQuestFight();
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
@@ -1864,9 +2063,17 @@
             }
 
             await unitDelay(1); key("x");
+            moveVersion = this.questMoveVersion;
             await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); move(2, "d");
-            await unitDelay(2); await this.roninQuestNext();
+            await this.navigateToRoninQuestMove(
+                moveVersion,
+                async () => {
+                    await unitDelay(1); move(2, "d");
+                    await unitDelay(2);
+                },
+                "7"
+            );
+            await this.roninQuestNext();
 
             this.roninCounter++;
             await this.sleep(1000);
