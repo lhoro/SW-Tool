@@ -28,6 +28,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const accArenaBtn = document.getElementById("accArenaBtn");
   const accTrainingsBtn = document.getElementById("accTrainingsBtn");
   const accMissionsBtn = document.getElementById("accMissionsBtn");
+  const accRoninBtn = document.getElementById("accRoninBtn");
 
   const accountQuickSwitch = document.getElementById("accountQuickSwitch");
   const accountsList = document.getElementById("accountsList");
@@ -441,6 +442,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       action: "accountMissions",
       start: "Uruchamiam misje na koncie...",
       success: "Misje uruchomione."
+    },
+    {
+      button: accRoninBtn,
+      action: "accountRonin",
+      start: "Uruchamiam Ronina na całym koncie...",
+      success: "Ronin uruchomiony na koncie."
     }
   ];
 
