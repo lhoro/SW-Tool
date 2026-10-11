@@ -102,6 +102,7 @@
             this.lastConsumedQuestMoveVersion = 0;
             this.roninQuestId = 0;
             this.improvedXPending = false;
+            this.improvedXHeld = false;
             this.trainingCaptchaWaiter = null;
             this.dailyRewardClaimStage = 0;
             this.dailyRewardClaimCharacterId = 0;
@@ -1389,7 +1390,7 @@
             return null;
         }
 
-        async runImprovedXFromUserKey() {
+        runImprovedXFromUserKey(event = null) {
             if (
                 this.config.improvedX !== true ||
                 this.improvedXPending ||
@@ -1400,31 +1401,36 @@
                 return false;
             }
 
+            // Sprawdzamy stan PRZED natywną obsługą X przez grę.
+            // Dzięki temu X, które dopiero otwiera okno questa, nie może
+            // w tym samym naciśnięciu automatycznie przejść do następnego
+            // etapu.
+            const actions = this.improvedXQuestActions();
+
+            if (actions.length > 1) {
+                console.info(
+                    "[SW Tool][X] Wiele opcji questa — wybór pozostawiony graczowi.",
+                    { count: actions.length }
+                );
+                return false;
+            }
+
+            if (actions.length !== 1) {
+                // Brak istniejącej akcji: przepuszczamy normalne X do gry.
+                // Jeśli otworzy ono quest, użytkownik musi nacisnąć X ponownie.
+                return false;
+            }
+
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+            }
+
             this.improvedXPending = true;
 
             try {
-                // Normalne X najpierw obsługuje klient gry. Nie wysyłamy
-                // dodatkowego requestu do serwera tylko po to, aby poznać
-                // akcję — sprawdzamy wyłącznie wyrenderowane przyciski.
-                await this.sleep(30);
-
-                const action = await this.waitForSingleQuestAction(
-                    700,
-                    { failOnMultiple: false }
-                );
-
-                if (!action) {
-                    const count = this.improvedXQuestActions().length;
-                    if (count > 1) {
-                        console.info(
-                            "[SW Tool][X] Wiele opcji questa — wybór pozostawiony graczowi.",
-                            { count }
-                        );
-                    }
-                    return false;
-                }
-
-                this.clickQuestAction(action, "improved-x");
+                this.clickQuestAction(actions[0], "improved-x");
                 return true;
             } finally {
                 this.improvedXPending = false;
@@ -4078,7 +4084,7 @@
         }, 500);
 
         window.addEventListener("keydown", (event) => {
-            if (!event.isTrusted || event.repeat) {
+            if (!event.isTrusted) {
                 return;
             }
 
@@ -4095,20 +4101,38 @@
             const key = String(event.key || "").toLowerCase();
 
             if (key === "x") {
-                // Nie zatrzymujemy natywnego X. Klient gry wykonuje swoją
-                // interakcję, a Ulepszony X tylko uzupełnia ją o jedyną
-                // dostępną akcję questa.
-                BOT.runImprovedXFromUserKey().catch((error) => {
-                    console.warn(
-                        "[SW Tool][X] Ulepszony X nie powiódł się:",
-                        error
-                    );
-                });
+                if (BOT.config.improvedX === true) {
+                    // Przytrzymane X nie może generować kolejnych interakcji
+                    // w kliencie gry. Jedno puszczenie klawisza odblokowuje
+                    // dopiero następne świadome naciśnięcie.
+                    if (BOT.improvedXHeld || event.repeat) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.stopImmediatePropagation();
+                        return;
+                    }
+
+                    BOT.improvedXHeld = true;
+                    BOT.runImprovedXFromUserKey(event);
+                }
+                return;
+            }
+
+            if (event.repeat) {
                 return;
             }
 
             if (key === "h") {
                 BOT.accelerateHFromUserKey(event);
+            }
+        }, true);
+
+        window.addEventListener("keyup", (event) => {
+            if (
+                event.isTrusted &&
+                String(event.key || "").toLowerCase() === "x"
+            ) {
+                BOT.improvedXHeld = false;
             }
         }, true);
 
