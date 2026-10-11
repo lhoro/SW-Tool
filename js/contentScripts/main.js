@@ -1796,16 +1796,14 @@
                 state.count < state.max &&
                 mobsLeft > 0
             ) {
-                const remaining = state.max - state.count;
                 const multiAvailable =
                     Array.isArray(field.multiFight) &&
                     field.multiFight.includes(0);
 
-                // Nie zabijamy więcej niż wymaga quest. Jeżeli na polu
-                // jest więcej mobów niż zostało do celu, kończymy singlami.
-                const useMulti =
-                    multiAvailable &&
-                    mobsLeft <= remaining;
+                // Jeżeli multiwalka jest dostępna, używamy jej zawsze,
+                // nawet gdy zabije więcej mobów niż zostało do celu questa.
+                // Ogranicza to liczbę requestów do serwera.
+                const useMulti = multiAvailable;
 
                 const result = await this.roninMobFightOnce({
                     questId: state.questId,
