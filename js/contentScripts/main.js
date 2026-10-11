@@ -4,7 +4,8 @@
         dailyReward: true,
         saveTuts: true,
         hideReports: false,
-        mapClickMovement: true
+        mapClickMovement: true,
+        acceleratedH: false
     });
 
     let BOT = null;
@@ -25,7 +26,10 @@
                 : DEFAULT_CONFIG.hideReports,
             mapClickMovement: typeof source.mapClickMovement === "boolean"
                 ? source.mapClickMovement
-                : DEFAULT_CONFIG.mapClickMovement
+                : DEFAULT_CONFIG.mapClickMovement,
+            acceleratedH: typeof source.acceleratedH === "boolean"
+                ? source.acceleratedH
+                : DEFAULT_CONFIG.acceleratedH
         };
     };
 
@@ -1246,6 +1250,67 @@
             button.dispatchEvent(new MouseEvent("click", {
                 bubbles: true
             }));
+        }
+
+        acceleratedHCount() {
+            if (this.config.acceleratedH !== true) {
+                return 0;
+            }
+
+            const questWindow = document.querySelector(".quest_win");
+            if (!questWindow) {
+                return 0;
+            }
+
+            if (
+                !String(questWindow.innerHTML || "").includes("klawisz H")
+            ) {
+                return 0;
+            }
+
+            const counter =
+                questWindow.querySelector(".red [data-count][data-max]") ||
+                questWindow.querySelector("[data-count][data-max]");
+
+            if (!counter) {
+                return 0;
+            }
+
+            const current = this._int(
+                counter.getAttribute("data-count")
+            );
+            const max = this._int(
+                counter.getAttribute("data-max")
+            );
+
+            if (max <= current) {
+                return 0;
+            }
+
+            return max - current;
+        }
+
+        accelerateHFromUserKey() {
+            const missing = this.acceleratedHCount();
+
+            // Fizyczne H, które uruchomiło tę funkcję, samo wykona jedną
+            // akcję gry. Dodajemy wyłącznie pozostałe n-1.
+            const extra = Math.max(0, missing - 1);
+
+            if (extra <= 0) {
+                return false;
+            }
+
+            console.info("[SW Tool][H] Przyśpieszone H:", {
+                missing,
+                extra
+            });
+
+            for (let i = 0; i < extra; i++) {
+                this.roninPressKey("h");
+            }
+
+            return true;
         }
 
         async roninQuestH() {
@@ -3383,6 +3448,28 @@
         setInterval(() => {
             BOT.updateID();
         }, 500);
+
+        window.addEventListener("keydown", (event) => {
+            if (
+                !event.isTrusted ||
+                event.repeat ||
+                String(event.key || "").toLowerCase() !== "h"
+            ) {
+                return;
+            }
+
+            const target = event.target;
+            if (
+                target instanceof Element &&
+                target.closest(
+                    "input,textarea,select,[contenteditable='true']"
+                )
+            ) {
+                return;
+            }
+
+            BOT.accelerateHFromUserKey();
+        }, true);
 
         $(document).keydown((event) => {
             if (
