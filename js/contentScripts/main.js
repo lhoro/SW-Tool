@@ -97,6 +97,7 @@
             this.roninFinishedAt = 0;
             this.currentHQuest = null;
             this.currentHQuestStep = null;
+            this.currentHTracked = null;
             this.hTrackedVersion = 0;
             this.acceleratedHPending = false;
             this.currentQuestMove = null;
@@ -1871,6 +1872,8 @@
             const qStep = response.q_step;
             const want = qStep?.want;
 
+            // q_step definiuje aktywny etap H, ale nie jest źródłem prawdy
+            // dla licznika przy przejściu między etapami.
             if (qStep && typeof qStep === "object") {
                 if (
                     !want ||
@@ -1879,6 +1882,7 @@
                 ) {
                     this.currentHQuest = null;
                     this.currentHQuestStep = null;
+                    this.currentHTracked = null;
                     this.acceleratedHPending = false;
                     return;
                 }
@@ -1893,26 +1897,34 @@
                     this.currentHQuestStep = {
                         id,
                         max,
-                        isMet: Boolean(want.is_met),
-                        trackedVersionAtStep: this.hTrackedVersion
+                        isMet: Boolean(want.is_met)
                     };
 
-                    this.currentHQuest = {
-                        id,
-                        count,
-                        max,
-                        isMet: Boolean(want.is_met),
-                        source: "q_step"
-                    };
+                    const tracked = this.currentHTracked;
+                    const trackedMatches =
+                        tracked &&
+                        this._int(tracked.id) === id &&
+                        this._int(tracked.max) === max;
+
+                    this.currentHQuest = trackedMatches
+                        ? { ...tracked }
+                        : {
+                            id,
+                            count,
+                            max,
+                            isMet: Boolean(want.is_met),
+                            source: "q_step"
+                        };
 
                     this.acceleratedHPending = false;
                 }
             }
 
+            // tracked[] jest autorytatywnym źródłem licznika H.
             if (Array.isArray(response.tracked)) {
                 const expectedId = this._int(
                     this.currentHQuestStep?.id ||
-                    this.currentHQuest?.id ||
+                    this.currentHTracked?.id ||
                     this.roninQuestId
                 );
 
@@ -1943,7 +1955,7 @@
                     if (id > 0 && max > 0) {
                         this.hTrackedVersion++;
 
-                        this.currentHQuest = {
+                        this.currentHTracked = {
                             id,
                             count,
                             max,
@@ -1952,11 +1964,15 @@
                             trackedVersion: this.hTrackedVersion
                         };
 
+                        this.currentHQuest = {
+                            ...this.currentHTracked
+                        };
+
                         this.acceleratedHPending = false;
 
                         console.info(
                             "[SW Tool][H] Stan z tracked:",
-                            this.currentHQuest
+                            this.currentHTracked
                         );
                     }
                 }
@@ -1967,16 +1983,21 @@
 
             if (
                 trackId > 0 &&
-                this.currentHQuest &&
-                trackId === this.currentHQuest.id
+                this.currentHTracked &&
+                trackId === this.currentHTracked.id
             ) {
-                this.currentHQuest.count = Math.max(
-                    this.currentHQuest.count,
+                this.currentHTracked.count = Math.max(
+                    this.currentHTracked.count,
                     newAmount
                 );
-                this.currentHQuest.isMet =
-                    this.currentHQuest.count >=
-                    this.currentHQuest.max;
+                this.currentHTracked.isMet =
+                    this.currentHTracked.count >=
+                    this.currentHTracked.max;
+
+                this.currentHQuest = {
+                    ...this.currentHTracked
+                };
+
                 this.acceleratedHPending = false;
                 return;
             }
@@ -1987,16 +2008,21 @@
 
             if (
                 handlerId > 0 &&
-                this.currentHQuest &&
-                handlerId === this.currentHQuest.id
+                this.currentHTracked &&
+                handlerId === this.currentHTracked.id
             ) {
-                this.currentHQuest.count = Math.max(
-                    this.currentHQuest.count,
+                this.currentHTracked.count = Math.max(
+                    this.currentHTracked.count,
                     handlerAmount
                 );
-                this.currentHQuest.isMet =
-                    this.currentHQuest.count >=
-                    this.currentHQuest.max;
+                this.currentHTracked.isMet =
+                    this.currentHTracked.count >=
+                    this.currentHTracked.max;
+
+                this.currentHQuest = {
+                    ...this.currentHTracked
+                };
+
                 this.acceleratedHPending = false;
                 return;
             }
@@ -2137,12 +2163,11 @@
 
             while (Date.now() - startedAt < 4000) {
                 const activeStep = this.currentHQuestStep;
-                const tracked = this.currentHQuest;
+                const tracked = this.currentHTracked;
 
                 if (
                     activeStep &&
                     tracked &&
-                    tracked.source === "tracked" &&
                     this._int(tracked.id) === this._int(activeStep.id) &&
                     this._int(tracked.max) === this._int(activeStep.max) &&
                     !tracked.isMet &&
@@ -2155,12 +2180,11 @@
             }
 
             const activeStep = this.currentHQuestStep;
-            const quest = this.currentHQuest;
+            const quest = this.currentHTracked;
 
             if (
                 !activeStep ||
                 !quest ||
-                quest.source !== "tracked" ||
                 this._int(quest.id) !== this._int(activeStep.id) ||
                 this._int(quest.max) !== this._int(activeStep.max) ||
                 quest.isMet ||
@@ -2170,6 +2194,9 @@
                     "Ronin: brak zsynchronizowanego trackera aktywnego kroku H."
                 );
             }
+
+            // sendHQuestCount korzysta ze wspólnego stanu H.
+            this.currentHQuest = { ...quest };
 
             const missing = quest.max - quest.count;
             await this.sendHQuestCount(
