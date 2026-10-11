@@ -1841,6 +1841,78 @@
             return state;
         }
 
+        async prepareRoninMobCombat(maxTransitions = 6) {
+            for (let i = 0; i < maxTransitions; i++) {
+                const pendingMove = this.currentQuestMove;
+
+                if (
+                    pendingMove &&
+                    this._int(pendingMove.version) >
+                        this._int(this.lastConsumedQuestMoveVersion) &&
+                    this._int(pendingMove.locationId) === 193
+                ) {
+                    throw new Error(
+                        "Ronin: pojawił się quest_move przed etapem przeciwników."
+                    );
+                }
+
+                let step = this.currentRoninQuestStep;
+                if (
+                    !step ||
+                    typeof step !== "object" ||
+                    this._int(step.qb_id) !==
+                        this._int(this.roninQuestId)
+                ) {
+                    step = await this.openRoninQuestStep();
+                }
+
+                const want = step?.want;
+                const wantType = this._int(want?.type);
+                const isMet = Boolean(want?.is_met);
+
+                if (
+                    want &&
+                    typeof want === "object" &&
+                    wantType === 1 &&
+                    !isMet
+                ) {
+                    console.info(
+                        "[SW Tool][RONIN] Etap przeciwników gotowy.",
+                        {
+                            qbId: this._int(step.qb_id),
+                            count: this._int(want.count),
+                            max: this._int(
+                                want.maxv || want.amount
+                            ),
+                            transitions: i
+                        }
+                    );
+                    return step;
+                }
+
+                if (
+                    want &&
+                    typeof want === "object" &&
+                    !isMet
+                ) {
+                    throw new Error(
+                        "Ronin: przed mobami pojawił się nieoczekiwany warunek questa (type " +
+                        wantType +
+                        ")."
+                    );
+                }
+
+                // want:false albo zaliczony poprzedni warunek = zwykły dialog.
+                await this.roninQuestNext();
+            }
+
+            throw new Error(
+                "Ronin: nie udało się dojść do etapu przeciwników po " +
+                maxTransitions +
+                " przejściach dialogu."
+            );
+        }
+
         async roninMobCombat() {
             const questId = this._int(this.roninQuestId);
             const step = this.currentRoninQuestStep;
@@ -2953,8 +3025,7 @@
             await this.navigateToRoninQuestMove(null, "6");
             await this.openRoninQuestStep();
             await this.roninQuestFight();
-            await this.roninQuestNext();
-            await this.roninQuestNext();
+            await this.prepareRoninMobCombat();
 
             await this.roninMobCombat();
             await this.roninQuestNext();
