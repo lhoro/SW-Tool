@@ -91,6 +91,8 @@
             this.roninCounter = 0;
             this.roninTimers = [];
             this.roninFinishedAt = 0;
+            this.currentHQuest = null;
+            this.acceleratedHPending = false;
             this.trainingCaptchaWaiter = null;
             this.dailyRewardClaimStage = 0;
             this.dailyRewardClaimCharacterId = 0;
@@ -367,6 +369,10 @@
 
             if (action === 26) {
                 this.handleDailyRewardResponse(response);
+            }
+
+            if (action === 22) {
+                this.handleHQuestResponse(response);
             }
 
             if (
@@ -1265,110 +1271,215 @@
             }));
         }
 
+        handleHQuestResponse(response) {
+            if (!response || typeof response !== "object") return;
+
+            // Pełny stan kroku questa. W HAR quest H ma want.type === 39,
+            // a qbid jest ID używanym później w a:22/type:7.
+            const want = response.q_step?.want;
+            if (
+                want &&
+                typeof want === "object" &&
+                this._int(want.type) === 39
+            ) {
+                const id = this._int(
+                    want.qbid || response.q_step?.qb_id
+                );
+                const count = this._int(want.count);
+                const max = this._int(want.maxv);
+
+                if (id > 0 && max > 0) {
+                    this.currentHQuest = {
+                        id,
+                        count,
+                        max,
+                        isMet: Boolean(want.is_met)
+                    };
+                    this.acceleratedHPending = false;
+                }
+                return;
+            }
+
+            // Po type:7 serwer zwraca m.in.
+            // { a:22, track:<qbid>, amount:<cnt>, new_amount:<sum> }.
+            const trackId = this._int(response.track);
+            const newAmount = this._int(response.new_amount);
+
+            if (
+                trackId > 0 &&
+                this.currentHQuest &&
+                trackId === this.currentHQuest.id
+            ) {
+                this.currentHQuest.count = Math.max(
+                    this.currentHQuest.count,
+                    newAmount
+                );
+                this.currentHQuest.isMet =
+                    this.currentHQuest.count >=
+                    this.currentHQuest.max;
+                this.acceleratedHPending = false;
+                return;
+            }
+
+            const handler = response.map_handler;
+            const handlerId = this._int(handler?.send_tracker);
+            const handlerAmount = this._int(handler?.new_amount);
+
+            if (
+                handlerId > 0 &&
+                this.currentHQuest &&
+                handlerId === this.currentHQuest.id
+            ) {
+                this.currentHQuest.count = Math.max(
+                    this.currentHQuest.count,
+                    handlerAmount
+                );
+                this.currentHQuest.isMet =
+                    this.currentHQuest.count >=
+                    this.currentHQuest.max;
+                this.acceleratedHPending = false;
+                return;
+            }
+
+            // Sam ACK {e:0,a:22} też zwalnia blokadę awaryjnie.
+            if (this._int(response.e) === 0) {
+                this.acceleratedHPending = false;
+            }
+        }
+
         acceleratedHCount() {
             if (this.config.acceleratedH !== true) {
                 return 0;
             }
 
-            const questWindow = document.querySelector(".quest_win");
-            if (!questWindow) {
+            const quest = this.currentHQuest;
+            if (!quest || quest.id <= 0 || quest.max <= 0) {
                 return 0;
             }
 
-            const counter =
-                questWindow.querySelector(".red [data-count][data-max]") ||
-                questWindow.querySelector("[data-count][data-max]");
-
-            if (!counter) {
-                return 0;
-            }
-
-            const current = this._int(
-                counter.getAttribute("data-count")
-            );
-            const max = this._int(
-                counter.getAttribute("data-max")
-            );
-
-            if (max <= current) {
-                return 0;
-            }
-
-            return max - current;
+            return Math.max(0, quest.max - quest.count);
         }
 
-        accelerateHFromUserKey() {
-            const missing = this.acceleratedHCount();
+        sendHQuestCount(count, { waitForResponse = false } = {}) {
+            const quest = this.currentHQuest;
+            const amount = Math.max(0, this._int(count));
 
-            // Fizyczne H, które uruchomiło tę funkcję, samo wykona jedną
-            // akcję gry. Dodajemy wyłącznie pozostałe n-1.
-            const extra = Math.max(0, missing - 1);
+            if (!quest || quest.id <= 0 || amount <= 0) {
+                return waitForResponse
+                    ? Promise.resolve(false)
+                    : false;
+            }
 
-            if (extra <= 0) {
+            const order = {
+                a: 22,
+                type: 7,
+                id: quest.id,
+                cnt: amount
+            };
+
+            console.info("[SW Tool][H] TX pełne H:", order);
+
+            if (waitForResponse) {
+                return this.sendAndWait(
+                    order,
+                    [22, 999],
+                    (event) =>
+                        this._int(event.e) !== 0 ||
+                        this._int(event.a) === 22,
+                    10000
+                ).then((response) => {
+                    if (this._int(response.e) !== 0) {
+                        throw new Error(
+                            "Serwer odrzucił przyśpieszone H."
+                        );
+                    }
+                    return true;
+                });
+            }
+
+            if (!GAME.socket?.connected) {
                 return false;
             }
 
-            console.info("[SW Tool][H] Przyśpieszone H:", {
-                missing,
-                extra
-            });
+            GAME.socket.emit("ga", order);
+            return true;
+        }
 
-            for (let i = 0; i < extra; i++) {
-                this.roninPressKey("h");
+        accelerateHFromUserKey(event = null) {
+            if (
+                this.config.acceleratedH !== true ||
+                this.acceleratedHPending ||
+                this.quickActionRunning ||
+                this.accountOperationRunning ||
+                this.responseWaiter ||
+                this.characterSwitch
+            ) {
+                return false;
             }
 
-            console.info("[SW Tool][H] Wysłano serię H.", {
-                current:
-                    this._int(
-                        document
-                            .querySelector(
-                                ".quest_win [data-count][data-max]"
-                            )
-                            ?.getAttribute("data-count")
-                    ),
-                max:
-                    this._int(
-                        document
-                            .querySelector(
-                                ".quest_win [data-count][data-max]"
-                            )
-                            ?.getAttribute("data-max")
-                    )
+            const missing = this.acceleratedHCount();
+            if (missing <= 0) {
+                return false;
+            }
+
+            // Przechwytujemy fizyczne H zanim klient gry policzy własne
+            // naciśnięcie. Wysyłamy od razu całą brakującą liczbę jednym
+            // a:22/type:7, dokładnie jak klient po przytrzymaniu klawisza.
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+                event.stopImmediatePropagation();
+            }
+
+            this.acceleratedHPending = true;
+
+            const sent = this.sendHQuestCount(missing);
+            if (!sent) {
+                this.acceleratedHPending = false;
+                return false;
+            }
+
+            console.info("[SW Tool][H] Przyśpieszone H socket:", {
+                id: this.currentHQuest.id,
+                count: this.currentHQuest.count,
+                max: this.currentHQuest.max,
+                sent: missing
             });
+
+            // Gdyby serwer nie odesłał trackera, nie blokujemy H na zawsze.
+            setTimeout(() => {
+                this.acceleratedHPending = false;
+            }, 2500);
 
             return true;
         }
 
         async roninQuestH() {
-            const questWindow = await this.waitForRoninDom(
-                () => document.querySelector(".quest_win"),
-                "okno questa H",
-                3000
+            const startedAt = Date.now();
+
+            while (
+                Date.now() - startedAt < 3000 &&
+                (
+                    !this.currentHQuest ||
+                    this.currentHQuest.max <=
+                        this.currentHQuest.count
+                )
+            ) {
+                await this.sleep(50);
+            }
+
+            const quest = this.currentHQuest;
+            if (!quest || quest.max <= quest.count) {
+                throw new Error(
+                    "Ronin: nie znaleziono aktywnego kroku questa H."
+                );
+            }
+
+            const missing = quest.max - quest.count;
+            await this.sendHQuestCount(
+                missing,
+                { waitForResponse: true }
             );
-
-            if (!String(questWindow.innerHTML || "").includes("klawisz H")) {
-                throw new Error(
-                    "Ronin: aktualny etap questa nie oczekuje klawisza H."
-                );
-            }
-
-            const counter =
-                questWindow.querySelector(".red [data-count][data-max]") ||
-                questWindow.querySelector("[data-count][data-max]");
-
-            if (!counter) {
-                throw new Error(
-                    "Ronin: nie znaleziono licznika akcji H."
-                );
-            }
-
-            let current = this._int(counter.getAttribute("data-count"));
-            const max = this._int(counter.getAttribute("data-max"));
-
-            while (current < max) {
-                current++;
-                this.roninPressKey("h");
-            }
         }
 
         roninCloseInfo() {
@@ -3494,7 +3605,7 @@
                 return;
             }
 
-            BOT.accelerateHFromUserKey();
+            BOT.accelerateHFromUserKey(event);
         }, true);
 
         $(document).keydown((event) => {
