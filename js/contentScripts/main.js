@@ -1276,7 +1276,22 @@
 
             // Pełny stan kroku questa. W HAR quest H ma want.type === 39,
             // a qbid jest ID używanym później w a:22/type:7.
-            const want = response.q_step?.want;
+            const qStep = response.q_step;
+            const want = qStep?.want;
+
+            if (
+                qStep &&
+                (
+                    !want ||
+                    typeof want !== "object" ||
+                    this._int(want.type) !== 39
+                )
+            ) {
+                this.currentHQuest = null;
+                this.acceleratedHPending = false;
+                return;
+            }
+
             if (
                 want &&
                 typeof want === "object" &&
@@ -1342,7 +1357,7 @@
             }
 
             // Sam ACK {e:0,a:22} też zwalnia blokadę awaryjnie.
-            if (this._int(response.e) === 0) {
+            if (response.e !== undefined) {
                 this.acceleratedHPending = false;
             }
         }
@@ -1380,12 +1395,31 @@
             console.info("[SW Tool][H] TX pełne H:", order);
 
             if (waitForResponse) {
+                const expectedTotal = Math.min(
+                    quest.max,
+                    quest.count + amount
+                );
+
                 return this.sendAndWait(
                     order,
                     [22, 999],
-                    (event) =>
-                        this._int(event.e) !== 0 ||
-                        this._int(event.a) === 22,
+                    (event) => {
+                        if (this._int(event.e) !== 0) {
+                            return true;
+                        }
+
+                        if (
+                            this._int(event.a) !== 22 ||
+                            this._int(event.track) !== quest.id
+                        ) {
+                            return false;
+                        }
+
+                        return (
+                            this._int(event.new_amount) >=
+                            expectedTotal
+                        );
+                    },
                     10000
                 ).then((response) => {
                     if (this._int(response.e) !== 0) {
