@@ -111,6 +111,7 @@
             this.dailyRewardClaimStage = 0;
             this.dailyRewardClaimCharacterId = 0;
             this.dailyRewardClaimTimeout = null;
+            this.dailyRewardEntryPendingCharacterId = 0;
             this.currentQuickOptions = null;
             this.currentQuickOptionsCharacterId = 0;
             this.currentQuickOptionsFresh = false;
@@ -369,15 +370,28 @@
                 const dailyAvailable = this._enabled(
                     response.quick_opts.online_reward
                 );
+                const entryRewardCheck =
+                    this.config.dailyReward === true &&
+                    quickCharacterId > 0 &&
+                    Number(this.dailyRewardEntryPendingCharacterId) ===
+                        quickCharacterId;
 
                 if (this.dailyRewardClaimStage === 2 && !dailyAvailable) {
                     this.finishDailyRewardClaim("quick_opts");
-                } else if (
-                    dailyAvailable &&
-                    this.dailyRewardClaimStage === 0 &&
-                    !this.accountOperationRunning
-                ) {
-                    this.collectDailyReward();
+                    this.dailyRewardEntryPendingCharacterId = 0;
+                } else if (entryRewardCheck) {
+                    if (
+                        dailyAvailable &&
+                        this.dailyRewardClaimStage === 0 &&
+                        !this.accountOperationRunning &&
+                        !this.quickActionRunning
+                    ) {
+                        this.collectDailyReward();
+                    } else if (!dailyAvailable) {
+                        // Sprawdziliśmy nagrodę przy wejściu i nie ma czego
+                        // odbierać. Nie sprawdzamy ponownie przy Quick akcjach.
+                        this.dailyRewardEntryPendingCharacterId = 0;
+                    }
                 }
             }
 
@@ -646,6 +660,8 @@
                         "zmiana postaci podczas odbioru nagrody"
                     );
                 }
+
+                this.dailyRewardEntryPendingCharacterId = gameCharacterId;
 
                 if (
                     !this.accountOperationRunning &&
@@ -2706,11 +2722,6 @@
             this.setQuickPanelBusy(true);
 
             try {
-                if (this.config.dailyReward) {
-                    this.setQuickPanelStatus("Sprawdzanie nagrody dziennej...");
-                    await this.claimDailyRewardForAccountAction(label);
-                }
-
                 if (action === "training") {
                     this.setQuickPanelStatus("Quick Trening...");
                     const result =
