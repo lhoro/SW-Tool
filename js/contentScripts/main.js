@@ -2982,6 +2982,10 @@
             this.lastConsumedQuestMoveVersion = this.questMoveVersion;
             this.roninQuestId = 0;
             this.currentRoninQuestStep = null;
+            this.currentHQuest = null;
+            this.currentHQuestStep = null;
+            this.currentHTracked = null;
+            this.acceleratedHPending = false;
 
             try {
                 await this.enterRoninInstance();
