@@ -96,6 +96,9 @@
             this.roninCounter = 0;
             this.roninTimers = [];
             this.roninFinishedAt = 0;
+            this.roninInstanceDefinition = null;
+            this.roninDailyLimit = 2;
+            this.roninDailyUsageVersion = 0;
             this.currentHQuest = null;
             this.currentHQuestStep = null;
             this.currentHTracked = null;
@@ -405,6 +408,46 @@
                 this.handleRoninQuestStepResponse(response);
                 this.handleQuestMoveResponse(response);
                 this.handleHQuestResponse(response);
+            }
+
+            if (
+                action === 998 &&
+                String(response.f || "") === "icd_5"
+            ) {
+                const used = Math.max(0, this._int(response.v));
+                this.roninDailyUsageVersion++;
+
+                if (
+                    this.currentCharacterSnapshot?.char_data &&
+                    typeof this.currentCharacterSnapshot.char_data === "object"
+                ) {
+                    this.currentCharacterSnapshot.char_data.icd_5 = used;
+                }
+
+                const currentId = this._int(
+                    GAME.char_id || this.currentCharacterId
+                );
+                const currentChar = this.chars.find(
+                    (char) => this._int(char?.id) === currentId
+                );
+
+                if (currentChar) {
+                    currentChar.data =
+                        currentChar.data &&
+                        typeof currentChar.data === "object"
+                            ? currentChar.data
+                            : {};
+                    currentChar.data.icd_5 = used;
+                }
+
+                console.info(
+                    "[SW Tool][RONIN] Limit dzienny z serwera:",
+                    {
+                        charId: currentId,
+                        used,
+                        limit: this.roninDailyLimit
+                    }
+                );
             }
 
             if (
@@ -2770,11 +2813,16 @@
             }
         }
 
-        async enterRoninInstance() {
-            const RONIN_INSTANCE_ID = 5;
-            const RONIN_LOCATION_ID = 193;
-
-            this.setQuickPanelStatus("Ronin: sprawdzanie instancji...");
+        async getRoninInstanceDefinition(
+            { refresh = false } = {}
+        ) {
+            if (
+                !refresh &&
+                this.roninInstanceDefinition &&
+                typeof this.roninInstanceDefinition === "object"
+            ) {
+                return this.roninInstanceDefinition;
+            }
 
             const list = await this.sendAndWait(
                 { a: 29, type: 0 },
@@ -2795,14 +2843,113 @@
                 );
             }
 
-            const ronin = list.raids?.list?.[String(RONIN_INSTANCE_ID)] ||
-                list.raids?.list?.[RONIN_INSTANCE_ID];
+            const ronin =
+                list.raids?.list?.["5"] ||
+                list.raids?.list?.[5];
 
-            if (!ronin) {
+            if (!ronin || typeof ronin !== "object") {
                 throw new Error(
                     "Ronin: instancja #5 nie jest dostępna na liście serwera."
                 );
             }
+
+            this.roninInstanceDefinition = {
+                ...ronin
+            };
+            this.roninDailyLimit = Math.max(
+                1,
+                this._int(ronin.daily_limit) || 2
+            );
+
+            console.info(
+                "[SW Tool][RONIN] Definicja instancji:",
+                {
+                    id: this._int(ronin.id),
+                    dailyLimit: this.roninDailyLimit,
+                    map: this._int(ronin.map)
+                }
+            );
+
+            return this.roninInstanceDefinition;
+        }
+
+        roninDailyUsage() {
+            return Math.max(
+                0,
+                this._int(
+                    this.currentCharacterSnapshot?.char_data?.icd_5
+                )
+            );
+        }
+
+        async waitForRoninDailyUsage(
+            expectedMinimum,
+            timeoutMs = 3500
+        ) {
+            const expected = Math.max(0, this._int(expectedMinimum));
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const used = this.roninDailyUsage();
+
+                if (used >= expected) {
+                    return used;
+                }
+
+                await this.sleep(25);
+            }
+
+            return this.roninDailyUsage();
+        }
+
+        async confirmRoninDailyUsage(
+            characterId,
+            expectedMinimum
+        ) {
+            let used = await this.waitForRoninDailyUsage(
+                expectedMinimum
+            );
+
+            if (used >= expectedMinimum) {
+                return used;
+            }
+
+            console.warn(
+                "[SW Tool][RONIN] Brak push icd_5 — odświeżam postać z serwera.",
+                {
+                    characterId,
+                    expectedMinimum,
+                    current: used
+                }
+            );
+
+            await this.switchCharacterForAccountAction(
+                characterId,
+                0,
+                true
+            );
+
+            used = this.roninDailyUsage();
+
+            if (used < expectedMinimum) {
+                throw new Error(
+                    "Ronin: serwer nie potwierdził zwiększenia licznika dziennego (" +
+                    used +
+                    "/" +
+                    this.roninDailyLimit +
+                    ")."
+                );
+            }
+
+            return used;
+        }
+
+        async enterRoninInstance() {
+            const RONIN_INSTANCE_ID = 5;
+            const RONIN_LOCATION_ID = 193;
+
+            this.setQuickPanelStatus("Ronin: sprawdzanie instancji...");
+            await this.getRoninInstanceDefinition();
 
             this.setQuickPanelStatus("Ronin: wybór instancji...");
             const selected = await this.sendAndWait(
@@ -3040,6 +3187,19 @@
         async runQuickRonin() {
             if (this.roninRunning) {
                 throw new Error("Ronin jest już wykonywany.");
+            }
+
+            await this.getRoninInstanceDefinition();
+
+            const dailyUsed = this.roninDailyUsage();
+            if (dailyUsed >= this.roninDailyLimit) {
+                throw new Error(
+                    "Ronin: dzienny limit wykorzystany (" +
+                    dailyUsed +
+                    "/" +
+                    this.roninDailyLimit +
+                    ")."
+                );
             }
 
             this.roninRunning = true;
@@ -3492,11 +3652,16 @@
             });
         }
 
-        async switchCharacterForAccountAction(charId, settleMs = 150) {
+        async switchCharacterForAccountAction(
+            charId,
+            settleMs = 150,
+            forceRefresh = false
+        ) {
             const targetId = Number(charId);
             if (targetId <= 0) throw new Error("Nieprawidłowe ID postaci.");
 
             if (
+                !forceRefresh &&
                 Number(GAME.char_id || this.currentCharacterId || 0) === targetId &&
                 this.currentCharacterSnapshot?.char_data
             ) {
@@ -4706,7 +4871,13 @@
                 0
             );
 
+            await this.getRoninInstanceDefinition({
+                refresh: true
+            });
+
+            const dailyLimit = this.roninDailyLimit;
             let completed = 0;
+            let skipped = 0;
             let failed = 0;
             let dailyClaimed = 0;
 
@@ -4738,24 +4909,72 @@
                             dailyClaimed++;
                         }
 
-                        this.setQuickPanelStatus(
-                            "Ronin konto: " +
-                            (i + 1) +
-                            "/" +
-                            characters.length +
-                            " — " +
-                            label +
-                            "..."
-                        );
+                        let used = this.roninDailyUsage();
 
-                        await this.runQuickRonin();
-                        completed++;
+                        if (used >= dailyLimit) {
+                            skipped++;
+                            console.info(
+                                "[SW Tool][ACCOUNT] Ronin — " +
+                                label +
+                                ": pominięto, limit " +
+                                used +
+                                "/" +
+                                dailyLimit +
+                                "."
+                            );
+                            continue;
+                        }
 
-                        console.info(
-                            "[SW Tool][ACCOUNT] Ronin — " +
-                            label +
-                            ": zakończony."
-                        );
+                        while (used < dailyLimit) {
+                            const attempt = used + 1;
+
+                            this.setQuickPanelStatus(
+                                "Ronin konto: " +
+                                (i + 1) +
+                                "/" +
+                                characters.length +
+                                " — " +
+                                label +
+                                " — próba " +
+                                attempt +
+                                "/" +
+                                dailyLimit +
+                                "..."
+                            );
+
+                            console.info(
+                                "[SW Tool][ACCOUNT] Ronin — " +
+                                label +
+                                ": start próby " +
+                                attempt +
+                                "/" +
+                                dailyLimit +
+                                "."
+                            );
+
+                            const beforeUsed = used;
+
+                            await this.runQuickRonin();
+                            completed++;
+
+                            used = await this.confirmRoninDailyUsage(
+                                id,
+                                Math.min(
+                                    dailyLimit,
+                                    beforeUsed + 1
+                                )
+                            );
+
+                            console.info(
+                                "[SW Tool][ACCOUNT] Ronin — " +
+                                label +
+                                ": próba zakończona, limit " +
+                                used +
+                                "/" +
+                                dailyLimit +
+                                "."
+                            );
+                        }
                     } catch (error) {
                         if (this.isFatalAccountError(error)) {
                             throw error;
@@ -4781,8 +5000,10 @@
 
             console.info("[SW Tool][ACCOUNT] Ronin zakończony:", {
                 completed,
+                skipped,
                 failed,
-                dailyClaimed
+                dailyClaimed,
+                dailyLimit
             });
         }
 
