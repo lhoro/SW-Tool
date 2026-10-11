@@ -2,7 +2,8 @@ const DEFAULT_CONFIG = Object.freeze({
   dailyReward: true,
   saveTuts: true,
   hideReports: false,
-  mapClickMovement: true
+  mapClickMovement: true,
+  acceleratedH: false
 });
 
 const ACCOUNT_LIMIT = 5;
@@ -18,6 +19,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const saveTuts = document.getElementById("saveTuts");
   const hideReports = document.getElementById("hideReports");
   const mapClickMovement = document.getElementById("mapClickMovement");
+  const acceleratedH = document.getElementById("acceleratedH");
   const resetBtn = document.getElementById("resetBtn");
   const accTutsBtn = document.getElementById("accTutsBtn");
   const accAbyssBtn = document.getElementById("accAbyssBtn");
@@ -50,7 +52,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       : DEFAULT_CONFIG.hideReports,
     mapClickMovement: typeof config?.mapClickMovement === "boolean"
       ? config.mapClickMovement
-      : DEFAULT_CONFIG.mapClickMovement
+      : DEFAULT_CONFIG.mapClickMovement,
+    acceleratedH: typeof config?.acceleratedH === "boolean"
+      ? config.acceleratedH
+      : DEFAULT_CONFIG.acceleratedH
   });
 
   const normalizeAccounts = (accounts) => (
@@ -125,6 +130,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     saveTuts.checked = normalized.saveTuts;
     hideReports.checked = normalized.hideReports;
     mapClickMovement.checked = normalized.mapClickMovement;
+    acceleratedH.checked = normalized.acceleratedH;
   }
 
   function readWindowConfig() {
@@ -132,7 +138,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       dailyReward: dailyRewards.checked,
       saveTuts: saveTuts.checked,
       hideReports: hideReports.checked,
-      mapClickMovement: mapClickMovement.checked
+      mapClickMovement: mapClickMovement.checked,
+      acceleratedH: acceleratedH.checked
     };
   }
 
@@ -371,6 +378,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   saveTuts.addEventListener("change", saveConfig);
   hideReports.addEventListener("change", saveConfig);
   mapClickMovement.addEventListener("change", saveConfig);
+  acceleratedH.addEventListener("change", saveConfig);
 
   resetBtn.addEventListener("click", async () => {
     try {
