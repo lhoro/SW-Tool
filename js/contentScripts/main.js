@@ -350,6 +350,7 @@
 
             if (action === 3 && error === 0) {
                 this.recordPortalsFromMapResponse(response);
+                this.handleRoninMapQuestResponse(response);
             }
 
             if (
@@ -621,6 +622,85 @@
                 totalLocations,
                 totalPortals
             });
+        }
+
+        handleRoninMapQuestResponse(response) {
+            if (
+                !this.quickActionRunning ||
+                this._int(response?.loc?.id) !== 193 ||
+                !response.quests ||
+                typeof response.quests !== "object"
+            ) {
+                return;
+            }
+
+            const charId = this._int(
+                GAME.char_id || this.currentCharacterId
+            );
+            const player = Array.isArray(response.players)
+                ? response.players.find(
+                    (item) =>
+                        this._int(item?.id) === charId
+                )
+                : null;
+
+            const x = this._int(
+                player?.x ||
+                this.currentCharacterSnapshot?.char_data?.x
+            );
+            const y = this._int(
+                player?.y ||
+                this.currentCharacterSnapshot?.char_data?.y
+            );
+
+            if (x <= 0 || y <= 0) {
+                return;
+            }
+
+            const fieldQuests = response.quests[x + "_" + y];
+            if (!Array.isArray(fieldQuests)) {
+                return;
+            }
+
+            const quest = fieldQuests.find(
+                (item) => this._int(item?.qb_id) > 0
+            );
+            const qbId = this._int(quest?.qb_id);
+
+            if (qbId <= 0) {
+                return;
+            }
+
+            this.roninQuestId = qbId;
+            this.currentRoninQuestStep = null;
+
+            console.info(
+                "[SW Tool][RONIN] Quest startowy z mapy:",
+                {
+                    qbId,
+                    locationId: 193,
+                    x,
+                    y,
+                    name: String(quest?.name || "")
+                }
+            );
+        }
+
+        async waitForRoninQuestId(timeoutMs = 3000) {
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const qbId = this._int(this.roninQuestId);
+                if (qbId > 0) {
+                    return qbId;
+                }
+
+                await this.sleep(25);
+            }
+
+            throw new Error(
+                "Ronin: mapa nie zwróciła questa na polu startowym."
+            );
         }
 
         gameDebug() {
@@ -1891,11 +1971,6 @@
                 }
             );
 
-            // Po potwierdzonym dojściu na pole klient gry czeka chwilę,
-            // zanim otworzy quest przez a:22/type:1. W HAR Ronina odstęp
-            // wynosi zwykle ~250-850 ms; zbyt wczesny type:1 bywa ignorowany
-            // przez serwer bez żadnej odpowiedzi.
-            await this.sleep(500);
             return move;
         }
 
@@ -2310,8 +2385,6 @@
             }
 
             this.setQuickPanelStatus("Ronin: wybór instancji...");
-            await this.sleep(100);
-
             const selected = await this.sendAndWait(
                 {
                     a: 29,
@@ -2337,8 +2410,6 @@
             }
 
             this.setQuickPanelStatus("Ronin: tworzenie pokoju...");
-            await this.sleep(100);
-
             const created = await this.sendAndWait(
                 {
                     a: 29,
@@ -2372,8 +2443,6 @@
             }
 
             this.setQuickPanelStatus("Ronin: start pokoju...");
-            await this.sleep(100);
-
             const started = await this.sendAndWait(
                 {
                     a: 29,
@@ -2407,8 +2476,6 @@
             }
 
             this.setQuickPanelStatus("Ronin: wejście do instancji...");
-            await this.sleep(100);
-
             const entered = await this.sendAndWait(
                 {
                     a: 29,
@@ -2469,8 +2536,6 @@
                 );
             }
 
-            await this.sleep(500);
-
             console.info("[SW Tool][RONIN] Wejście potwierdzone:", {
                 instance: RONIN_INSTANCE_ID,
                 room: roomId,
@@ -2493,7 +2558,7 @@
         }
 
         async runRoninRoute() {
-            const unitDelay = async (units) => {
+            const legacyDelay = async (units) => {
                 await this.sleep((this._int(units) + 1) * 300);
             };
 
@@ -2505,93 +2570,101 @@
 
             this.setQuickPanelStatus("Ronin: wykonywanie trasy...");
 
-            key("x");
+            // Pierwszy qb_id dostajemy bezpośrednio z response.quests mapy
+            // instancji. Nie potrzebujemy już syntetycznego X.
+            await this.waitForRoninQuestId();
+            await this.openRoninQuestStep();
+            await this.roninQuestAction();
 
-            await unitDelay(1);
-            await this.roninQuestNext();
             await this.navigateToRoninQuestMove(
                 async () => {
-                    await unitDelay(1); move(2, "e");
-                    await unitDelay(2); move(12, "d");
-                    await unitDelay(12); move(2, "e");
-                    await unitDelay(2);
+                    await legacyDelay(1); move(2, "e");
+                    await legacyDelay(2); move(12, "d");
+                    await legacyDelay(12); move(2, "e");
+                    await legacyDelay(2);
                 },
                 "1"
             );
             await this.openRoninQuestStep();
             await this.roninQuestH();
-
             await this.roninQuestAction();
 
-
             await this.roninQuestH();
- await this.roninQuestAction();
-            await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); await this.roninQuestNext();
+            await this.roninQuestAction();
+            await this.roninQuestNext();
+            await this.roninQuestNext();
+
             await this.navigateToRoninQuestMove(
                 async () => {
-                    await unitDelay(1); move(2, "c");
-                    await unitDelay(2); move(2, "d");
-                    await unitDelay(2); move(2, "c");
-                    await unitDelay(2);
+                    await legacyDelay(1); move(2, "c");
+                    await legacyDelay(2); move(2, "d");
+                    await legacyDelay(2); move(2, "c");
+                    await legacyDelay(2);
                 },
                 "2"
             );
             await this.openRoninQuestStep();
-            await unitDelay(1); await this.roninQuestNext();
+            await this.roninQuestNext();
+
             await this.navigateToRoninQuestMove(
                 async () => {
-                    await unitDelay(1); move(1, "a");
-                    await unitDelay(1);
+                    await legacyDelay(1); move(1, "a");
+                    await legacyDelay(1);
                 },
                 "3"
             );
-            const timedStep = await this.openRoninQuestStep();
 
-            this.setQuickPanelStatus("Ronin: oczekiwanie na etap czasowy...");
+            const timedStep = await this.openRoninQuestStep();
+            this.setQuickPanelStatus(
+                "Ronin: oczekiwanie na etap czasowy..."
+            );
             await this.waitForRoninTimedQuestReady(timedStep);
 
-            await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); await this.roninQuestNext();
+            await this.roninQuestNext();
+            await this.roninQuestNext();
+
             await this.navigateToRoninQuestMove(
                 async () => {
-                    await unitDelay(1); move(1, "d");
-                    await unitDelay(1);
+                    await legacyDelay(1); move(1, "d");
+                    await legacyDelay(1);
                 },
                 "4"
             );
             await this.openRoninQuestStep();
             await this.roninQuestH();
-
             await this.roninQuestAction();
-            await unitDelay(1); await this.roninQuestFight();
-            await unitDelay(1); await this.roninQuestNext();
+            await this.roninQuestFight();
+            await this.roninQuestNext();
+
             await this.navigateToRoninQuestMove(
                 async () => {
-                    await unitDelay(1); move(3, "q");
-                    await unitDelay(3); move(4, "w");
-                    await unitDelay(4); move(7, "d");
-                    await unitDelay(7); move(4, "c");
-                    await unitDelay(4); move(1, "s");
-                    await unitDelay(1);
+                    await legacyDelay(1); move(3, "q");
+                    await legacyDelay(3); move(4, "w");
+                    await legacyDelay(4); move(7, "d");
+                    await legacyDelay(7); move(4, "c");
+                    await legacyDelay(4); move(1, "s");
+                    await legacyDelay(1);
                 },
                 "5"
             );
             await this.openRoninQuestStep();
-            await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); await this.roninQuestNext();
+            await this.roninQuestNext();
+            await this.roninQuestNext();
+
             await this.navigateToRoninQuestMove(
                 async () => {
-                    await unitDelay(1); move(2, "d");
-                    await unitDelay(3);
+                    await legacyDelay(1); move(2, "d");
+                    await legacyDelay(3);
                 },
                 "6"
             );
             await this.openRoninQuestStep();
-            await unitDelay(1); await this.roninQuestFight();
-            await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); await this.roninQuestNext();
+            await this.roninQuestFight();
+            await this.roninQuestNext();
+            await this.roninQuestNext();
 
+            // Końcówka mobów nadal jest legacy: klawisze F/W/S/A/D/R
+            // i ich pacing pozostają bez zmian do następnego etapu prac.
             const evenRun = this.roninCounter % 2 === 0;
             console.info("[SW Tool][RONIN] Wariant końcówki:", {
                 run: this.roninCounter + 1,
@@ -2599,56 +2672,58 @@
             });
 
             if (evenRun) {
-                await unitDelay(1); attack(8);
-                await unitDelay(1); key("w");
-                await unitDelay(1); attack(8);
-                await unitDelay(1); key("w");
-                await unitDelay(1); attack(8);
+                await legacyDelay(1); attack(8);
+                await legacyDelay(1); key("w");
+                await legacyDelay(1); attack(8);
+                await legacyDelay(1); key("w");
+                await legacyDelay(1); attack(8);
 
                 for (let i = 0; i < 10; i++) {
-                    await unitDelay(1); key("w");
-                    await unitDelay(1); key("r");
+                    await legacyDelay(1); key("w");
+                    await legacyDelay(1); key("r");
                 }
 
-                await unitDelay(1); key("d");
-                await unitDelay(1); key("r");
+                await legacyDelay(1); key("d");
+                await legacyDelay(1); key("r");
 
                 for (let i = 0; i < 11; i++) {
-                    await unitDelay(1); key("s");
-                    await unitDelay(1); key("r");
+                    await legacyDelay(1); key("s");
+                    await legacyDelay(1); key("r");
                 }
 
-                await unitDelay(1); key("s");
-                await unitDelay(1); key("a");
+                await legacyDelay(1); key("s");
+                await legacyDelay(1); key("a");
             } else {
-                await unitDelay(1); attack(8);
-                await unitDelay(1); key("s");
-                await unitDelay(1); attack(8);
-                await unitDelay(1); key("s");
-                await unitDelay(1); attack(8);
+                await legacyDelay(1); attack(8);
+                await legacyDelay(1); key("s");
+                await legacyDelay(1); attack(8);
+                await legacyDelay(1); key("s");
+                await legacyDelay(1); attack(8);
 
                 for (let i = 0; i < 8; i++) {
-                    await unitDelay(1); key("s");
-                    await unitDelay(1); key("r");
+                    await legacyDelay(1); key("s");
+                    await legacyDelay(1); key("r");
                 }
 
-                await unitDelay(1); key("d");
-                await unitDelay(1); key("r");
+                await legacyDelay(1); key("d");
+                await legacyDelay(1); key("r");
 
                 for (let i = 0; i < 10; i++) {
-                    await unitDelay(1); key("w");
-                    await unitDelay(1); key("r");
+                    await legacyDelay(1); key("w");
+                    await legacyDelay(1); key("r");
                 }
 
-                await unitDelay(1); key("a");
+                await legacyDelay(1); key("a");
             }
 
-            await unitDelay(1); key("x");
-            await unitDelay(1); await this.roninQuestNext();
+            // Ten fragment nadal należy do starej końcówki walki.
+            await legacyDelay(1); key("x");
+            await legacyDelay(1); await this.roninQuestNext();
+
             await this.navigateToRoninQuestMove(
                 async () => {
-                    await unitDelay(1); move(2, "d");
-                    await unitDelay(2);
+                    await legacyDelay(1); move(2, "d");
+                    await legacyDelay(2);
                 },
                 "7"
             );
@@ -2656,7 +2731,6 @@
             await this.roninQuestNext();
 
             this.roninCounter++;
-            await this.sleep(1000);
         }
 
         async runQuickRonin() {
