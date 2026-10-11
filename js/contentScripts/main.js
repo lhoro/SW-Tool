@@ -101,6 +101,7 @@
             this.questMoveVersion = 0;
             this.lastConsumedQuestMoveVersion = 0;
             this.roninQuestId = 0;
+            this.currentRoninQuestStep = null;
             this.improvedXPending = false;
             this.improvedXHeld = false;
             this.trainingCaptchaWaiter = null;
@@ -382,6 +383,7 @@
             }
 
             if (action === 22) {
+                this.handleRoninQuestStepResponse(response);
                 this.handleQuestMoveResponse(response);
                 this.handleHQuestResponse(response);
             }
@@ -1254,6 +1256,36 @@
             }
         }
 
+        handleRoninQuestStepResponse(response) {
+            const step = response?.q_step;
+            if (!step || typeof step !== "object") {
+                return;
+            }
+
+            const qbId = this._int(step.qb_id);
+            if (qbId <= 0) {
+                return;
+            }
+
+            this.currentRoninQuestStep = step;
+
+            if (
+                this.quickActionRunning &&
+                this._int(this.mapSolver?.map?.locationId) === 193
+            ) {
+                if (this.roninQuestId !== qbId) {
+                    console.info(
+                        "[SW Tool][RONIN] Zmiana qb_id z q_step:",
+                        {
+                            from: this.roninQuestId,
+                            to: qbId
+                        }
+                    );
+                }
+                this.roninQuestId = qbId;
+            }
+        }
+
         async openRoninQuestStep() {
             const questId = this._int(this.roninQuestId);
             if (questId <= 0) {
@@ -1290,7 +1322,16 @@
                 );
             }
 
-            return response.q_step || null;
+            const step = response.q_step || null;
+            if (step && typeof step === "object") {
+                const qbId = this._int(step.qb_id);
+                if (qbId > 0) {
+                    this.roninQuestId = qbId;
+                }
+                this.currentRoninQuestStep = step;
+            }
+
+            return step;
         }
 
         isVisibleQuestAction(element) {
@@ -1499,18 +1540,146 @@
         }
 
         async roninQuestAction() {
-            const action = await this.waitForSingleQuestAction(
-                3000,
-                { failOnMultiple: true }
-            );
-
-            if (!action) {
+            const questId = this._int(this.roninQuestId);
+            if (questId <= 0) {
                 throw new Error(
-                    "Ronin: nie znaleziono dostępnej akcji questa."
+                    "Ronin: nie znam ID aktywnego questa."
                 );
             }
 
-            return this.clickQuestAction(action, "ronin");
+            let step = this.currentRoninQuestStep;
+            if (
+                !step ||
+                typeof step !== "object" ||
+                this._int(step.qb_id) !== questId
+            ) {
+                step = await this.openRoninQuestStep();
+            }
+
+            const want = step?.want;
+            const wantType = this._int(want?.type);
+            const isMet = Boolean(want?.is_met);
+
+            // HAR: want.type === 7 oznacza walkę questową.
+            // Klient wysyła wtedy a:22/type:6, a serwer po walce
+            // zwraca ten sam q_step z is_met:true.
+            if (
+                want &&
+                typeof want === "object" &&
+                wantType === 7 &&
+                !isMet
+            ) {
+                console.info(
+                    "[SW Tool][RONIN] Akcja questa: walka socketowa.",
+                    {
+                        qbId: questId,
+                        wantType,
+                        targetId: this._int(want.id)
+                    }
+                );
+
+                const response = await this.sendAndWait(
+                    {
+                        a: 22,
+                        type: 6,
+                        id: questId
+                    },
+                    [22, 999],
+                    (event) => {
+                        if (this._int(event.e) !== 0) {
+                            return true;
+                        }
+
+                        const nextStep = event.q_step;
+                        return (
+                            this._int(event.a) === 22 &&
+                            nextStep &&
+                            typeof nextStep === "object" &&
+                            this._int(nextStep.qb_id) === questId &&
+                            this._int(nextStep.want?.type) === 7 &&
+                            Boolean(nextStep.want?.is_met)
+                        );
+                    },
+                    15000
+                );
+
+                if (this._int(response.e) !== 0) {
+                    throw new Error(
+                        "Ronin: serwer odrzucił walkę questową."
+                    );
+                }
+
+                return "fight";
+            }
+
+            // Niezaliczony warunek innego typu nie powinien być omijany
+            // przez wymuszone "Dalej".
+            if (
+                want &&
+                typeof want === "object" &&
+                !isMet
+            ) {
+                throw new Error(
+                    "Ronin: warunek questa nie jest jeszcze zaliczony (type " +
+                    wantType +
+                    ")."
+                );
+            }
+
+            console.info(
+                "[SW Tool][RONIN] Akcja questa: Dalej socketowo.",
+                {
+                    qbId: questId,
+                    wantType,
+                    isMet
+                }
+            );
+
+            this.currentRoninQuestStep = null;
+
+            const response = await this.sendAndWait(
+                {
+                    a: 22,
+                    type: 2,
+                    button: 1,
+                    id: questId
+                },
+                [22, 999],
+                (event) => {
+                    if (this._int(event.e) !== 0) {
+                        return true;
+                    }
+
+                    if (this._int(event.a) !== 22) {
+                        return false;
+                    }
+
+                    if (
+                        event.q_step &&
+                        typeof event.q_step === "object"
+                    ) {
+                        return true;
+                    }
+
+                    if (
+                        event.quest_move &&
+                        typeof event.quest_move === "object"
+                    ) {
+                        return true;
+                    }
+
+                    return false;
+                },
+                10000
+            );
+
+            if (this._int(response.e) !== 0) {
+                throw new Error(
+                    "Ronin: serwer odrzucił przejście dalej."
+                );
+            }
+
+            return "next";
         }
 
         async roninQuestNext() {
@@ -1572,14 +1741,20 @@
 
             if (
                 this.quickActionRunning &&
-                locationId === 193 &&
-                this.roninQuestId <= 0
+                locationId === 193
             ) {
+                if (this.roninQuestId !== qbId) {
+                    console.info(
+                        "[SW Tool][RONIN] Wykryto zmianę qb_id z quest_move:",
+                        {
+                            from: this.roninQuestId,
+                            to: qbId
+                        }
+                    );
+                }
+
                 this.roninQuestId = qbId;
-                console.info(
-                    "[SW Tool][RONIN] Wykryto qb_id questa:",
-                    qbId
-                );
+                this.currentRoninQuestStep = null;
             }
 
             console.info("[SW Tool][QUEST] Nowy cel ruchu:", {
@@ -2399,6 +2574,7 @@
             this.currentQuestMove = null;
             this.lastConsumedQuestMoveVersion = this.questMoveVersion;
             this.roninQuestId = 0;
+            this.currentRoninQuestStep = null;
 
             try {
                 await this.enterRoninInstance();
