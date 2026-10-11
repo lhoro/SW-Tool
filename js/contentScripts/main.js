@@ -5,7 +5,8 @@
         saveTuts: true,
         hideReports: false,
         mapClickMovement: true,
-        acceleratedH: false
+        acceleratedH: false,
+        improvedX: false
     });
 
     let BOT = null;
@@ -29,7 +30,10 @@
                 : DEFAULT_CONFIG.mapClickMovement,
             acceleratedH: typeof source.acceleratedH === "boolean"
                 ? source.acceleratedH
-                : DEFAULT_CONFIG.acceleratedH
+                : DEFAULT_CONFIG.acceleratedH,
+            improvedX: typeof source.improvedX === "boolean"
+                ? source.improvedX
+                : DEFAULT_CONFIG.improvedX
         };
     };
 
@@ -97,6 +101,7 @@
             this.questMoveVersion = 0;
             this.lastConsumedQuestMoveVersion = 0;
             this.roninQuestId = 0;
+            this.improvedXPending = false;
             this.trainingCaptchaWaiter = null;
             this.dailyRewardClaimStage = 0;
             this.dailyRewardClaimCharacterId = 0;
@@ -1285,6 +1290,108 @@
             }
 
             return response.q_step || null;
+        }
+
+        isVisibleQuestAction(element) {
+            if (!(element instanceof Element)) return false;
+            if (element.disabled) return false;
+            if (element.getAttribute("aria-disabled") === "true") return false;
+            if (element.classList.contains("disabled")) return false;
+            if (element.getClientRects().length === 0) return false;
+
+            const style = getComputedStyle(element);
+            return (
+                style.display !== "none" &&
+                style.visibility !== "hidden" &&
+                style.pointerEvents !== "none"
+            );
+        }
+
+        improvedXQuestActions() {
+            const windows = [
+                ...document.querySelectorAll(".quest_win")
+            ].filter((windowElement) =>
+                this.isVisibleQuestAction(windowElement)
+            );
+
+            const actions = [];
+            for (const questWindow of windows) {
+                for (const element of questWindow.querySelectorAll(
+                    ".newBtn3, .quest_btn"
+                )) {
+                    if (!this.isVisibleQuestAction(element)) continue;
+                    if (!actions.includes(element)) {
+                        actions.push(element);
+                    }
+                }
+            }
+
+            return actions;
+        }
+
+        async runImprovedXFromUserKey() {
+            if (
+                this.config.improvedX !== true ||
+                this.improvedXPending ||
+                this.quickActionRunning ||
+                this.accountOperationRunning ||
+                this.characterSwitch
+            ) {
+                return false;
+            }
+
+            this.improvedXPending = true;
+
+            try {
+                // Normalne X najpierw obsługuje klient gry. Dajemy mu chwilę
+                // na otwarcie/przebudowanie okna questa i dopiero potem
+                // szukamy jednoznacznej akcji.
+                await this.sleep(30);
+
+                const startedAt = Date.now();
+                while (Date.now() - startedAt < 700) {
+                    const actions = this.improvedXQuestActions();
+
+                    if (actions.length > 1) {
+                        console.info(
+                            "[SW Tool][X] Wiele opcji questa — wybór pozostawiony graczowi.",
+                            { count: actions.length }
+                        );
+                        return false;
+                    }
+
+                    if (actions.length === 1) {
+                        const action = actions[0];
+
+                        action.dispatchEvent(
+                            new MouseEvent("click", {
+                                bubbles: true,
+                                cancelable: true
+                            })
+                        );
+
+                        console.info(
+                            "[SW Tool][X] Wykonano jednoznaczną akcję questa.",
+                            {
+                                type: action.classList.contains("quest_btn")
+                                    ? "fight"
+                                    : "next",
+                                text: String(
+                                    action.textContent || ""
+                                ).trim()
+                            }
+                        );
+
+                        return true;
+                    }
+
+                    await this.sleep(25);
+                }
+
+                return false;
+            } finally {
+                this.improvedXPending = false;
+            }
         }
 
         async roninQuestNext() {
@@ -3883,11 +3990,7 @@
         }, 500);
 
         window.addEventListener("keydown", (event) => {
-            if (
-                !event.isTrusted ||
-                event.repeat ||
-                String(event.key || "").toLowerCase() !== "h"
-            ) {
+            if (!event.isTrusted || event.repeat) {
                 return;
             }
 
@@ -3901,7 +4004,24 @@
                 return;
             }
 
-            BOT.accelerateHFromUserKey(event);
+            const key = String(event.key || "").toLowerCase();
+
+            if (key === "x") {
+                // Nie zatrzymujemy natywnego X. Klient gry wykonuje swoją
+                // interakcję, a Ulepszony X tylko uzupełnia ją o jedyną
+                // dostępną akcję questa.
+                BOT.runImprovedXFromUserKey().catch((error) => {
+                    console.warn(
+                        "[SW Tool][X] Ulepszony X nie powiódł się:",
+                        error
+                    );
+                });
+                return;
+            }
+
+            if (key === "h") {
+                BOT.accelerateHFromUserKey(event);
+            }
         }, true);
 
         $(document).keydown((event) => {
