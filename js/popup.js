@@ -1,7 +1,8 @@
 const DEFAULT_CONFIG = Object.freeze({
   dailyReward: true,
   saveTuts: true,
-  hideReports: false
+  hideReports: false,
+  mapClickMovement: true
 });
 
 const ACCOUNT_LIMIT = 5;
@@ -16,6 +17,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const dailyRewards = document.getElementById("dailyRewards");
   const saveTuts = document.getElementById("saveTuts");
   const hideReports = document.getElementById("hideReports");
+  const mapClickMovement = document.getElementById("mapClickMovement");
   const resetBtn = document.getElementById("resetBtn");
   const accTutsBtn = document.getElementById("accTutsBtn");
   const accAbyssBtn = document.getElementById("accAbyssBtn");
@@ -45,7 +47,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       : DEFAULT_CONFIG.saveTuts,
     hideReports: typeof config?.hideReports === "boolean"
       ? config.hideReports
-      : DEFAULT_CONFIG.hideReports
+      : DEFAULT_CONFIG.hideReports,
+    mapClickMovement: typeof config?.mapClickMovement === "boolean"
+      ? config.mapClickMovement
+      : DEFAULT_CONFIG.mapClickMovement
   });
 
   const normalizeAccounts = (accounts) => (
@@ -119,13 +124,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     dailyRewards.checked = normalized.dailyReward;
     saveTuts.checked = normalized.saveTuts;
     hideReports.checked = normalized.hideReports;
+    mapClickMovement.checked = normalized.mapClickMovement;
   }
 
   function readWindowConfig() {
     return {
       dailyReward: dailyRewards.checked,
       saveTuts: saveTuts.checked,
-      hideReports: hideReports.checked
+      hideReports: hideReports.checked,
+      mapClickMovement: mapClickMovement.checked
     };
   }
 
@@ -363,6 +370,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   dailyRewards.addEventListener("change", saveConfig);
   saveTuts.addEventListener("change", saveConfig);
   hideReports.addEventListener("change", saveConfig);
+  mapClickMovement.addEventListener("change", saveConfig);
 
   resetBtn.addEventListener("click", async () => {
     try {
