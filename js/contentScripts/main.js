@@ -1160,19 +1160,32 @@
                 throw new Error("Ronin: nieznany klawisz " + normalized + ".");
             }
 
-            document.dispatchEvent(
-                new KeyboardEvent("keydown", {
-                    key: normalized,
-                    code: entry[0],
-                    keyCode: entry[1],
-                    which: entry[1],
-                    shiftKey: false,
-                    ctrlKey: false,
-                    altKey: false,
-                    metaKey: false,
-                    bubbles: true
-                })
-            );
+            const keyboardEvent = new KeyboardEvent("keydown", {
+                key: normalized,
+                code: entry[0],
+                bubbles: true,
+                cancelable: true,
+                shiftKey: false,
+                ctrlKey: false,
+                altKey: false,
+                metaKey: false
+            });
+
+            // keyCode/which są readonly i Chrome potrafi ignorować wartości
+            // przekazane do konstruktora KeyboardEvent. Starszy klient gry
+            // nadal sprawdza te pola dla części skrótów (m.in. quest H).
+            for (const property of ["keyCode", "which", "charCode"]) {
+                try {
+                    Object.defineProperty(keyboardEvent, property, {
+                        configurable: true,
+                        get: () => entry[1]
+                    });
+                } catch (_) {
+                    // key/code nadal pozostają fallbackiem.
+                }
+            }
+
+            document.dispatchEvent(keyboardEvent);
         }
 
         roninTrackTimer(callback, delayMs) {
@@ -1262,12 +1275,6 @@
                 return 0;
             }
 
-            if (
-                !String(questWindow.innerHTML || "").includes("klawisz H")
-            ) {
-                return 0;
-            }
-
             const counter =
                 questWindow.querySelector(".red [data-count][data-max]") ||
                 questWindow.querySelector("[data-count][data-max]");
@@ -1309,6 +1316,25 @@
             for (let i = 0; i < extra; i++) {
                 this.roninPressKey("h");
             }
+
+            console.info("[SW Tool][H] Wysłano serię H.", {
+                current:
+                    this._int(
+                        document
+                            .querySelector(
+                                ".quest_win [data-count][data-max]"
+                            )
+                            ?.getAttribute("data-count")
+                    ),
+                max:
+                    this._int(
+                        document
+                            .querySelector(
+                                ".quest_win [data-count][data-max]"
+                            )
+                            ?.getAttribute("data-max")
+                    )
+            });
 
             return true;
         }
