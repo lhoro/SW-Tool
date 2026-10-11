@@ -913,12 +913,17 @@
 
         onMapClick(event) {
             if (event.button !== 0 || event.defaultPrevented) return;
+            if (this.tool.config?.mapClickMovement !== true) return;
             if (this.active || this.isBusy() || this.tool.responseWaiter) return;
 
             const target = event.target;
             if (!(target instanceof Element)) return;
 
-            const root = target.closest("#page_game_map");
+            // Ręczne chodzenie kliknięciem działa WYŁĄCZNIE wewnątrz
+            // właściwego obszaru mapy. Kliknięcia w resztę #page_game_map
+            // (UI, panele, listy, przyciski) nie są już interpretowane
+            // jako współrzędne świata.
+            const root = target.closest("#map_canvas_container");
             if (!root) return;
 
             const style = getComputedStyle(root);
