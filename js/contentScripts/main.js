@@ -1248,6 +1248,45 @@
             }
         }
 
+        async openRoninQuestStep() {
+            const questId = this._int(this.roninQuestId);
+            if (questId <= 0) {
+                throw new Error(
+                    "Ronin: nie znam ID aktywnego questa."
+                );
+            }
+
+            const response = await this.sendAndWait(
+                {
+                    a: 22,
+                    type: 1,
+                    id: questId
+                },
+                [22, 999],
+                (event) => {
+                    if (this._int(event.e) !== 0) {
+                        return true;
+                    }
+
+                    return (
+                        this._int(event.a) === 22 &&
+                        event.q_step &&
+                        typeof event.q_step === "object" &&
+                        this._int(event.q_step.qb_id) === questId
+                    );
+                },
+                10000
+            );
+
+            if (this._int(response.e) !== 0) {
+                throw new Error(
+                    "Ronin: serwer odrzucił otwarcie kroku questa."
+                );
+            }
+
+            return response.q_step || null;
+        }
+
         async roninQuestNext() {
             const button = await this.waitForRoninDom(
                 () =>
@@ -1945,8 +1984,8 @@
                 },
                 "1"
             );
-            key("x");
-            await unitDelay(1); await this.roninQuestH();
+            await this.openRoninQuestStep();
+            await this.roninQuestH();
             await unitDelay(5); key("x");
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); key("x");
@@ -1964,7 +2003,7 @@
                 },
                 "2"
             );
-            key("x");
+            await this.openRoninQuestStep();
             await unitDelay(1); await this.roninQuestNext();
             await this.navigateToRoninQuestMove(
                 async () => {
@@ -1973,7 +2012,7 @@
                 },
                 "3"
             );
-            key("x");
+            await this.openRoninQuestStep();
 
             this.setQuickPanelStatus("Ronin: oczekiwanie 31 s...");
             await waitSeconds(31);
@@ -1988,8 +2027,8 @@
                 },
                 "4"
             );
-            key("x");
-            await unitDelay(1); await this.roninQuestH();
+            await this.openRoninQuestStep();
+            await this.roninQuestH();
             await unitDelay(5); key("x");
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestFight();
@@ -2005,7 +2044,7 @@
                 },
                 "5"
             );
-            key("x");
+            await this.openRoninQuestStep();
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
@@ -2016,7 +2055,7 @@
                 },
                 "6"
             );
-            key("x");
+            await this.openRoninQuestStep();
             await unitDelay(1); await this.roninQuestFight();
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
@@ -2081,6 +2120,7 @@
                 },
                 "7"
             );
+            await this.openRoninQuestStep();
             await this.roninQuestNext();
 
             this.roninCounter++;
