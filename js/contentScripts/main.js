@@ -3189,18 +3189,10 @@
                 throw new Error("Ronin jest już wykonywany.");
             }
 
+            // Quick Ronina nie blokujemy lokalnym icd_5, bo aktywna postać
+            // mogła pozostać zalogowana przez reset o 00:00. W tym trybie
+            // ostatecznym źródłem prawdy pozostaje serwer przy wejściu.
             await this.getRoninInstanceDefinition();
-
-            const dailyUsed = this.roninDailyUsage();
-            if (dailyUsed >= this.roninDailyLimit) {
-                throw new Error(
-                    "Ronin: dzienny limit wykorzystany (" +
-                    dailyUsed +
-                    "/" +
-                    this.roninDailyLimit +
-                    ")."
-                );
-            }
 
             this.roninRunning = true;
             this.clearRoninTimers();
@@ -4898,9 +4890,13 @@
                     );
 
                     try {
+                        // Wymuszamy świeże a:5 -> a:2 także dla już
+                        // aktywnej postaci. Dzięki temu icd_5 uwzględnia
+                        // ewentualny reset dzienny o 00:00.
                         await this.switchCharacterForAccountAction(
                             id,
-                            0
+                            0,
+                            true
                         );
 
                         if (
