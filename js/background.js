@@ -1,7 +1,8 @@
 const DEFAULT_CONFIG = Object.freeze({
   dailyReward: true,
   saveTuts: true,
-  hideReports: false
+  hideReports: false,
+  mapClickMovement: true
 });
 
 const ACCOUNT_LIMIT = 5;
