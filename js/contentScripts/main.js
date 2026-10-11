@@ -1394,6 +1394,54 @@
             }
         }
 
+        async waitForRoninTimedQuestReady(timeoutMs = 45000) {
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const step = await this.openRoninQuestStep();
+                const want = step?.want;
+
+                // Etapy czasowe Ronina w HAR mają want.type === 6.
+                // Po upływie czasu serwer nie pushuje nowego okna —
+                // trzeba ponownie pobrać q_step przez a:22/type:1.
+                if (
+                    !want ||
+                    typeof want !== "object" ||
+                    this._int(want.type) !== 6
+                ) {
+                    return step;
+                }
+
+                if (Boolean(want.is_met)) {
+                    console.info(
+                        "[SW Tool][RONIN] Etap czasowy gotowy.",
+                        {
+                            type: this._int(want.type),
+                            amount: this._int(want.amount),
+                            count: this._int(want.count)
+                        }
+                    );
+                    return step;
+                }
+
+                // Jeżeli serwer podał znacznik końca w count, śpimy prawie
+                // do jego osiągnięcia zamiast odpytywać socket bez potrzeby.
+                const readyAt = this._int(want.count) * 1000;
+                const now = Date.now();
+                const remaining = readyAt > now
+                    ? readyAt - now
+                    : 0;
+
+                await this.sleep(
+                    Math.max(250, Math.min(remaining + 100, 1000))
+                );
+            }
+
+            throw new Error(
+                "Ronin: etap czasowy questa nie został zaliczony w czasie."
+            );
+        }
+
         async roninQuestNext() {
             const button = await this.waitForRoninDom(
                 () =>
@@ -2066,10 +2114,6 @@
                 await this.sleep((this._int(units) + 1) * 300);
             };
 
-            const waitSeconds = async (seconds) => {
-                await this.sleep(this._int(seconds) * 1000);
-            };
-
             const key = (value) => this.roninPressKey(value);
             const move = (count, direction) =>
                 this.roninMove(count, direction);
@@ -2121,10 +2165,9 @@
             );
             await this.openRoninQuestStep();
 
-            this.setQuickPanelStatus("Ronin: oczekiwanie 31 s...");
-            await waitSeconds(31);
+            this.setQuickPanelStatus("Ronin: oczekiwanie na etap czasowy...");
+            await this.waitForRoninTimedQuestReady();
 
-            key("x");
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
             await this.navigateToRoninQuestMove(
