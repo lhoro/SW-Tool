@@ -1862,7 +1862,11 @@
                 }
             );
 
-            await this.sleep(100);
+            // Po potwierdzonym dojściu na pole klient gry czeka chwilę,
+            // zanim otworzy quest przez a:22/type:1. W HAR Ronina odstęp
+            // wynosi zwykle ~250-850 ms; zbyt wczesny type:1 bywa ignorowany
+            // przez serwer bez żadnej odpowiedzi.
+            await this.sleep(500);
             return move;
         }
 
