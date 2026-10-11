@@ -90,6 +90,7 @@
             this.responseWaiter = null;
             this.accountOperationRunning = false;
             this.quickActionRunning = false;
+            this.roninRunning = false;
             this.quickPanelButtons = [];
             this.quickPanelStatus = null;
             this.roninCounter = 0;
@@ -626,7 +627,7 @@
 
         handleRoninMapQuestResponse(response) {
             if (
-                !this.quickActionRunning ||
+                !this.roninRunning ||
                 this._int(response?.loc?.id) !== 193 ||
                 !response.quests ||
                 typeof response.quests !== "object"
@@ -1312,7 +1313,7 @@
                     (id) => id !== timerId
                 );
 
-                if (!this.quickActionRunning) return;
+                if (!this.roninRunning) return;
 
                 try {
                     callback();
@@ -1369,7 +1370,7 @@
             this.currentRoninQuestStep = step;
 
             if (
-                this.quickActionRunning &&
+                this.roninRunning &&
                 this._int(this.mapSolver?.map?.locationId) === 193
             ) {
                 if (this.roninQuestId !== qbId) {
@@ -2199,7 +2200,7 @@
             };
 
             if (
-                this.quickActionRunning &&
+                this.roninRunning &&
                 locationId === 193
             ) {
                 if (this.roninQuestId !== qbId) {
@@ -2966,6 +2967,11 @@
         }
 
         async runQuickRonin() {
+            if (this.roninRunning) {
+                throw new Error("Ronin jest już wykonywany.");
+            }
+
+            this.roninRunning = true;
             this.clearRoninTimers();
             const runStartedAt = Date.now();
 
@@ -2996,6 +3002,7 @@
                 }
             } finally {
                 this.clearRoninTimers();
+                this.roninRunning = false;
             }
 
             return {
@@ -4615,6 +4622,95 @@
             });
         }
 
+        async runAccountRonin() {
+            const characters = [...this.chars];
+            const originalId = Number(
+                GAME.char_id ||
+                this.lastCharacterId ||
+                this.currentCharacterId ||
+                0
+            );
+
+            let completed = 0;
+            let failed = 0;
+            let dailyClaimed = 0;
+
+            try {
+                for (let i = 0; i < characters.length; i++) {
+                    const char = characters[i];
+                    const id = Number(char.id);
+                    const label =
+                        char.name || ("#" + id);
+
+                    console.info(
+                        "[SW Tool][ACCOUNT] Ronin " +
+                        (i + 1) +
+                        "/" +
+                        characters.length +
+                        ": " +
+                        label
+                    );
+
+                    try {
+                        await this.switchCharacterForAccountAction(
+                            id,
+                            0
+                        );
+
+                        if (
+                            await this.claimDailyRewardForAccountAction(label)
+                        ) {
+                            dailyClaimed++;
+                        }
+
+                        this.setQuickPanelStatus(
+                            "Ronin konto: " +
+                            (i + 1) +
+                            "/" +
+                            characters.length +
+                            " — " +
+                            label +
+                            "..."
+                        );
+
+                        await this.runQuickRonin();
+                        completed++;
+
+                        console.info(
+                            "[SW Tool][ACCOUNT] Ronin — " +
+                            label +
+                            ": zakończony."
+                        );
+                    } catch (error) {
+                        if (this.isFatalAccountError(error)) {
+                            throw error;
+                        }
+
+                        failed++;
+                        console.warn(
+                            "[SW Tool][ACCOUNT] Ronin — " +
+                            label +
+                            ":",
+                            error
+                        );
+                    } finally {
+                        this.stopNavigation(
+                            "koniec Ronina dla bieżącej postaci"
+                        );
+                    }
+                }
+            } finally {
+                this.stopNavigation("koniec operacji Ronin konta");
+                await this.restoreAccountCharacter(originalId);
+            }
+
+            console.info("[SW Tool][ACCOUNT] Ronin zakończony:", {
+                completed,
+                failed,
+                dailyClaimed
+            });
+        }
+
         startAccountOperation(action) {
             if (
                 action === "accountTournaments" &&
@@ -4648,7 +4744,8 @@
                 accountSoulAbyss: () => this.runAccountSoulAbyss(),
                 accountArenaPvp: () => this.runAccountArenaPvp(),
                 accountTrainings: () => this.runAccountTrainings(),
-                accountMissions: () => this.runAccountMissions()
+                accountMissions: () => this.runAccountMissions(),
+                accountRonin: () => this.runAccountRonin()
             };
             const runner = runners[action];
             if (!runner) {
