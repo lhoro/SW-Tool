@@ -3,7 +3,8 @@ const DEFAULT_CONFIG = Object.freeze({
   saveTuts: true,
   hideReports: false,
   mapClickMovement: true,
-  acceleratedH: false
+  acceleratedH: false,
+  improvedX: false
 });
 
 const ACCOUNT_LIMIT = 5;
@@ -20,6 +21,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const hideReports = document.getElementById("hideReports");
   const mapClickMovement = document.getElementById("mapClickMovement");
   const acceleratedH = document.getElementById("acceleratedH");
+  const improvedX = document.getElementById("improvedX");
   const resetBtn = document.getElementById("resetBtn");
   const accTutsBtn = document.getElementById("accTutsBtn");
   const accAbyssBtn = document.getElementById("accAbyssBtn");
@@ -55,7 +57,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       : DEFAULT_CONFIG.mapClickMovement,
     acceleratedH: typeof config?.acceleratedH === "boolean"
       ? config.acceleratedH
-      : DEFAULT_CONFIG.acceleratedH
+      : DEFAULT_CONFIG.acceleratedH,
+    improvedX: typeof config?.improvedX === "boolean"
+      ? config.improvedX
+      : DEFAULT_CONFIG.improvedX
   });
 
   const normalizeAccounts = (accounts) => (
@@ -131,6 +136,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     hideReports.checked = normalized.hideReports;
     mapClickMovement.checked = normalized.mapClickMovement;
     acceleratedH.checked = normalized.acceleratedH;
+    improvedX.checked = normalized.improvedX;
   }
 
   function readWindowConfig() {
@@ -139,7 +145,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       saveTuts: saveTuts.checked,
       hideReports: hideReports.checked,
       mapClickMovement: mapClickMovement.checked,
-      acceleratedH: acceleratedH.checked
+      acceleratedH: acceleratedH.checked,
+      improvedX: improvedX.checked
     };
   }
 
@@ -379,6 +386,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   hideReports.addEventListener("change", saveConfig);
   mapClickMovement.addEventListener("change", saveConfig);
   acceleratedH.addEventListener("change", saveConfig);
+  improvedX.addEventListener("change", saveConfig);
 
   resetBtn.addEventListener("click", async () => {
     try {
