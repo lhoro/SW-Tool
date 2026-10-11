@@ -1691,6 +1691,40 @@
         handleHQuestResponse(response) {
             if (!response || typeof response !== "object") return;
 
+            if (Array.isArray(response.tracked)) {
+                const trackedH = response.tracked
+                    .map((entry) => entry?.want)
+                    .find(
+                        (want) =>
+                            want &&
+                            typeof want === "object" &&
+                            this._int(want.type) === 39
+                    );
+
+                if (trackedH) {
+                    const id = this._int(
+                        trackedH.qbid || trackedH.qb_id
+                    );
+                    const count = this._int(trackedH.count);
+                    const max = this._int(trackedH.maxv);
+
+                    if (id > 0 && max > 0) {
+                        this.currentHQuest = {
+                            id,
+                            count,
+                            max,
+                            isMet: Boolean(trackedH.is_met)
+                        };
+                        this.acceleratedHPending = false;
+
+                        console.info(
+                            "[SW Tool][H] Stan z tracked:",
+                            this.currentHQuest
+                        );
+                    }
+                }
+            }
+
             // Pełny stan kroku questa. W HAR quest H ma want.type === 39,
             // a qbid jest ID używanym później w a:22/type:7.
             const qStep = response.q_step;
@@ -1931,6 +1965,33 @@
                 missing,
                 { waitForResponse: true }
             );
+
+            const step = await this.openRoninQuestStep();
+            const want = step?.want;
+
+            if (
+                want &&
+                typeof want === "object" &&
+                this._int(want.type) === 39 &&
+                !Boolean(want.is_met)
+            ) {
+                throw new Error(
+                    "Ronin: H zostało wysłane, ale krok questa nadal nie jest zaliczony."
+                );
+            }
+
+            console.info(
+                "[SW Tool][RONIN] H zaliczone i krok odświeżony.",
+                {
+                    id: quest.id,
+                    sent: missing,
+                    count: this._int(want?.count),
+                    max: this._int(want?.maxv),
+                    isMet: Boolean(want?.is_met)
+                }
+            );
+
+            return step;
         }
 
         roninCloseInfo() {
@@ -2188,12 +2249,12 @@
             );
             await this.openRoninQuestStep();
             await this.roninQuestH();
-            await unitDelay(5); key("x");
-            await unitDelay(1); await this.roninQuestNext();
-            await unitDelay(1); key("x");
-            await unitDelay(1); await this.roninQuestH();
-            await unitDelay(5); key("x");
-            await unitDelay(1); await this.roninQuestNext();
+
+            await this.roninQuestAction();
+
+
+            await this.roninQuestH();
+ await this.roninQuestAction();
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
             await this.navigateToRoninQuestMove(
@@ -2230,8 +2291,8 @@
             );
             await this.openRoninQuestStep();
             await this.roninQuestH();
-            await unitDelay(5); key("x");
-            await unitDelay(1); await this.roninQuestNext();
+
+            await this.roninQuestAction();
             await unitDelay(1); await this.roninQuestFight();
             await unitDelay(1); await this.roninQuestNext();
             await this.navigateToRoninQuestMove(
