@@ -3519,7 +3519,7 @@
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
             );
-            let joined = 0, skipped = 0, failed = 0;
+            let joined = 0, skipped = 0, failed = 0, dailyClaimed = 0;
 
             try {
                 for (let i = 0; i < characters.length; i++) {
@@ -3537,6 +3537,14 @@
 
                     try {
                         await this.switchCharacterForAccountAction(id);
+                        await this.sleep(200);
+
+                        if (
+                            await this.claimDailyRewardForAccountAction(label)
+                        ) {
+                            dailyClaimed++;
+                        }
+
                         const list = await this.sendAndWait(
                             { a: 57, type: 0, type2: 0, page: 1 },
                             57
@@ -3574,7 +3582,12 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Turnieje zakończone:", { joined, skipped, failed });
+            console.info("[SW Tool][ACCOUNT] Turnieje zakończone:", {
+                joined,
+                skipped,
+                failed,
+                dailyClaimed
+            });
         }
 
         waitForGameCaptcha(timeoutMs = 15000) {
