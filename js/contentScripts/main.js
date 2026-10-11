@@ -2563,28 +2563,17 @@
             };
 
             const key = (value) => this.roninPressKey(value);
-            const move = (count, direction) =>
-                this.roninMove(count, direction);
             const attack = (count = 8) =>
                 this.roninAttackNormal(count);
 
             this.setQuickPanelStatus("Ronin: wykonywanie trasy...");
 
-            // Pierwszy qb_id dostajemy bezpośrednio z response.quests mapy
-            // instancji. Nie potrzebujemy już syntetycznego X.
+            // Start questa bez syntetycznego X. qb_id pochodzi z a:3.quests.
             await this.waitForRoninQuestId();
             await this.openRoninQuestStep();
             await this.roninQuestAction();
 
-            await this.navigateToRoninQuestMove(
-                async () => {
-                    await legacyDelay(1); move(2, "e");
-                    await legacyDelay(2); move(12, "d");
-                    await legacyDelay(12); move(2, "e");
-                    await legacyDelay(2);
-                },
-                "1"
-            );
+            await this.navigateToRoninQuestMove(null, "1");
             await this.openRoninQuestStep();
             await this.roninQuestH();
             await this.roninQuestAction();
@@ -2594,25 +2583,11 @@
             await this.roninQuestNext();
             await this.roninQuestNext();
 
-            await this.navigateToRoninQuestMove(
-                async () => {
-                    await legacyDelay(1); move(2, "c");
-                    await legacyDelay(2); move(2, "d");
-                    await legacyDelay(2); move(2, "c");
-                    await legacyDelay(2);
-                },
-                "2"
-            );
+            await this.navigateToRoninQuestMove(null, "2");
             await this.openRoninQuestStep();
             await this.roninQuestNext();
 
-            await this.navigateToRoninQuestMove(
-                async () => {
-                    await legacyDelay(1); move(1, "a");
-                    await legacyDelay(1);
-                },
-                "3"
-            );
+            await this.navigateToRoninQuestMove(null, "3");
 
             const timedStep = await this.openRoninQuestStep();
             this.setQuickPanelStatus(
@@ -2623,48 +2598,25 @@
             await this.roninQuestNext();
             await this.roninQuestNext();
 
-            await this.navigateToRoninQuestMove(
-                async () => {
-                    await legacyDelay(1); move(1, "d");
-                    await legacyDelay(1);
-                },
-                "4"
-            );
+            await this.navigateToRoninQuestMove(null, "4");
             await this.openRoninQuestStep();
             await this.roninQuestH();
             await this.roninQuestAction();
             await this.roninQuestFight();
             await this.roninQuestNext();
 
-            await this.navigateToRoninQuestMove(
-                async () => {
-                    await legacyDelay(1); move(3, "q");
-                    await legacyDelay(3); move(4, "w");
-                    await legacyDelay(4); move(7, "d");
-                    await legacyDelay(7); move(4, "c");
-                    await legacyDelay(4); move(1, "s");
-                    await legacyDelay(1);
-                },
-                "5"
-            );
+            await this.navigateToRoninQuestMove(null, "5");
             await this.openRoninQuestStep();
             await this.roninQuestNext();
             await this.roninQuestNext();
 
-            await this.navigateToRoninQuestMove(
-                async () => {
-                    await legacyDelay(1); move(2, "d");
-                    await legacyDelay(3);
-                },
-                "6"
-            );
+            await this.navigateToRoninQuestMove(null, "6");
             await this.openRoninQuestStep();
             await this.roninQuestFight();
             await this.roninQuestNext();
             await this.roninQuestNext();
 
-            // Końcówka mobów nadal jest legacy: klawisze F/W/S/A/D/R
-            // i ich pacing pozostają bez zmian do następnego etapu prac.
+            // Końcówka mobów nadal legacy.
             const evenRun = this.roninCounter % 2 === 0;
             console.info("[SW Tool][RONIN] Wariant końcówki:", {
                 run: this.roninCounter + 1,
@@ -2716,17 +2668,10 @@
                 await legacyDelay(1); key("a");
             }
 
-            // Ten fragment nadal należy do starej końcówki walki.
             await legacyDelay(1); key("x");
             await legacyDelay(1); await this.roninQuestNext();
 
-            await this.navigateToRoninQuestMove(
-                async () => {
-                    await legacyDelay(1); move(2, "d");
-                    await legacyDelay(2);
-                },
-                "7"
-            );
+            await this.navigateToRoninQuestMove(null, "7");
             await this.openRoninQuestStep();
             await this.roninQuestNext();
 
