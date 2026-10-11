@@ -1329,6 +1329,66 @@
             return actions;
         }
 
+        questActionType(action) {
+            if (!(action instanceof Element)) return "unknown";
+            if (action.classList.contains("quest_btn")) return "fight";
+            if (action.classList.contains("newBtn3")) return "next";
+            return "unknown";
+        }
+
+        clickQuestAction(action, source = "quest") {
+            if (!(action instanceof Element)) {
+                return false;
+            }
+
+            const type = this.questActionType(action);
+            action.dispatchEvent(
+                new MouseEvent("click", {
+                    bubbles: true,
+                    cancelable: true
+                })
+            );
+
+            console.info(
+                "[SW Tool][QUEST] Wykonano jednoznaczną akcję.",
+                {
+                    source,
+                    type,
+                    text: String(action.textContent || "").trim()
+                }
+            );
+
+            return type;
+        }
+
+        async waitForSingleQuestAction(
+            timeoutMs = 3000,
+            { failOnMultiple = true } = {}
+        ) {
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const actions = this.improvedXQuestActions();
+
+                if (actions.length > 1) {
+                    if (failOnMultiple) {
+                        throw new Error(
+                            "Quest ma kilka dostępnych akcji — wymagany wybór gracza."
+                        );
+                    }
+                    return null;
+                }
+
+                if (actions.length === 1) {
+                    return actions[0];
+                }
+
+                await this.sleep(25);
+            }
+
+            return null;
+        }
+
         async runImprovedXFromUserKey() {
             if (
                 this.config.improvedX !== true ||
@@ -1343,67 +1403,45 @@
             this.improvedXPending = true;
 
             try {
-                // Normalne X najpierw obsługuje klient gry. Dajemy mu chwilę
-                // na otwarcie/przebudowanie okna questa i dopiero potem
-                // szukamy jednoznacznej akcji.
+                // Normalne X najpierw obsługuje klient gry. Nie wysyłamy
+                // dodatkowego requestu do serwera tylko po to, aby poznać
+                // akcję — sprawdzamy wyłącznie wyrenderowane przyciski.
                 await this.sleep(30);
 
-                const startedAt = Date.now();
-                while (Date.now() - startedAt < 700) {
-                    const actions = this.improvedXQuestActions();
+                const action = await this.waitForSingleQuestAction(
+                    700,
+                    { failOnMultiple: false }
+                );
 
-                    if (actions.length > 1) {
+                if (!action) {
+                    const count = this.improvedXQuestActions().length;
+                    if (count > 1) {
                         console.info(
                             "[SW Tool][X] Wiele opcji questa — wybór pozostawiony graczowi.",
-                            { count: actions.length }
+                            { count }
                         );
-                        return false;
                     }
-
-                    if (actions.length === 1) {
-                        const action = actions[0];
-
-                        action.dispatchEvent(
-                            new MouseEvent("click", {
-                                bubbles: true,
-                                cancelable: true
-                            })
-                        );
-
-                        console.info(
-                            "[SW Tool][X] Wykonano jednoznaczną akcję questa.",
-                            {
-                                type: action.classList.contains("quest_btn")
-                                    ? "fight"
-                                    : "next",
-                                text: String(
-                                    action.textContent || ""
-                                ).trim()
-                            }
-                        );
-
-                        return true;
-                    }
-
-                    await this.sleep(25);
+                    return false;
                 }
 
-                return false;
+                this.clickQuestAction(action, "improved-x");
+                return true;
             } finally {
                 this.improvedXPending = false;
             }
         }
 
-        async waitForRoninTimedQuestReady(timeoutMs = 45000) {
+        async waitForRoninTimedQuestReady(
+            initialStep = null,
+            timeoutMs = 45000
+        ) {
             const startedAt = Date.now();
+            let step = initialStep || await this.openRoninQuestStep();
+            let afterDeadlineRetries = 0;
 
             while (Date.now() - startedAt < timeoutMs) {
-                const step = await this.openRoninQuestStep();
                 const want = step?.want;
 
-                // Etapy czasowe Ronina w HAR mają want.type === 6.
-                // Po upływie czasu serwer nie pushuje nowego okna —
-                // trzeba ponownie pobrać q_step przez a:22/type:1.
                 if (
                     !want ||
                     typeof want !== "object" ||
@@ -1418,23 +1456,35 @@
                         {
                             type: this._int(want.type),
                             amount: this._int(want.amount),
-                            count: this._int(want.count)
+                            count: this._int(want.count),
+                            refreshesAfterDeadline: afterDeadlineRetries
                         }
                     );
                     return step;
                 }
 
-                // Jeżeli serwer podał znacznik końca w count, śpimy prawie
-                // do jego osiągnięcia zamiast odpytywać socket bez potrzeby.
+                // count w HAR jest timestampem UNIX (sekundy), kiedy etap
+                // powinien być gotowy. Śpimy lokalnie do tego momentu zamiast
+                // pytać serwer co sekundę.
                 const readyAt = this._int(want.count) * 1000;
                 const now = Date.now();
-                const remaining = readyAt > now
-                    ? readyAt - now
-                    : 0;
 
-                await this.sleep(
-                    Math.max(250, Math.min(remaining + 100, 1000))
-                );
+                if (readyAt > now) {
+                    const remaining = readyAt - now;
+                    const left = timeoutMs - (now - startedAt);
+                    await this.sleep(
+                        Math.max(
+                            0,
+                            Math.min(remaining + 250, left)
+                        )
+                    );
+                } else {
+                    // Rzadki retry po deadline, np. przy różnicy zegarów.
+                    await this.sleep(afterDeadlineRetries === 0 ? 250 : 1500);
+                }
+
+                step = await this.openRoninQuestStep();
+                afterDeadlineRetries++;
             }
 
             throw new Error(
@@ -1442,32 +1492,27 @@
             );
         }
 
-        async roninQuestNext() {
-            const button = await this.waitForRoninDom(
-                () =>
-                    document.querySelector(
-                        ".quest_win .newBtn3"
-                    ),
-                "przycisk Dalej w queście",
-                3000
+        async roninQuestAction() {
+            const action = await this.waitForSingleQuestAction(
+                3000,
+                { failOnMultiple: true }
             );
-            button.dispatchEvent(new MouseEvent("click", {
-                bubbles: true
-            }));
+
+            if (!action) {
+                throw new Error(
+                    "Ronin: nie znaleziono dostępnej akcji questa."
+                );
+            }
+
+            return this.clickQuestAction(action, "ronin");
+        }
+
+        async roninQuestNext() {
+            return this.roninQuestAction();
         }
 
         async roninQuestFight() {
-            const button = await this.waitForRoninDom(
-                () =>
-                    document.querySelector(
-                        ".quest_win .quest_btn"
-                    ),
-                "przycisk walki questa",
-                3000
-            );
-            button.dispatchEvent(new MouseEvent("click", {
-                bubbles: true
-            }));
+            return this.roninQuestAction();
         }
 
         handleQuestMoveResponse(response) {
@@ -2163,10 +2208,10 @@
                 },
                 "3"
             );
-            await this.openRoninQuestStep();
+            const timedStep = await this.openRoninQuestStep();
 
             this.setQuickPanelStatus("Ronin: oczekiwanie na etap czasowy...");
-            await this.waitForRoninTimedQuestReady();
+            await this.waitForRoninTimedQuestReady(timedStep);
 
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
