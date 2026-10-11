@@ -1543,6 +1543,19 @@
         }
 
         async roninQuestAction() {
+            const pendingMove = this.currentQuestMove;
+            if (
+                pendingMove &&
+                this._int(pendingMove.version) >
+                    this._int(this.lastConsumedQuestMoveVersion) &&
+                this._int(pendingMove.locationId) === 193
+            ) {
+                throw new Error(
+                    "Ronin: przed kolejną akcją questa trzeba dojść do nowego celu " +
+                    pendingMove.x + "|" + pendingMove.y + "."
+                );
+            }
+
             const questId = this._int(this.roninQuestId);
             if (questId <= 0) {
                 throw new Error(
@@ -2549,7 +2562,6 @@
                 "5"
             );
             await this.openRoninQuestStep();
-            await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
             await unitDelay(1); await this.roninQuestNext();
             await this.navigateToRoninQuestMove(
