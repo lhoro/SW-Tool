@@ -155,6 +155,13 @@
             const y = this._int(response.y);
             if (x <= 0 || y <= 0) return;
 
+            const rawMobs =
+                response.mobs &&
+                typeof response.mobs === "object" &&
+                !Array.isArray(response.mobs)
+                    ? response.mobs
+                    : {};
+
             this.field = {
                 x,
                 y,
@@ -163,7 +170,17 @@
                     typeof response.res === "object" &&
                     !Array.isArray(response.res)
                         ? response.res
-                        : {}
+                        : {},
+                mobs: {
+                    count: Math.max(0, this._int(rawMobs.suma)),
+                    spawnCd: this._int(rawMobs.spawn_cd),
+                    entries: Array.isArray(rawMobs.mobs)
+                        ? rawMobs.mobs
+                        : []
+                },
+                multiFight: Array.isArray(response.mf)
+                    ? response.mf.map((value) => this._int(value))
+                    : []
             };
         }
 
@@ -341,7 +358,7 @@
                         });
                     }
 
-                    if (source !== "ronin-quest") {
+                    if (!source.startsWith("ronin-")) {
                         await this.tool.sleep(STEP_DELAY_MS);
                     }
                 }
