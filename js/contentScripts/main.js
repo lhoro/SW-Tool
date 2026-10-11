@@ -1638,6 +1638,355 @@
             );
         }
 
+        roninMobSweepTargets(originX, originY, upperHalf) {
+            const targets = [];
+
+            if (upperHalf) {
+                for (let y = originY - 1; y >= originY - 10; y--) {
+                    targets.push({ x: originX, y });
+                }
+
+                targets.push({
+                    x: originX + 1,
+                    y: originY - 10
+                });
+
+                for (let y = originY - 9; y <= originY; y++) {
+                    targets.push({ x: originX + 1, y });
+                }
+            } else {
+                for (let y = originY + 1; y <= originY + 10; y++) {
+                    targets.push({ x: originX, y });
+                }
+
+                targets.push({
+                    x: originX + 1,
+                    y: originY + 10
+                });
+
+                for (let y = originY + 9; y >= originY; y--) {
+                    targets.push({ x: originX + 1, y });
+                }
+            }
+
+            return targets.filter((target) => {
+                const map = this.mapSolver?.map;
+                if (!map) return false;
+
+                const cell = map.cells?.get(
+                    target.x + "_" + target.y
+                );
+
+                return Boolean(
+                    cell &&
+                    cell.movable &&
+                    target.x >= 1 &&
+                    target.y >= 1 &&
+                    target.x <= map.maxX &&
+                    target.y <= map.maxY
+                );
+            });
+        }
+
+        async roninMobFightOnce({
+            questId,
+            beforeCount,
+            useMulti
+        }) {
+            const order = useMulti
+                ? {
+                    a: 13,
+                    mob_num: 0,
+                    fo: [1, 1, 1, 1, 1]
+                }
+                : {
+                    a: 7,
+                    mob_num: 0,
+                    rank: 0,
+                    quick: 1
+                };
+
+            console.info(
+                "[SW Tool][RONIN] Walka z mobami:",
+                {
+                    mode: useMulti ? "multi" : "single",
+                    questId,
+                    beforeCount,
+                    field: this.mapSolver?.field
+                        ? {
+                            x: this.mapSolver.field.x,
+                            y: this.mapSolver.field.y,
+                            mobs:
+                                this._int(
+                                    this.mapSolver.field.mobs?.count
+                                ),
+                            mf: this.mapSolver.field.multiFight
+                        }
+                        : null
+                }
+            );
+
+            const response = await this.sendAndWait(
+                order,
+                [7, 22, 999],
+                (event) => {
+                    if (this._int(event.e) !== 0) {
+                        return true;
+                    }
+
+                    if (
+                        this._int(event.a) === 7 &&
+                        this._int(event.me) > 0
+                    ) {
+                        return true;
+                    }
+
+                    return (
+                        this._int(event.a) === 22 &&
+                        this._int(event.track) === questId &&
+                        this._int(event.new_amount) > beforeCount
+                    );
+                },
+                10000
+            );
+
+            if (this._int(response.e) !== 0) {
+                throw new Error(
+                    "Ronin: serwer odrzucił walkę z mobami."
+                );
+            }
+
+            if (this._int(response.a) === 7) {
+                return {
+                    progressed: false,
+                    count: beforeCount,
+                    reason: this._int(response.me)
+                };
+            }
+
+            return {
+                progressed: true,
+                count: this._int(response.new_amount),
+                gained: Math.max(
+                    0,
+                    this._int(response.new_amount) - beforeCount
+                )
+            };
+        }
+
+        async roninClearMobField(state) {
+            const field = this.mapSolver?.field;
+            const map = this.mapSolver?.map;
+
+            if (
+                !field ||
+                !map ||
+                this._int(field.x) !== this._int(map.x) ||
+                this._int(field.y) !== this._int(map.y)
+            ) {
+                return state;
+            }
+
+            let mobsLeft = Math.max(
+                0,
+                this._int(field.mobs?.count)
+            );
+
+            while (
+                state.count < state.max &&
+                mobsLeft > 0
+            ) {
+                const remaining = state.max - state.count;
+                const multiAvailable =
+                    Array.isArray(field.multiFight) &&
+                    field.multiFight.includes(0);
+
+                // Nie zabijamy więcej niż wymaga quest. Jeżeli na polu
+                // jest więcej mobów niż zostało do celu, kończymy singlami.
+                const useMulti =
+                    multiAvailable &&
+                    mobsLeft <= remaining;
+
+                const result = await this.roninMobFightOnce({
+                    questId: state.questId,
+                    beforeCount: state.count,
+                    useMulti
+                });
+
+                if (!result.progressed) {
+                    mobsLeft = 0;
+                    break;
+                }
+
+                state.count = Math.min(
+                    state.max,
+                    this._int(result.count)
+                );
+
+                mobsLeft = Math.max(
+                    0,
+                    mobsLeft - Math.max(1, this._int(result.gained))
+                );
+
+                field.mobs.count = mobsLeft;
+
+                this.setQuickPanelStatus(
+                    "Ronin: przeciwnicy " +
+                    state.count +
+                    "/" +
+                    state.max +
+                    "..."
+                );
+            }
+
+            return state;
+        }
+
+        async roninMobCombat() {
+            const questId = this._int(this.roninQuestId);
+            const step = this.currentRoninQuestStep;
+            const want = step?.want;
+
+            if (
+                questId <= 0 ||
+                !want ||
+                typeof want !== "object" ||
+                this._int(want.type) !== 1
+            ) {
+                throw new Error(
+                    "Ronin: nie znaleziono etapu zabijania przeciwników."
+                );
+            }
+
+            const map = this.mapSolver?.map;
+            if (!map) {
+                throw new Error(
+                    "Ronin: brak mapy dla etapu przeciwników."
+                );
+            }
+
+            const origin = {
+                x: this._int(map.x),
+                y: this._int(map.y)
+            };
+
+            const state = {
+                questId,
+                count: Math.max(0, this._int(want.count)),
+                max: Math.max(
+                    this._int(want.maxv),
+                    this._int(want.amount)
+                )
+            };
+
+            if (
+                origin.x <= 0 ||
+                origin.y <= 0 ||
+                state.max <= 0
+            ) {
+                throw new Error(
+                    "Ronin: nieprawidłowy stan etapu przeciwników."
+                );
+            }
+
+            this.setQuickPanelStatus(
+                "Ronin: przeciwnicy " +
+                state.count +
+                "/" +
+                state.max +
+                "..."
+            );
+
+            await this.roninClearMobField(state);
+
+            const primaryUpper = this.roninCounter % 2 === 0;
+            const sweeps = [
+                this.roninMobSweepTargets(
+                    origin.x,
+                    origin.y,
+                    primaryUpper
+                ),
+                this.roninMobSweepTargets(
+                    origin.x,
+                    origin.y,
+                    !primaryUpper
+                )
+            ];
+
+            for (const targets of sweeps) {
+                for (const target of targets) {
+                    if (state.count >= state.max) {
+                        break;
+                    }
+
+                    await this.mapSolver.navigateTo(
+                        target.x,
+                        target.y,
+                        {
+                            source: "ronin-mobs",
+                            allowBusy: true
+                        }
+                    );
+
+                    await this.roninClearMobField(state);
+                }
+
+                if (state.count >= state.max) {
+                    break;
+                }
+            }
+
+            if (state.count < state.max) {
+                throw new Error(
+                    "Ronin: zabrakło przeciwników na trasie (" +
+                    state.count +
+                    "/" +
+                    state.max +
+                    ")."
+                );
+            }
+
+            if (
+                this._int(this.mapSolver.map?.x) !== origin.x ||
+                this._int(this.mapSolver.map?.y) !== origin.y
+            ) {
+                await this.mapSolver.navigateTo(
+                    origin.x,
+                    origin.y,
+                    {
+                        source: "ronin-mobs",
+                        allowBusy: true
+                    }
+                );
+            }
+
+            const refreshed = await this.openRoninQuestStep();
+            const refreshedWant = refreshed?.want;
+
+            if (
+                refreshedWant &&
+                typeof refreshedWant === "object" &&
+                this._int(refreshedWant.type) === 1 &&
+                !Boolean(refreshedWant.is_met)
+            ) {
+                throw new Error(
+                    "Ronin: licznik przeciwników osiągnął cel, ale quest nie został zaliczony."
+                );
+            }
+
+            console.info(
+                "[SW Tool][RONIN] Etap przeciwników zakończony.",
+                {
+                    questId,
+                    count: state.count,
+                    max: state.max,
+                    returnedTo: origin
+                }
+            );
+
+            return refreshed;
+        }
+
         async roninQuestAction() {
             const pendingMove = this.currentQuestMove;
             if (
@@ -2558,14 +2907,6 @@
         }
 
         async runRoninRoute() {
-            const legacyDelay = async (units) => {
-                await this.sleep((this._int(units) + 1) * 300);
-            };
-
-            const key = (value) => this.roninPressKey(value);
-            const attack = (count = 8) =>
-                this.roninAttackNormal(count);
-
             this.setQuickPanelStatus("Ronin: wykonywanie trasy...");
 
             // Start questa bez syntetycznego X. qb_id pochodzi z a:3.quests.
@@ -2616,60 +2957,8 @@
             await this.roninQuestNext();
             await this.roninQuestNext();
 
-            // Końcówka mobów nadal legacy.
-            const evenRun = this.roninCounter % 2 === 0;
-            console.info("[SW Tool][RONIN] Wariant końcówki:", {
-                run: this.roninCounter + 1,
-                variant: evenRun ? "A" : "B"
-            });
-
-            if (evenRun) {
-                await legacyDelay(1); attack(8);
-                await legacyDelay(1); key("w");
-                await legacyDelay(1); attack(8);
-                await legacyDelay(1); key("w");
-                await legacyDelay(1); attack(8);
-
-                for (let i = 0; i < 10; i++) {
-                    await legacyDelay(1); key("w");
-                    await legacyDelay(1); key("r");
-                }
-
-                await legacyDelay(1); key("d");
-                await legacyDelay(1); key("r");
-
-                for (let i = 0; i < 11; i++) {
-                    await legacyDelay(1); key("s");
-                    await legacyDelay(1); key("r");
-                }
-
-                await legacyDelay(1); key("s");
-                await legacyDelay(1); key("a");
-            } else {
-                await legacyDelay(1); attack(8);
-                await legacyDelay(1); key("s");
-                await legacyDelay(1); attack(8);
-                await legacyDelay(1); key("s");
-                await legacyDelay(1); attack(8);
-
-                for (let i = 0; i < 8; i++) {
-                    await legacyDelay(1); key("s");
-                    await legacyDelay(1); key("r");
-                }
-
-                await legacyDelay(1); key("d");
-                await legacyDelay(1); key("r");
-
-                for (let i = 0; i < 10; i++) {
-                    await legacyDelay(1); key("w");
-                    await legacyDelay(1); key("r");
-                }
-
-                await legacyDelay(1); key("a");
-            }
-
-            await legacyDelay(1); key("x");
-            await legacyDelay(1); await this.roninQuestNext();
+            await this.roninMobCombat();
+            await this.roninQuestNext();
 
             await this.navigateToRoninQuestMove(null, "7");
             await this.openRoninQuestStep();
