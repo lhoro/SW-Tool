@@ -3,7 +3,8 @@
     const DEFAULT_CONFIG = Object.freeze({
         dailyReward: true,
         saveTuts: true,
-        hideReports: false
+        hideReports: false,
+        mapClickMovement: true
     });
 
     let BOT = null;
@@ -21,7 +22,10 @@
                 : DEFAULT_CONFIG.saveTuts,
             hideReports: typeof source.hideReports === "boolean"
                 ? source.hideReports
-                : DEFAULT_CONFIG.hideReports
+                : DEFAULT_CONFIG.hideReports,
+            mapClickMovement: typeof source.mapClickMovement === "boolean"
+                ? source.mapClickMovement
+                : DEFAULT_CONFIG.mapClickMovement
         };
     };
 
@@ -82,6 +86,7 @@
             this.quickPanelStatus = null;
             this.roninCounter = 0;
             this.roninTimers = [];
+            this.roninFinishedAt = 0;
             this.trainingCaptchaWaiter = null;
             this.dailyRewardClaimStage = 0;
             this.dailyRewardClaimCharacterId = 0;
@@ -358,6 +363,18 @@
 
             if (action === 26) {
                 this.handleDailyRewardResponse(response);
+            }
+
+            if (
+                action === 777 &&
+                this._enabled(response.instance_finished) &&
+                this._int(response.instance) === 5
+            ) {
+                this.roninFinishedAt = Date.now();
+                console.info("[SW Tool][RONIN] Instancja zakończona.", {
+                    done: response.done,
+                    share: response.share
+                });
             }
 
             this.routeResponseWaiter(response);
@@ -1274,103 +1291,220 @@
         }
 
         async enterRoninInstance() {
-            this.setQuickPanelStatus("Ronin: otwieranie instancji...");
+            const RONIN_INSTANCE_ID = 5;
+            const RONIN_LOCATION_ID = 193;
 
-            const instanceMenu = await this.waitForRoninDom(
-                () => {
-                    const pages =
-                        document.getElementsByClassName("select_page");
-                    return pages.length > 28 ? pages[28] : null;
-                },
-                "zakładka Instancje"
-            );
-            instanceMenu.dispatchEvent(new MouseEvent("click", {
-                bubbles: true
-            }));
+            this.setQuickPanelStatus("Ronin: sprawdzanie instancji...");
 
-            await this.sleep(250);
-
-            const roninOption = await this.waitForRoninDom(
-                () => {
-                    const list =
-                        document.getElementById("instance_list");
-                    if (!list) return null;
-                    const options =
-                        list.getElementsByClassName("option");
-                    return options.length > 1 ? options[1] : null;
-                },
-                "druga pozycja listy instancji (Ronin)"
-            );
-
-            console.info("[SW Tool][RONIN] Wybrana instancja:", {
-                text: String(roninOption.textContent || "").trim()
-            });
-
-            roninOption.dispatchEvent(new MouseEvent("click", {
-                bubbles: true
-            }));
-
-            await this.sleep(250);
-
-            const createRoom = await this.waitForRoninDom(
-                () =>
-                    document.querySelector(
-                        "#instance_view .newBtn[data-option='instance_create_room']"
+            const list = await this.sendAndWait(
+                { a: 29, type: 0 },
+                [29, 999],
+                (event) =>
+                    this._int(event.e) !== 0 ||
+                    (
+                        this._int(event.a) === 29 &&
+                        event.raids &&
+                        typeof event.raids === "object"
                     ),
-                "Utwórz pokój Ronina"
-            );
-            createRoom.dispatchEvent(new MouseEvent("click", {
-                bubbles: true
-            }));
-
-            await this.sleep(250);
-
-            const startRoom = await this.waitForRoninDom(
-                () =>
-                    document.querySelector(
-                        "#instance_view .newBtn[data-option='start_instance_room']"
-                    ),
-                "Start instancji Ronina"
-            );
-            startRoom.dispatchEvent(new MouseEvent("click", {
-                bubbles: true
-            }));
-
-            await this.sleep(250);
-
-            const enterButtons = await this.waitForRoninDom(
-                () => {
-                    const buttons = [
-                        ...document.querySelectorAll(
-                            "#instance_view .newBtn[data-option='enter_instance_room']"
-                        )
-                    ];
-                    return buttons.length > 0 ? buttons : null;
-                },
-                "Wejdź do instancji Ronina"
+                15000
             );
 
-            for (const button of enterButtons) {
-                button.dispatchEvent(new MouseEvent("click", {
-                    bubbles: true
-                }));
-                await this.sleep(250);
+            if (this._int(list.e) !== 0) {
+                throw new Error(
+                    "Ronin: serwer odrzucił listę instancji."
+                );
             }
 
-            this.setQuickPanelStatus("Ronin: wejście na mapę...");
-            await this.sleep(1500);
+            const ronin = list.raids?.list?.[String(RONIN_INSTANCE_ID)] ||
+                list.raids?.list?.[RONIN_INSTANCE_ID];
 
-            const mapButton = await this.waitForRoninDom(
-                () => document.getElementById("map_link_btn"),
-                "przycisk mapy"
-            );
-            mapButton.dispatchEvent(new MouseEvent("click", {
-                bubbles: true
-            }));
+            if (!ronin) {
+                throw new Error(
+                    "Ronin: instancja #5 nie jest dostępna na liście serwera."
+                );
+            }
 
+            this.setQuickPanelStatus("Ronin: wybór instancji...");
             await this.sleep(100);
-            this.roninCloseInfo();
-            await this.sleep(150);
+
+            const selected = await this.sendAndWait(
+                {
+                    a: 29,
+                    type: 1,
+                    instance: RONIN_INSTANCE_ID
+                },
+                [777, 999],
+                (event) =>
+                    this._int(event.e) !== 0 ||
+                    (
+                        this._int(event.a) === 777 &&
+                        this._int(event.order) === 1 &&
+                        this._int(event.instance_id) ===
+                            RONIN_INSTANCE_ID
+                    ),
+                15000
+            );
+
+            if (this._int(selected.e) !== 0) {
+                throw new Error(
+                    "Ronin: serwer odrzucił wybór instancji."
+                );
+            }
+
+            this.setQuickPanelStatus("Ronin: tworzenie pokoju...");
+            await this.sleep(100);
+
+            const created = await this.sendAndWait(
+                {
+                    a: 29,
+                    type: 2,
+                    instance: RONIN_INSTANCE_ID
+                },
+                [777, 999],
+                (event) =>
+                    this._int(event.e) !== 0 ||
+                    (
+                        this._int(event.a) === 777 &&
+                        this._int(event.order) === 2 &&
+                        this._int(event.instance_id) ===
+                            RONIN_INSTANCE_ID &&
+                        this._int(event.own_room) > 0
+                    ),
+                15000
+            );
+
+            if (this._int(created.e) !== 0) {
+                throw new Error(
+                    "Ronin: nie udało się utworzyć pokoju."
+                );
+            }
+
+            const roomId = this._int(created.own_room);
+            if (roomId <= 0) {
+                throw new Error(
+                    "Ronin: serwer nie zwrócił ID utworzonego pokoju."
+                );
+            }
+
+            this.setQuickPanelStatus("Ronin: start pokoju...");
+            await this.sleep(100);
+
+            const started = await this.sendAndWait(
+                {
+                    a: 29,
+                    type: 7,
+                    room: roomId
+                },
+                [777, 999],
+                (event) => {
+                    if (this._int(event.e) !== 0) return true;
+                    if (this._int(event.a) !== 777) return false;
+
+                    if (this._int(event.done) === 31) return true;
+
+                    const rooms = Array.isArray(event.rooms)
+                        ? event.rooms
+                        : [];
+
+                    return rooms.some(
+                        (room) =>
+                            this._int(room?.id) === roomId &&
+                            this._int(room?.status) === 3
+                    );
+                },
+                15000
+            );
+
+            if (this._int(started.e) !== 0) {
+                throw new Error(
+                    "Ronin: serwer odrzucił start pokoju."
+                );
+            }
+
+            this.setQuickPanelStatus("Ronin: wejście do instancji...");
+            await this.sleep(100);
+
+            const entered = await this.sendAndWait(
+                {
+                    a: 29,
+                    type: 8,
+                    room: roomId
+                },
+                [3, 777, 999],
+                (event) => {
+                    if (this._int(event.e) !== 0) return true;
+
+                    if (
+                        this._int(event.a) === 777 &&
+                        this._int(event.order) === 8 &&
+                        this._int(event.enter_instance) ===
+                            RONIN_INSTANCE_ID
+                    ) {
+                        return true;
+                    }
+
+                    return (
+                        this._int(event.a) === 3 &&
+                        event.loc &&
+                        typeof event.loc === "object" &&
+                        this._int(event.loc.id) ===
+                            RONIN_LOCATION_ID
+                    );
+                },
+                15000
+            );
+
+            if (this._int(entered.e) !== 0) {
+                throw new Error(
+                    "Ronin: serwer odrzucił wejście do instancji."
+                );
+            }
+
+            // W HAR mapa Ronina (loc=193) przychodzi automatycznie po type=8,
+            // czasem jeszcze przed potwierdzeniem a=777/order=8.
+            const mapStartedAt = Date.now();
+            while (Date.now() - mapStartedAt < 5000) {
+                if (
+                    this._int(this.mapSolver?.map?.locationId) ===
+                    RONIN_LOCATION_ID
+                ) {
+                    break;
+                }
+
+                await this.sleep(50);
+            }
+
+            if (
+                this.mapSolver &&
+                this._int(this.mapSolver.map?.locationId) !==
+                    RONIN_LOCATION_ID
+            ) {
+                throw new Error(
+                    "Ronin: nie otrzymano mapy instancji (loc=193)."
+                );
+            }
+
+            await this.sleep(500);
+
+            console.info("[SW Tool][RONIN] Wejście potwierdzone:", {
+                instance: RONIN_INSTANCE_ID,
+                room: roomId,
+                location: RONIN_LOCATION_ID
+            });
+        }
+
+        async waitForRoninCompletion(sinceMs, timeoutMs = 12000) {
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                if (this.roninFinishedAt >= sinceMs) {
+                    return true;
+                }
+
+                await this.sleep(50);
+            }
+
+            return false;
         }
 
         async runRoninRoute() {
@@ -1504,10 +1638,25 @@
 
         async runQuickRonin() {
             this.clearRoninTimers();
+            const runStartedAt = Date.now();
 
             try {
                 await this.enterRoninInstance();
                 await this.runRoninRoute();
+
+                this.setQuickPanelStatus(
+                    "Ronin: czekam na potwierdzenie zakończenia..."
+                );
+
+                const finished = await this.waitForRoninCompletion(
+                    runStartedAt
+                );
+
+                if (!finished) {
+                    throw new Error(
+                        "Ronin: brak potwierdzenia zakończenia instancji a=777."
+                    );
+                }
             } finally {
                 this.clearRoninTimers();
             }
