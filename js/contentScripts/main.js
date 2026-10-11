@@ -96,6 +96,8 @@
             this.roninTimers = [];
             this.roninFinishedAt = 0;
             this.currentHQuest = null;
+            this.currentHQuestStep = null;
+            this.hTrackedVersion = 0;
             this.acceleratedHPending = false;
             this.currentQuestMove = null;
             this.questMoveVersion = 0;
@@ -1866,14 +1868,69 @@
         handleHQuestResponse(response) {
             if (!response || typeof response !== "object") return;
 
+            const qStep = response.q_step;
+            const want = qStep?.want;
+
+            if (qStep && typeof qStep === "object") {
+                if (
+                    !want ||
+                    typeof want !== "object" ||
+                    this._int(want.type) !== 39
+                ) {
+                    this.currentHQuest = null;
+                    this.currentHQuestStep = null;
+                    this.acceleratedHPending = false;
+                    return;
+                }
+
+                const id = this._int(
+                    want.qbid || qStep.qb_id
+                );
+                const count = this._int(want.count);
+                const max = this._int(want.maxv);
+
+                if (id > 0 && max > 0) {
+                    this.currentHQuestStep = {
+                        id,
+                        max,
+                        isMet: Boolean(want.is_met),
+                        trackedVersionAtStep: this.hTrackedVersion
+                    };
+
+                    this.currentHQuest = {
+                        id,
+                        count,
+                        max,
+                        isMet: Boolean(want.is_met),
+                        source: "q_step"
+                    };
+
+                    this.acceleratedHPending = false;
+                }
+            }
+
             if (Array.isArray(response.tracked)) {
+                const expectedId = this._int(
+                    this.currentHQuestStep?.id ||
+                    this.currentHQuest?.id ||
+                    this.roninQuestId
+                );
+
                 const trackedH = response.tracked
                     .map((entry) => entry?.want)
+                    .filter(
+                        (trackedWant) =>
+                            trackedWant &&
+                            typeof trackedWant === "object" &&
+                            this._int(trackedWant.type) === 39
+                    )
                     .find(
-                        (want) =>
-                            want &&
-                            typeof want === "object" &&
-                            this._int(want.type) === 39
+                        (trackedWant) =>
+                            expectedId <= 0 ||
+                            this._int(
+                                trackedWant.qbid ||
+                                trackedWant.qb_id
+                            ) === expectedId
                     );
 
                 if (trackedH) {
@@ -1884,12 +1941,17 @@
                     const max = this._int(trackedH.maxv);
 
                     if (id > 0 && max > 0) {
+                        this.hTrackedVersion++;
+
                         this.currentHQuest = {
                             id,
                             count,
                             max,
-                            isMet: Boolean(trackedH.is_met)
+                            isMet: Boolean(trackedH.is_met),
+                            source: "tracked",
+                            trackedVersion: this.hTrackedVersion
                         };
+
                         this.acceleratedHPending = false;
 
                         console.info(
@@ -1900,49 +1962,6 @@
                 }
             }
 
-            // Pełny stan kroku questa. W HAR quest H ma want.type === 39,
-            // a qbid jest ID używanym później w a:22/type:7.
-            const qStep = response.q_step;
-            const want = qStep?.want;
-
-            if (
-                qStep &&
-                (
-                    !want ||
-                    typeof want !== "object" ||
-                    this._int(want.type) !== 39
-                )
-            ) {
-                this.currentHQuest = null;
-                this.acceleratedHPending = false;
-                return;
-            }
-
-            if (
-                want &&
-                typeof want === "object" &&
-                this._int(want.type) === 39
-            ) {
-                const id = this._int(
-                    want.qbid || response.q_step?.qb_id
-                );
-                const count = this._int(want.count);
-                const max = this._int(want.maxv);
-
-                if (id > 0 && max > 0) {
-                    this.currentHQuest = {
-                        id,
-                        count,
-                        max,
-                        isMet: Boolean(want.is_met)
-                    };
-                    this.acceleratedHPending = false;
-                }
-                return;
-            }
-
-            // Po type:7 serwer zwraca m.in.
-            // { a:22, track:<qbid>, amount:<cnt>, new_amount:<sum> }.
             const trackId = this._int(response.track);
             const newAmount = this._int(response.new_amount);
 
@@ -1982,7 +2001,6 @@
                 return;
             }
 
-            // Sam ACK {e:0,a:22} też zwalnia blokadę awaryjnie.
             if (response.e !== undefined) {
                 this.acceleratedHPending = false;
             }
@@ -2117,21 +2135,39 @@
         async roninQuestH() {
             const startedAt = Date.now();
 
-            while (
-                Date.now() - startedAt < 3000 &&
-                (
-                    !this.currentHQuest ||
-                    this.currentHQuest.max <=
-                        this.currentHQuest.count
-                )
-            ) {
-                await this.sleep(50);
+            while (Date.now() - startedAt < 4000) {
+                const activeStep = this.currentHQuestStep;
+                const tracked = this.currentHQuest;
+
+                if (
+                    activeStep &&
+                    tracked &&
+                    tracked.source === "tracked" &&
+                    this._int(tracked.id) === this._int(activeStep.id) &&
+                    this._int(tracked.max) === this._int(activeStep.max) &&
+                    !tracked.isMet &&
+                    tracked.max > tracked.count
+                ) {
+                    break;
+                }
+
+                await this.sleep(25);
             }
 
+            const activeStep = this.currentHQuestStep;
             const quest = this.currentHQuest;
-            if (!quest || quest.max <= quest.count) {
+
+            if (
+                !activeStep ||
+                !quest ||
+                quest.source !== "tracked" ||
+                this._int(quest.id) !== this._int(activeStep.id) ||
+                this._int(quest.max) !== this._int(activeStep.max) ||
+                quest.isMet ||
+                quest.max <= quest.count
+            ) {
                 throw new Error(
-                    "Ronin: nie znaleziono aktywnego kroku questa H."
+                    "Ronin: brak zsynchronizowanego trackera aktywnego kroku H."
                 );
             }
 
