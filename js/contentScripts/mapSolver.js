@@ -341,7 +341,9 @@
                         });
                     }
 
-                    await this.tool.sleep(STEP_DELAY_MS);
+                    if (source !== "ronin-quest") {
+                        await this.tool.sleep(STEP_DELAY_MS);
+                    }
                 }
 
                 if (
