@@ -2427,9 +2427,46 @@
             };
         }
 
-        async roninClearMobField(state) {
+        async waitForRoninFieldRefresh(
+            previousField,
+            x,
+            y,
+            timeoutMs = 750
+        ) {
+            const targetX = this._int(x);
+            const targetY = this._int(y);
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const field = this.mapSolver?.field;
+
+                if (
+                    field &&
+                    field !== previousField &&
+                    this._int(field.x) === targetX &&
+                    this._int(field.y) === targetY
+                ) {
+                    return field;
+                }
+
+                await this.sleep(25);
+            }
+
             const field = this.mapSolver?.field;
+            if (
+                field &&
+                this._int(field.x) === targetX &&
+                this._int(field.y) === targetY
+            ) {
+                return field;
+            }
+
+            return null;
+        }
+
+        async roninClearMobField(state) {
             const map = this.mapSolver?.map;
+            let field = this.mapSolver?.field;
 
             if (
                 !field ||
@@ -2440,23 +2477,65 @@
                 return state;
             }
 
+            const fieldX = this._int(field.x);
+            const fieldY = this._int(field.y);
+            let observedField = field;
             let mobsLeft = Math.max(
                 0,
                 this._int(field.mobs?.count)
             );
+            let normalFights = 0;
+            let multiWasAvailable =
+                Array.isArray(field.multiFight) &&
+                field.multiFight.includes(0);
 
             while (
                 state.count < state.max &&
                 mobsLeft > 0
             ) {
+                // a=602 podmienia mapSolver.field całym nowym obiektem.
+                // Zawsze pobieramy świeżą referencję, bo właśnie w niej
+                // pojawia się mf po wykonaniu wymaganej liczby zwykłych walk.
+                const liveField = this.mapSolver?.field;
+
+                if (
+                    liveField &&
+                    liveField !== observedField &&
+                    this._int(liveField.x) === fieldX &&
+                    this._int(liveField.y) === fieldY
+                ) {
+                    observedField = liveField;
+                    field = liveField;
+                    mobsLeft = Math.max(
+                        0,
+                        this._int(liveField.mobs?.count)
+                    );
+                } else {
+                    field = observedField;
+                }
+
                 const multiAvailable =
-                    Array.isArray(field.multiFight) &&
+                    Array.isArray(field?.multiFight) &&
                     field.multiFight.includes(0);
 
-                // Jeżeli multiwalka jest dostępna, używamy jej zawsze,
-                // nawet gdy zabije więcej mobów niż zostało do celu questa.
-                // Ogranicza to liczbę requestów do serwera.
+                if (multiAvailable && !multiWasAvailable) {
+                    console.info(
+                        "[SW Tool][RONIN] Multiwalka odblokowana po zwykłych walkach.",
+                        {
+                            x: fieldX,
+                            y: fieldY,
+                            normalFights,
+                            mf: field.multiFight
+                        }
+                    );
+                }
+
+                multiWasAvailable = multiAvailable;
+
+                // Ronin z oldBota: dopóki serwer nie wystawi opcji multiwalki
+                // w mf, wykonujemy zwykłe walki. Nie próbujemy a=13 na ślepo.
                 const useMulti = multiAvailable;
+                const fieldBeforeFight = field;
 
                 const result = await this.roninMobFightOnce({
                     questId: state.questId,
@@ -2469,24 +2548,61 @@
                     break;
                 }
 
+                if (!useMulti) {
+                    normalFights++;
+                }
+
                 state.count = Math.min(
                     state.max,
                     this._int(result.count)
                 );
 
-                mobsLeft = Math.max(
+                const fallbackMobsLeft = Math.max(
                     0,
                     mobsLeft - Math.max(1, this._int(result.gained))
                 );
 
-                field.mobs.count = mobsLeft;
+                // Po zwykłej walce klient dostaje świeże a=602. Czekamy krótko
+                // na ten stan, żeby zauważyć moment pojawienia się mf i od
+                // następnej iteracji przejść na multiwalkę.
+                const refreshedField =
+                    await this.waitForRoninFieldRefresh(
+                        fieldBeforeFight,
+                        fieldX,
+                        fieldY
+                    );
+
+                if (
+                    refreshedField &&
+                    refreshedField !== fieldBeforeFight
+                ) {
+                    observedField = refreshedField;
+                    field = refreshedField;
+                    mobsLeft = Math.max(
+                        0,
+                        this._int(refreshedField.mobs?.count)
+                    );
+                } else {
+                    mobsLeft = fallbackMobsLeft;
+
+                    // Brak świeżego a=602 nie może cofnąć lokalnego licznika.
+                    // Jeżeli odpowiedź pola przyjdzie później, kolejna iteracja
+                    // wykryje nową referencję i zastąpi ten fallback.
+                    if (fieldBeforeFight?.mobs) {
+                        fieldBeforeFight.mobs.count = mobsLeft;
+                    }
+                }
 
                 this.setQuickPanelStatus(
                     "Ronin: przeciwnicy " +
                     state.count +
                     "/" +
                     state.max +
-                    "..."
+                    (
+                        useMulti
+                            ? " (multi)..."
+                            : " (zwykła walka)..."
+                    )
                 );
             }
 
