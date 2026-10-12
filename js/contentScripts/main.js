@@ -3521,7 +3521,8 @@
                 "Quick ALL: sprawdzanie Ronina..."
             );
 
-            let roninAvailability = null;
+            let roninAvailability;
+
             try {
                 roninAvailability =
                     await this.quickAllRoninAvailability();
@@ -3530,39 +3531,58 @@
                     error instanceof Error
                         ? error.message
                         : String(error);
-                warnings.push(
-                    "Ronin sprawdzenie: " + message
-                );
-                console.warn(
-                    "[SW Tool][QUICK ALL] Nie udało się sprawdzić Ronina:",
+
+                console.error(
+                    "[SW Tool][QUICK ALL] Nie udało się sprawdzić Ronina — zatrzymuję Quick ALL:",
                     error
+                );
+
+                throw new Error(
+                    "Quick ALL: nie udało się sprawdzić dostępności Ronina: " +
+                    message
                 );
             }
 
-            if (roninAvailability?.available) {
-                const ronin = await runStep(
-                    "Ronin",
-                    "Quick ALL: Ronin...",
-                    async () => {
-                        const result = await this.runQuickRonin();
-                        await this.ensureRoninReturned(
-                            this._int(
-                                GAME.char_id ||
-                                this.currentCharacterId
-                            )
-                        );
-                        return result;
-                    }
+            if (roninAvailability.available) {
+                this.setQuickPanelStatus(
+                    "Quick ALL: Ronin..."
                 );
 
-                summary.push(
-                    ronin.ok
-                        ? "Ronin ✓"
-                        : "Ronin błąd"
-                );
+                try {
+                    const characterId = this._int(
+                        GAME.char_id ||
+                        this.currentCharacterId
+                    );
+
+                    await this.runQuickRonin();
+
+                    // runQuickRonin() czeka już na a:777 instance_finished.
+                    // Dodatkowo wymagamy potwierdzonego powrotu postaci
+                    // poza mapę instancji, zanim Quick ALL ruszy dalej.
+                    await this.ensureRoninReturned(
+                        characterId
+                    );
+
+                    summary.push("Ronin ✓");
+                } catch (error) {
+                    const message =
+                        error instanceof Error
+                            ? error.message
+                            : String(error);
+
+                    console.error(
+                        "[SW Tool][QUICK ALL] Ronin nie zakończył się poprawnie — zatrzymuję Quick ALL:",
+                        error
+                    );
+
+                    throw new Error(
+                        "Quick ALL zatrzymany podczas Ronina: " +
+                        message
+                    );
+                }
             } else {
                 const reason =
-                    roninAvailability?.reason ||
+                    roninAvailability.reason ||
                     "niedostępny";
                 summary.push(
                     "Ronin pominięty (" +
@@ -3571,9 +3591,7 @@
                 );
                 console.info(
                     "[SW Tool][QUICK ALL] Ronin pominięty:",
-                    roninAvailability || {
-                        reason
-                    }
+                    roninAvailability
                 );
             }
 
