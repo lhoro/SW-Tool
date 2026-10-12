@@ -119,6 +119,7 @@
             this.currentRoninQuestStep = null;
             this.lastRoninMapResponse = null;
             this.improvedXPending = false;
+            this.improvedXHPending = null;
             this.improvedXHeld = false;
             this.trainingCaptchaWaiter = null;
             this.dailyRewardClaimStage = 0;
@@ -1821,6 +1822,90 @@
             }
         }
 
+        clearImprovedXHPending(reason = "") {
+            if (!this.improvedXHPending) {
+                return;
+            }
+
+            const pending = this.improvedXHPending;
+            this.improvedXHPending = null;
+
+            console.info(
+                "[SW Tool][X] Zwolniono oczekiwanie H.",
+                {
+                    ...pending,
+                    reason
+                }
+            );
+        }
+
+        syncImprovedXHPending() {
+            const pending = this.improvedXHPending;
+            if (!pending) return false;
+
+            const tracked =
+                this.currentHTracked &&
+                this._int(this.currentHTracked.id) ===
+                    this._int(pending.id) &&
+                this._int(this.currentHTracked.max) ===
+                    this._int(pending.max)
+                    ? this.currentHTracked
+                    : null;
+
+            const quest =
+                this.currentHQuest &&
+                this._int(this.currentHQuest.id) ===
+                    this._int(pending.id) &&
+                this._int(this.currentHQuest.max) ===
+                    this._int(pending.max)
+                    ? this.currentHQuest
+                    : null;
+
+            const step =
+                this.currentHQuestStep &&
+                this._int(this.currentHQuestStep.id) ===
+                    this._int(pending.id) &&
+                this._int(this.currentHQuestStep.max) ===
+                    this._int(pending.max)
+                    ? this.currentHQuestStep
+                    : null;
+
+            const count = Math.max(
+                this._int(tracked?.count),
+                this._int(quest?.count)
+            );
+
+            const complete =
+                Boolean(tracked?.isMet) ||
+                Boolean(quest?.isMet) ||
+                Boolean(step?.isMet) ||
+                count >= this._int(pending.max);
+
+            if (!complete) {
+                return false;
+            }
+
+            this.markImprovedXHQuestComplete(
+                pending.id,
+                pending.max
+            );
+
+            this.clearImprovedXHPending(
+                "potwierdzone przez stan questa"
+            );
+
+            this.setQuickPanelStatus(
+                "X: quest H zaliczony " +
+                pending.max +
+                "/" +
+                pending.max +
+                ".",
+                "success"
+            );
+
+            return true;
+        }
+
         improvedXHQuestState() {
             const quest = this.currentHQuest;
 
@@ -1994,6 +2079,34 @@
                         " → 100%..."
                     );
 
+                    const existingPending =
+                        this.improvedXHPending;
+
+                    if (
+                        existingPending &&
+                        this._int(existingPending.id) ===
+                            hQuest.id &&
+                        this._int(existingPending.max) ===
+                            hQuest.max
+                    ) {
+                        const age =
+                            Date.now() -
+                            this._int(
+                                existingPending.sentAt
+                            );
+
+                        if (age < 2500) {
+                            this.setQuickPanelStatus(
+                                "X: H wysłane — czekam na aktualizację questa..."
+                            );
+                            return true;
+                        }
+
+                        this.clearImprovedXHPending(
+                            "brak aktualizacji przez 2.5 s — można ponowić"
+                        );
+                    }
+
                     this.currentHQuest = {
                         ...(this.currentHQuest || {}),
                         id: hQuest.id,
@@ -2002,57 +2115,50 @@
                         isMet: false
                     };
 
-                    const response =
-                        await this.sendHQuestCount(
+                    this.improvedXHPending = {
+                        id: hQuest.id,
+                        max: hQuest.max,
+                        expected: hQuest.max,
+                        sentAt: Date.now()
+                    };
+
+                    const sent =
+                        this.sendHQuestCount(
                             hQuest.missing,
                             {
-                                waitForResponse: true
+                                waitForResponse: false
                             }
                         );
 
-                    const confirmed = Math.max(
-                        this._int(
-                            response?.swToolHConfirmedAmount
-                        ),
-                        this.hQuestConfirmedAmount(
-                            response,
-                            hQuest.id
-                        )
-                    );
-
-                    if (confirmed < hQuest.max) {
+                    if (!sent) {
+                        this.clearImprovedXHPending(
+                            "nie udało się wysłać socketu"
+                        );
                         throw new Error(
-                            "Serwer potwierdził tylko " +
-                            confirmed +
-                            "/" +
-                            hQuest.max +
-                            "."
+                            "Nie udało się wysłać H."
                         );
                     }
 
-                    this.markImprovedXHQuestComplete(
-                        hQuest.id,
-                        hQuest.max
-                    );
-
                     console.info(
-                        "[SW Tool][X] Quest H dobity socketowo.",
+                        "[SW Tool][X] Quest H wysłany bez blokującego waitera.",
                         {
                             id: hQuest.id,
                             before: hQuest.count,
                             sent: hQuest.missing,
-                            max: hQuest.max,
-                            after: confirmed
+                            max: hQuest.max
                         }
                     );
 
                     this.setQuickPanelStatus(
-                        "X: quest H zaliczony " +
-                        confirmed +
+                        "X: H wysłane " +
+                        hQuest.count +
                         "/" +
                         hQuest.max +
-                        ".",
-                        "success"
+                        " → " +
+                        hQuest.max +
+                        "/" +
+                        hQuest.max +
+                        "."
                     );
 
                     return true;
@@ -2952,6 +3058,13 @@
                     this.currentHQuestStep = null;
                     this.currentHTracked = null;
                     this.acceleratedHPending = false;
+
+                    if (this.improvedXHPending) {
+                        this.clearImprovedXHPending(
+                            "q_step przeszedł do następnego etapu"
+                        );
+                    }
+
                     return;
                 }
 
@@ -2986,6 +3099,7 @@
                         };
 
                     this.acceleratedHPending = false;
+                    this.syncImprovedXHPending();
                 }
             }
 
@@ -3043,6 +3157,8 @@
                             "[SW Tool][H] Stan z tracked:",
                             this.currentHTracked
                         );
+
+                        this.syncImprovedXHPending();
                     }
                 }
             }
@@ -3068,6 +3184,7 @@
                 };
 
                 this.acceleratedHPending = false;
+                this.syncImprovedXHPending();
                 return;
             }
 
@@ -3093,6 +3210,7 @@
                 };
 
                 this.acceleratedHPending = false;
+                this.syncImprovedXHPending();
                 return;
             }
 
