@@ -3903,54 +3903,90 @@
         }
 
         mountQuickPanel() {
-            document.getElementById("sw-tool-quick-panel")?.remove();
+            document.getElementById(
+                "sw-tool-side-panels"
+            )?.remove();
+            document.getElementById(
+                "sw-tool-quick-panel"
+            )?.remove();
+            document.getElementById(
+                "sw-tool-log-panel"
+            )?.remove();
 
-            const panel = document.createElement("div");
-            panel.id = "sw-tool-quick-panel";
-            Object.assign(panel.style, {
+            const host = document.createElement("div");
+            host.id = "sw-tool-side-panels";
+            Object.assign(host.style, {
                 position: "fixed",
                 right: "8px",
                 bottom: "8px",
                 zIndex: "2147483000",
-                width: "188px",
-                padding: "7px",
-                border: "2px solid #c29e51",
-                borderRadius: "7px",
-                background: "#1a1a39",
-                color: "#fff",
-                fontFamily: "Verdana, sans-serif",
-                fontSize: "11px",
-                boxShadow: "0 4px 16px rgba(0,0,0,.55)"
+                display: "grid",
+                justifyItems: "end",
+                gap: "6px",
+                fontFamily: "Verdana, sans-serif"
             });
 
-            const header = document.createElement("div");
-            Object.assign(header.style, {
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: "6px",
-                color: "#c29e51",
-                fontWeight: "700"
-            });
+            const makePanel = (id, width = "188px") => {
+                const element = document.createElement("div");
+                element.id = id;
+                Object.assign(element.style, {
+                    width,
+                    boxSizing: "border-box",
+                    padding: "7px",
+                    border: "2px solid #c29e51",
+                    borderRadius: "7px",
+                    background: "#1a1a39",
+                    color: "#fff",
+                    fontSize: "11px",
+                    boxShadow:
+                        "0 4px 16px rgba(0,0,0,.55)"
+                });
+                return element;
+            };
 
-            const title = document.createElement("span");
-            title.textContent = "SW TOOL — QUICK";
+            const makeToggle = (text) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.textContent = text;
+                Object.assign(button.style, {
+                    width: "24px",
+                    height: "22px",
+                    padding: "0",
+                    border: "1px solid #c29e51",
+                    borderRadius: "4px",
+                    background: "#30294a",
+                    color: "#fff",
+                    cursor: "pointer"
+                });
+                return button;
+            };
 
-            const collapse = document.createElement("button");
-            collapse.type = "button";
-            collapse.textContent = "−";
-            Object.assign(collapse.style, {
-                width: "24px",
-                height: "22px",
-                padding: "0",
-                border: "1px solid #c29e51",
-                borderRadius: "4px",
-                background: "#30294a",
-                color: "#fff",
-                cursor: "pointer"
-            });
+            const makeHeader = (label, toggle) => {
+                const header = document.createElement("div");
+                Object.assign(header.style, {
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    color: "#c29e51",
+                    fontWeight: "700"
+                });
 
-            header.append(title, collapse);
+                const title = document.createElement("span");
+                title.textContent = label;
+
+                header.append(title, toggle);
+                return header;
+            };
+
+            const panel = makePanel(
+                "sw-tool-quick-panel"
+            );
+            const collapse = makeToggle("−");
+            const header = makeHeader(
+                "SW TOOL — QUICK",
+                collapse
+            );
+            header.style.marginBottom = "6px";
 
             const body = document.createElement("div");
             body.style.display = "grid";
@@ -3983,59 +4019,139 @@
                     cursor: "pointer"
                 });
 
-                button.addEventListener("mouseenter", () => {
-                    if (!button.disabled) {
-                        button.style.background = "#463b63";
+                button.addEventListener(
+                    "mouseenter",
+                    () => {
+                        if (!button.disabled) {
+                            button.style.background =
+                                "#463b63";
+                        }
                     }
-                });
-                button.addEventListener("mouseleave", () => {
-                    button.style.background = "#30294a";
-                });
+                );
+                button.addEventListener(
+                    "mouseleave",
+                    () => {
+                        button.style.background =
+                            "#30294a";
+                    }
+                );
                 button.addEventListener("click", () => {
-                    this.runQuickAction(action).catch((error) => {
-                        console.warn(
-                            "[SW Tool][QUICK] Nie można uruchomić akcji:",
-                            action,
-                            error
-                        );
-                        this.setQuickPanelStatus(
-                            error instanceof Error
-                                ? error.message
-                                : String(error),
-                            "error"
-                        );
-                    });
+                    this.runQuickAction(action).catch(
+                        (error) => {
+                            console.warn(
+                                "[SW Tool][QUICK] Nie można uruchomić akcji:",
+                                action,
+                                error
+                            );
+                            this.setQuickPanelStatus(
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                                "error"
+                            );
+                        }
+                    );
                 });
 
                 this.quickPanelButtons.push(button);
                 body.appendChild(button);
             }
 
-            const status = document.createElement("div");
-            Object.assign(status.style, {
-                minHeight: "26px",
-                marginTop: "6px",
-                paddingTop: "5px",
-                borderTop: "1px solid rgba(194,158,81,.35)",
-                color: "#c8c3d4",
-                fontSize: "10px",
-                lineHeight: "1.3",
-                wordBreak: "break-word"
-            });
-            status.textContent = "Gotowy.";
-            this.quickPanelStatus = status;
-
             let collapsed = false;
             collapse.addEventListener("click", () => {
                 collapsed = !collapsed;
-                body.style.display = collapsed ? "none" : "grid";
-                status.style.display = collapsed ? "none" : "block";
-                collapse.textContent = collapsed ? "+" : "−";
-                panel.style.width = collapsed ? "150px" : "188px";
+                body.style.display =
+                    collapsed ? "none" : "grid";
+                header.style.marginBottom =
+                    collapsed ? "0" : "6px";
+                collapse.textContent =
+                    collapsed ? "+" : "−";
+                panel.style.width =
+                    collapsed ? "150px" : "188px";
             });
 
-            panel.append(header, body, status);
-            document.body.appendChild(panel);
+            panel.append(header, body);
+
+            const logPanel = makePanel(
+                "sw-tool-log-panel"
+            );
+            const logToggle = makeToggle("+");
+            const logHeader = makeHeader(
+                "LOG",
+                logToggle
+            );
+            logHeader.style.marginBottom = "5px";
+
+            const logPreview =
+                document.createElement("div");
+            Object.assign(logPreview.style, {
+                minHeight: "42px",
+                maxHeight: "54px",
+                overflow: "hidden",
+                paddingTop: "4px",
+                borderTop:
+                    "1px solid rgba(194,158,81,.35)"
+            });
+
+            const logList =
+                document.createElement("div");
+            Object.assign(logList.style, {
+                display: "none",
+                maxHeight: "220px",
+                overflowY: "auto",
+                overflowX: "hidden",
+                paddingTop: "4px",
+                paddingRight: "3px",
+                borderTop:
+                    "1px solid rgba(194,158,81,.35)",
+                scrollbarWidth: "thin"
+            });
+
+            this.quickLogPreview = logPreview;
+            this.quickLogList = logList;
+            this.quickLogExpanded = false;
+            this.quickPanelStatus = null;
+
+            logToggle.addEventListener("click", () => {
+                this.quickLogExpanded =
+                    !this.quickLogExpanded;
+
+                logPreview.style.display =
+                    this.quickLogExpanded
+                        ? "none"
+                        : "block";
+                logList.style.display =
+                    this.quickLogExpanded
+                        ? "block"
+                        : "none";
+                logToggle.textContent =
+                    this.quickLogExpanded
+                        ? "−"
+                        : "+";
+
+                if (this.quickLogExpanded) {
+                    logList.scrollTop =
+                        logList.scrollHeight;
+                }
+            });
+
+            logPanel.append(
+                logHeader,
+                logPreview,
+                logList
+            );
+
+            host.append(panel, logPanel);
+            document.body.appendChild(host);
+
+            if (this.quickLogEntries.length === 0) {
+                this.addQuickLog(
+                    "Gotowy.",
+                    "success"
+                );
+            } else {
+                this.renderQuickLog();
+            }
         }
 
         isFatalAccountError(error) {
