@@ -1772,33 +1772,118 @@
             return null;
         }
 
+        markImprovedXHQuestComplete(id, max) {
+            const questId = this._int(id);
+            const questMax = Math.max(
+                0,
+                this._int(max)
+            );
+
+            if (questId <= 0 || questMax <= 0) {
+                return;
+            }
+
+            if (
+                this.currentHQuest &&
+                this._int(this.currentHQuest.id) ===
+                    questId
+            ) {
+                this.currentHQuest.count =
+                    questMax;
+                this.currentHQuest.max =
+                    questMax;
+                this.currentHQuest.isMet =
+                    true;
+            }
+
+            if (
+                this.currentHTracked &&
+                this._int(this.currentHTracked.id) ===
+                    questId
+            ) {
+                this.currentHTracked.count =
+                    questMax;
+                this.currentHTracked.max =
+                    questMax;
+                this.currentHTracked.isMet =
+                    true;
+            }
+
+            if (
+                this.currentHQuestStep &&
+                this._int(this.currentHQuestStep.id) ===
+                    questId
+            ) {
+                this.currentHQuestStep.max =
+                    questMax;
+                this.currentHQuestStep.isMet =
+                    true;
+            }
+        }
+
         improvedXHQuestState() {
             const quest = this.currentHQuest;
 
             if (
                 !quest ||
                 this._int(quest.id) <= 0 ||
-                this._int(quest.max) <= 0 ||
-                Boolean(quest.isMet)
+                this._int(quest.max) <= 0
             ) {
                 return null;
             }
 
-            const count = Math.max(
-                0,
-                this._int(quest.count)
-            );
+            const id = this._int(quest.id);
             const max = Math.max(
                 0,
                 this._int(quest.max)
             );
 
-            if (max <= count) {
+            const tracked =
+                this.currentHTracked &&
+                this._int(this.currentHTracked.id) === id &&
+                this._int(this.currentHTracked.max) === max
+                    ? this.currentHTracked
+                    : null;
+
+            const step =
+                this.currentHQuestStep &&
+                this._int(this.currentHQuestStep.id) === id &&
+                this._int(this.currentHQuestStep.max) === max
+                    ? this.currentHQuestStep
+                    : null;
+
+            const count = Math.max(
+                0,
+                this._int(quest.count),
+                this._int(tracked?.count)
+            );
+
+            const complete =
+                Boolean(quest.isMet) ||
+                Boolean(tracked?.isMet) ||
+                Boolean(step?.isMet) ||
+                count >= max;
+
+            if (complete) {
+                this.markImprovedXHQuestComplete(
+                    id,
+                    max
+                );
+
+                console.info(
+                    "[SW Tool][X] H jest już zaliczone — przechodzę do następnej akcji questa.",
+                    {
+                        id,
+                        count: Math.max(count, max),
+                        max
+                    }
+                );
+
                 return null;
             }
 
             return {
-                id: this._int(quest.id),
+                id,
                 count,
                 max,
                 missing: max - count
@@ -1899,6 +1984,11 @@
                             "."
                         );
                     }
+
+                    this.markImprovedXHQuestComplete(
+                        hQuest.id,
+                        hQuest.max
+                    );
 
                     console.info(
                         "[SW Tool][X] Quest H dobity socketowo.",
