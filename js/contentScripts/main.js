@@ -412,6 +412,19 @@
 
             if (
                 action === 998 &&
+                ["instance_id", "loc", "x", "y"].includes(
+                    String(response.f || "")
+                ) &&
+                this.currentCharacterSnapshot?.char_data &&
+                typeof this.currentCharacterSnapshot.char_data === "object"
+            ) {
+                const field = String(response.f);
+                this.currentCharacterSnapshot.char_data[field] =
+                    this._int(response.v);
+            }
+
+            if (
+                action === 998 &&
                 String(response.f || "") === "icd_5"
             ) {
                 const used = Math.max(0, this._int(response.v));
@@ -2813,6 +2826,96 @@
             }
         }
 
+        roninRequiredLevel() {
+            return Math.max(
+                1,
+                this._int(
+                    this.roninInstanceDefinition?.req_level
+                ) || 30
+            );
+        }
+
+        async waitForRoninReturn(timeoutMs = 5000) {
+            const startedAt = Date.now();
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const mapLocation = this._int(
+                    this.mapSolver?.map?.locationId
+                );
+                const charLocation = this._int(
+                    this.currentCharacterSnapshot?.char_data?.loc
+                );
+                const instanceId = this._int(
+                    this.currentCharacterSnapshot?.char_data?.instance_id
+                );
+
+                if (
+                    instanceId === 0 &&
+                    (
+                        (mapLocation > 0 && mapLocation !== 193) ||
+                        (charLocation > 0 && charLocation !== 193)
+                    )
+                ) {
+                    console.info(
+                        "[SW Tool][RONIN] Powrót z instancji potwierdzony:",
+                        {
+                            mapLocation,
+                            charLocation,
+                            instanceId
+                        }
+                    );
+                    return true;
+                }
+
+                await this.sleep(25);
+            }
+
+            return false;
+        }
+
+        async ensureRoninReturned(characterId) {
+            if (await this.waitForRoninReturn()) {
+                return true;
+            }
+
+            console.warn(
+                "[SW Tool][RONIN] Brak potwierdzenia powrotu z instancji — odświeżam postać.",
+                {
+                    characterId,
+                    mapLocation: this._int(
+                        this.mapSolver?.map?.locationId
+                    ),
+                    charLocation: this._int(
+                        this.currentCharacterSnapshot?.char_data?.loc
+                    ),
+                    instanceId: this._int(
+                        this.currentCharacterSnapshot?.char_data?.instance_id
+                    )
+                }
+            );
+
+            await this.switchCharacterForAccountAction(
+                characterId,
+                0,
+                true
+            );
+
+            const charLocation = this._int(
+                this.currentCharacterSnapshot?.char_data?.loc
+            );
+            const instanceId = this._int(
+                this.currentCharacterSnapshot?.char_data?.instance_id
+            );
+
+            if (instanceId !== 0 || charLocation === 193) {
+                throw new Error(
+                    "Ronin: postać nadal znajduje się w instancji po jej zakończeniu."
+                );
+            }
+
+            return true;
+        }
+
         async getRoninInstanceDefinition(
             { refresh = false } = {}
         ) {
@@ -3194,6 +3297,21 @@
             // ostatecznym źródłem prawdy pozostaje serwer przy wejściu.
             await this.getRoninInstanceDefinition();
 
+            const currentLevel = this._int(
+                this.currentCharacterSnapshot?.char_data?.level
+            );
+            const requiredLevel = this.roninRequiredLevel();
+
+            if (currentLevel < requiredLevel) {
+                throw new Error(
+                    "Ronin: wymagany poziom " +
+                    requiredLevel +
+                    " (postać ma " +
+                    currentLevel +
+                    ")."
+                );
+            }
+
             this.roninRunning = true;
             this.clearRoninTimers();
             const runStartedAt = Date.now();
@@ -3225,6 +3343,13 @@
                 if (!finished) {
                     throw new Error(
                         "Ronin: brak potwierdzenia zakończenia instancji a=777."
+                    );
+                }
+
+                const returned = await this.waitForRoninReturn();
+                if (!returned) {
+                    console.warn(
+                        "[SW Tool][RONIN] Nie potwierdzono jeszcze powrotu z mapy instancji."
                     );
                 }
             } finally {
@@ -4870,6 +4995,7 @@
             const dailyLimit = this.roninDailyLimit;
             let completed = 0;
             let skipped = 0;
+            let levelSkipped = 0;
             let failed = 0;
             let dailyClaimed = 0;
 
@@ -4903,6 +5029,26 @@
                             await this.claimDailyRewardForAccountAction(label)
                         ) {
                             dailyClaimed++;
+                        }
+
+                        const level = this._int(
+                            this.currentCharacterSnapshot?.char_data?.level
+                        );
+                        const requiredLevel = this.roninRequiredLevel();
+
+                        if (level < requiredLevel) {
+                            skipped++;
+                            levelSkipped++;
+                            console.info(
+                                "[SW Tool][ACCOUNT] Ronin — " +
+                                label +
+                                ": pominięto, poziom " +
+                                level +
+                                "/" +
+                                requiredLevel +
+                                "."
+                            );
+                            continue;
                         }
 
                         let used = this.roninDailyUsage();
@@ -4961,6 +5107,11 @@
                                 )
                             );
 
+                            // a:777 kończy instancję, ale icd_5 potrafi
+                            // przyjść chwilę przed instance_id=0/loc powrotnym.
+                            // Nie rozpoczynamy kolejnej próby na starej mapie 193.
+                            await this.ensureRoninReturned(id);
+
                             console.info(
                                 "[SW Tool][ACCOUNT] Ronin — " +
                                 label +
@@ -4997,6 +5148,7 @@
             console.info("[SW Tool][ACCOUNT] Ronin zakończony:", {
                 completed,
                 skipped,
+                levelSkipped,
                 failed,
                 dailyClaimed,
                 dailyLimit
