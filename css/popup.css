@@ -90,8 +90,9 @@ body.booting .popup {
   min-height: 34px;
 }
 
-#accMissionsBtn {
-  grid-column: 1 / -1;
+.account-all-btn {
+  margin-top: 6px;
+  min-height: 34px;
 }
 
 .settings-btn {
