@@ -1882,11 +1882,29 @@
                 return null;
             }
 
+            // Sam tracked[] nie wystarcza do wysłania H.
+            // Po "Dalej" serwer potrafi najpierw przysłać tracker nowego
+            // etapu, a q_step dopiero po otwarciu/odświeżeniu okna questa.
+            // Dopóki nie mamy q_step dla dokładnie tego samego id/max,
+            // kolejne X ma zostać przepuszczone do klienta gry.
+            if (!step) {
+                return {
+                    id,
+                    count,
+                    max,
+                    missing: max - count,
+                    ready: false,
+                    reason: "step-not-synced"
+                };
+            }
+
             return {
                 id,
                 count,
                 max,
-                missing: max - count
+                missing: max - count,
+                ready: true,
+                reason: ""
             };
         }
 
@@ -1917,8 +1935,29 @@
                 this.improvedXHQuestState();
 
             if (hQuest) {
-                // Jeżeli tracker H jest aktywny, ale okno questa jest zamknięte,
-                // pierwsze X zostawiamy klientowi gry. Otworzy ono quest.
+                // Tracker nowego etapu może przyjść wcześniej niż q_step.
+                // W takim stanie NIE wysyłamy H i NIE klikamy starego przycisku
+                // z DOM. X trafia do gry, aby klient otworzył/odświeżył etap.
+                if (hQuest.ready !== true) {
+                    console.info(
+                        "[SW Tool][X] H czeka na q_step aktywnego etapu — przepuszczam X do gry.",
+                        {
+                            id: hQuest.id,
+                            count: hQuest.count,
+                            max: hQuest.max,
+                            reason: hQuest.reason
+                        }
+                    );
+
+                    this.setQuickPanelStatus(
+                        "X: synchronizuję etap questa H..."
+                    );
+
+                    return false;
+                }
+
+                // Jeżeli q_step H jest zsynchronizowany, ale okno questa
+                // jest zamknięte, pierwsze X zostawiamy klientowi gry.
                 // Dopiero kolejne X, przy widocznym .quest_win, wysyła pełne H.
                 if (!this.improvedXQuestWindowOpen()) {
                     console.info(
@@ -2920,6 +2959,7 @@
                     this.currentHQuestStep = {
                         id,
                         max,
+                        type: 39,
                         isMet: Boolean(want.is_met)
                     };
 
