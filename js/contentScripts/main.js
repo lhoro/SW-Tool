@@ -117,6 +117,7 @@
             this.lastConsumedQuestMoveVersion = 0;
             this.roninQuestId = 0;
             this.currentRoninQuestStep = null;
+            this.lastRoninMapResponse = null;
             this.improvedXPending = false;
             this.improvedXHeld = false;
             this.trainingCaptchaWaiter = null;
@@ -689,69 +690,143 @@
             });
         }
 
-        handleRoninMapQuestResponse(response) {
+        roninQuestFromMapResponse(response) {
             if (
-                !this.roninRunning ||
                 this._int(response?.loc?.id) !== 193 ||
                 !response.quests ||
                 typeof response.quests !== "object"
             ) {
-                return;
+                return null;
             }
 
             const charId = this._int(
                 GAME.char_id || this.currentCharacterId
             );
-            const player = Array.isArray(response.players)
-                ? response.players.find(
+
+            const players = Array.isArray(response.players)
+                ? response.players
+                : [];
+
+            const player =
+                players.find(
                     (item) =>
                         this._int(item?.id) === charId
-                )
-                : null;
+                ) ||
+                players.find(
+                    (item) =>
+                        String(item?.name || "") ===
+                        String(
+                            this.currentCharacterSnapshot
+                                ?.char_data?.name ||
+                            ""
+                        )
+                ) ||
+                null;
 
-            const x = this._int(
-                player?.x ||
-                this.currentCharacterSnapshot?.char_data?.x
-            );
-            const y = this._int(
-                player?.y ||
-                this.currentCharacterSnapshot?.char_data?.y
-            );
+            const x = this._int(player?.x);
+            const y = this._int(player?.y);
 
-            if (x <= 0 || y <= 0) {
+            if (x > 0 && y > 0) {
+                const fieldQuests =
+                    response.quests[x + "_" + y];
+
+                if (Array.isArray(fieldQuests)) {
+                    const quest = fieldQuests.find(
+                        (item) =>
+                            this._int(item?.qb_id) > 0
+                    );
+
+                    if (quest) {
+                        return {
+                            quest,
+                            qbId: this._int(quest.qb_id),
+                            x,
+                            y,
+                            source: "player-field"
+                        };
+                    }
+                }
+            }
+
+            // Fallback: na mapie instancji startowy quest może przyjść,
+            // zanim klient zdąży poprawnie zsynchronizować GAME.char_id /
+            // snapshot pozycji. Wtedy nie uzależniamy qb_id od pola gracza.
+            for (const [field, raw] of Object.entries(response.quests)) {
+                if (!Array.isArray(raw)) continue;
+
+                const quest = raw.find(
+                    (item) =>
+                        this._int(item?.qb_id) > 0
+                );
+
+                if (!quest) continue;
+
+                const [fx, fy] = String(field)
+                    .split("_")
+                    .map((value) => this._int(value));
+
+                return {
+                    quest,
+                    qbId: this._int(quest.qb_id),
+                    x: fx,
+                    y: fy,
+                    source: "quests-scan"
+                };
+            }
+
+            return null;
+        }
+
+        handleRoninMapQuestResponse(response) {
+            if (
+                !this.roninRunning ||
+                this._int(response?.loc?.id) !== 193
+            ) {
                 return;
             }
 
-            const fieldQuests = response.quests[x + "_" + y];
-            if (!Array.isArray(fieldQuests)) {
+            this.lastRoninMapResponse = response;
+
+            const found =
+                this.roninQuestFromMapResponse(response);
+
+            if (!found || found.qbId <= 0) {
+                console.warn(
+                    "[SW Tool][RONIN] Mapa instancji bez rozpoznanego qb_id.",
+                    {
+                        charId: this._int(
+                            GAME.char_id ||
+                            this.currentCharacterId
+                        ),
+                        questFields:
+                            response.quests &&
+                            typeof response.quests === "object"
+                                ? Object.keys(response.quests)
+                                : []
+                    }
+                );
                 return;
             }
 
-            const quest = fieldQuests.find(
-                (item) => this._int(item?.qb_id) > 0
-            );
-            const qbId = this._int(quest?.qb_id);
-
-            if (qbId <= 0) {
-                return;
-            }
-
-            this.roninQuestId = qbId;
+            this.roninQuestId = found.qbId;
             this.currentRoninQuestStep = null;
 
             console.info(
                 "[SW Tool][RONIN] Quest startowy z mapy:",
                 {
-                    qbId,
+                    qbId: found.qbId,
                     locationId: 193,
-                    x,
-                    y,
-                    name: String(quest?.name || "")
+                    x: found.x,
+                    y: found.y,
+                    source: found.source,
+                    name: String(
+                        found.quest?.name || ""
+                    )
                 }
             );
         }
 
-        async waitForRoninQuestId(timeoutMs = 3000) {
+        async waitForRoninQuestId(timeoutMs = 5000) {
             const startedAt = Date.now();
 
             while (Date.now() - startedAt < timeoutMs) {
@@ -760,11 +835,37 @@
                     return qbId;
                 }
 
+                const recovered =
+                    this.roninQuestFromMapResponse(
+                        this.lastRoninMapResponse
+                    );
+
+                if (
+                    recovered &&
+                    recovered.qbId > 0
+                ) {
+                    this.roninQuestId =
+                        recovered.qbId;
+
+                    console.info(
+                        "[SW Tool][RONIN] Quest startowy odzyskany z cache mapy:",
+                        {
+                            qbId: recovered.qbId,
+                            source:
+                                recovered.source,
+                            x: recovered.x,
+                            y: recovered.y
+                        }
+                    );
+
+                    return recovered.qbId;
+                }
+
                 await this.sleep(25);
             }
 
             throw new Error(
-                "Ronin: mapa nie zwróciła questa na polu startowym."
+                "Ronin: mapa instancji nie zawiera rozpoznawalnego qb_id questa startowego."
             );
         }
 
@@ -3407,6 +3508,7 @@
             this.lastConsumedQuestMoveVersion = this.questMoveVersion;
             this.roninQuestId = 0;
             this.currentRoninQuestStep = null;
+            this.lastRoninMapResponse = null;
             this.currentHQuest = null;
             this.currentHQuestStep = null;
             this.currentHTracked = null;
