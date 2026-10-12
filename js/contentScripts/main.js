@@ -4695,6 +4695,53 @@
             return null;
         }
 
+        async waitForQuestKillFieldRefresh(
+            previousField,
+            x,
+            y,
+            timeoutMs = 1000
+        ) {
+            const targetX = this._int(x);
+            const targetY = this._int(y);
+            const startedAt = Date.now();
+
+            while (
+                Date.now() - startedAt <
+                timeoutMs
+            ) {
+                const field =
+                    this.mapSolver?.field;
+
+                if (
+                    field &&
+                    field !== previousField &&
+                    this._int(field.x) ===
+                        targetX &&
+                    this._int(field.y) ===
+                        targetY
+                ) {
+                    return field;
+                }
+
+                await this.sleep(25);
+            }
+
+            const field =
+                this.mapSolver?.field;
+
+            if (
+                field &&
+                this._int(field.x) ===
+                    targetX &&
+                this._int(field.y) ===
+                    targetY
+            ) {
+                return field;
+            }
+
+            return null;
+        }
+
         questKillRemovedCount(response) {
             const removed =
                 response?.remove_mob;
@@ -4713,7 +4760,7 @@
             state,
             point
         ) {
-            const field =
+            let field =
                 await this.waitForQuestKillField(
                     point.x,
                     point.y
@@ -4729,17 +4776,18 @@
                 );
                 return {
                     fights: 0,
+                    singleFights: 0,
                     skipped: true
                 };
             }
 
-            const mobs = Math.max(
+            let mobs = Math.max(
                 0,
                 this._int(
                     field.mobs?.count
                 )
             );
-            const multiAvailable =
+            let multiAvailable =
                 Array.isArray(
                     field.multiFight
                 ) &&
@@ -4752,6 +4800,7 @@
                     y: point.y,
                     mobs,
                     multiAvailable,
+                    mf: field.multiFight,
                     progress:
                         state.count +
                         "/" +
@@ -4762,100 +4811,254 @@
             if (mobs <= 0) {
                 return {
                     fights: 0,
+                    singleFights: 0,
                     skipped: false
                 };
             }
 
-            if (!multiAvailable) {
-                this.setQuickPanelStatus(
-                    "Quest Kille: " +
-                    point.x +
-                    "|" +
-                    point.y +
-                    " — moby " +
-                    mobs +
-                    ", brak multi (pomijam)."
-                );
-
-                return {
-                    fights: 0,
-                    skipped: true
-                };
-            }
-
-            this.setQuickPanelStatus(
-                "Quest Kille: " +
-                point.x +
-                "|" +
-                point.y +
-                " — moby " +
-                mobs +
-                ", czyszczę multi..."
-            );
-
             let fights = 0;
+            let singleFights = 0;
             let removed = 0;
+            let attempts = 0;
 
             while (
                 state.count < state.max &&
-                fights < 25
+                mobs > 0 &&
+                attempts < 40
             ) {
-                const response =
-                    await this.sendAndWait(
-                        {
-                            a: 13,
-                            mob_num: 0,
-                            fo: [1, 1, 1, 1, 1]
-                        },
-                        [7, 999],
-                        (event) =>
-                            this._int(event.e) !== 0 ||
-                            (
-                                this._int(event.a) === 7 &&
-                                (
-                                    this._int(event.mm) === 1 ||
-                                    this._int(event.me) > 0 ||
-                                    event.result !== undefined
-                                )
-                            ),
-                        5000
-                    );
+                attempts++;
+
+                const liveField =
+                    this.mapSolver?.field;
 
                 if (
-                    this._int(response.e) !== 0
+                    liveField &&
+                    this._int(liveField.x) ===
+                        this._int(point.x) &&
+                    this._int(liveField.y) ===
+                        this._int(point.y)
                 ) {
-                    throw new Error(
-                        "Serwer odrzucił multiwalkę na polu " +
-                        point.x +
-                        "|" +
-                        point.y +
-                        "."
+                    field = liveField;
+                    mobs = Math.max(
+                        0,
+                        this._int(
+                            field.mobs?.count
+                        )
                     );
+                    multiAvailable =
+                        Array.isArray(
+                            field.multiFight
+                        ) &&
+                        field.multiFight.includes(0);
                 }
 
-                if (
-                    this._int(response.me) > 0
-                ) {
-                    console.info(
-                        "[SW Tool][PVE] Quest Kille — koniec multi na polu:",
-                        {
-                            x: point.x,
-                            y: point.y,
-                            me: this._int(
-                                response.me
-                            ),
-                            fights,
-                            removed
-                        }
-                    );
+                if (mobs <= 0) {
                     break;
                 }
 
-                fights++;
-                removed +=
-                    this.questKillRemovedCount(
-                        response
+                const fieldBeforeFight =
+                    field;
+
+                if (!multiAvailable) {
+                    this.setQuickPanelStatus(
+                        "Quest Kille: " +
+                        point.x +
+                        "|" +
+                        point.y +
+                        " — zwykła walka " +
+                        (singleFights + 1) +
+                        ", czekam na multi..."
                     );
+
+                    const response =
+                        await this.sendAndWait(
+                            {
+                                a: 7,
+                                mob_num: 0,
+                                rank: 0,
+                                quick: 1
+                            },
+                            [7, 999],
+                            (event) =>
+                                this._int(event.e) !== 0 ||
+                                (
+                                    this._int(event.a) === 7 &&
+                                    (
+                                        this._int(event.me) > 0 ||
+                                        event.result !== undefined ||
+                                        event.remove_mob !== undefined
+                                    )
+                                ),
+                            5000
+                        );
+
+                    if (
+                        this._int(response.e) !== 0
+                    ) {
+                        throw new Error(
+                            "Serwer odrzucił zwykłą walkę na polu " +
+                            point.x +
+                            "|" +
+                            point.y +
+                            "."
+                        );
+                    }
+
+                    if (
+                        this._int(response.me) > 0
+                    ) {
+                        console.info(
+                            "[SW Tool][PVE] Quest Kille — zwykła walka zakończona kodem me:",
+                            {
+                                x: point.x,
+                                y: point.y,
+                                me: this._int(
+                                    response.me
+                                ),
+                                singleFights
+                            }
+                        );
+                        break;
+                    }
+
+                    singleFights++;
+                    removed +=
+                        this.questKillRemovedCount(
+                            response
+                        );
+                } else {
+                    this.setQuickPanelStatus(
+                        "Quest Kille: " +
+                        point.x +
+                        "|" +
+                        point.y +
+                        " — multi " +
+                        (fights + 1) +
+                        "..."
+                    );
+
+                    const response =
+                        await this.sendAndWait(
+                            {
+                                a: 13,
+                                mob_num: 0,
+                                fo: [1, 1, 1, 1, 1]
+                            },
+                            [7, 999],
+                            (event) =>
+                                this._int(event.e) !== 0 ||
+                                (
+                                    this._int(event.a) === 7 &&
+                                    (
+                                        this._int(event.mm) === 1 ||
+                                        this._int(event.me) > 0 ||
+                                        event.result !== undefined
+                                    )
+                                ),
+                            5000
+                        );
+
+                    if (
+                        this._int(response.e) !== 0
+                    ) {
+                        throw new Error(
+                            "Serwer odrzucił multiwalkę na polu " +
+                            point.x +
+                            "|" +
+                            point.y +
+                            "."
+                        );
+                    }
+
+                    if (
+                        this._int(response.me) > 0
+                    ) {
+                        console.info(
+                            "[SW Tool][PVE] Quest Kille — koniec multi na polu:",
+                            {
+                                x: point.x,
+                                y: point.y,
+                                me: this._int(
+                                    response.me
+                                ),
+                                fights,
+                                singleFights,
+                                removed
+                            }
+                        );
+                        break;
+                    }
+
+                    fights++;
+                    removed +=
+                        this.questKillRemovedCount(
+                            response
+                        );
+                }
+
+                const refreshedField =
+                    await this.waitForQuestKillFieldRefresh(
+                        fieldBeforeFight,
+                        point.x,
+                        point.y
+                    );
+
+                if (refreshedField) {
+                    const wasMulti =
+                        multiAvailable;
+
+                    field =
+                        refreshedField;
+                    mobs = Math.max(
+                        0,
+                        this._int(
+                            field.mobs?.count
+                        )
+                    );
+                    multiAvailable =
+                        Array.isArray(
+                            field.multiFight
+                        ) &&
+                        field.multiFight.includes(0);
+
+                    if (
+                        !wasMulti &&
+                        multiAvailable
+                    ) {
+                        console.info(
+                            "[SW Tool][PVE] Quest Kille — multiwalka odblokowana:",
+                            {
+                                x: point.x,
+                                y: point.y,
+                                singleFights,
+                                mf:
+                                    field.multiFight
+                            }
+                        );
+
+                        this.setQuickPanelStatus(
+                            "Quest Kille: " +
+                            point.x +
+                            "|" +
+                            point.y +
+                            " — multi odblokowane po " +
+                            singleFights +
+                            " zwykłych walkach."
+                        );
+                    }
+                } else {
+                    // Fallback tylko dla licznika mobów. Gdy a:602 przyjdzie
+                    // później, kolejna iteracja pobierze świeży stan pola.
+                    mobs = Math.max(
+                        0,
+                        mobs - 1
+                    );
+                }
+
+                // Tracker questa może przyjść tuż po odpowiedzi walki.
+                // Krótka pauza pozwala handleQuestKillResponse zaktualizować
+                // state.count przed następnym atakiem.
+                await this.sleep(50);
             }
 
             this.setQuickPanelStatus(
@@ -4863,7 +5066,9 @@
                 point.x +
                 "|" +
                 point.y +
-                " — multi " +
+                " — zwykłe " +
+                singleFights +
+                "x, multi " +
                 fights +
                 "x" +
                 (
@@ -4877,6 +5082,7 @@
 
             return {
                 fights,
+                singleFights,
                 removed,
                 skipped: false
             };
@@ -4987,6 +5193,7 @@
                 start,
                 visited: 0,
                 fights: 0,
+                singleFights: 0,
                 removed: 0
             };
 
@@ -5098,6 +5305,10 @@
                         this._int(
                             cleared?.fights
                         );
+                    state.singleFights +=
+                        this._int(
+                            cleared?.singleFights
+                        );
                     state.removed +=
                         this._int(
                             cleared?.removed
@@ -5173,7 +5384,9 @@
                     state.max +
                     " • odwiedzone pola " +
                     state.visited +
-                    " • multi " +
+                    " • zwykłe " +
+                    state.singleFights +
+                    "x • multi " +
                     state.fights +
                     "x. Powrót na start ✓",
                     "success"
@@ -5186,7 +5399,9 @@
                     state.max +
                     " • odwiedzone pola " +
                     state.visited +
-                    " • multi " +
+                    " • zwykłe " +
+                    state.singleFights +
+                    "x • multi " +
                     state.fights +
                     "x. Powrót na start ✓"
                 );
