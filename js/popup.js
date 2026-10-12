@@ -4,7 +4,8 @@ const DEFAULT_CONFIG = Object.freeze({
   hideReports: false,
   mapClickMovement: true,
   acceleratedH: false,
-  improvedX: false
+  improvedX: false,
+  preferTraining: true
 });
 
 const ACCOUNT_LIMIT = 5;
@@ -22,6 +23,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const mapClickMovement = document.getElementById("mapClickMovement");
   const acceleratedH = document.getElementById("acceleratedH");
   const improvedX = document.getElementById("improvedX");
+  const preferTraining = document.getElementById("preferTraining");
+  const preferTrainingLabel = document.getElementById("preferTrainingLabel");
   const resetBtn = document.getElementById("resetBtn");
   const accTutsBtn = document.getElementById("accTutsBtn");
   const accAbyssBtn = document.getElementById("accAbyssBtn");
@@ -61,7 +64,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       : DEFAULT_CONFIG.acceleratedH,
     improvedX: typeof config?.improvedX === "boolean"
       ? config.improvedX
-      : DEFAULT_CONFIG.improvedX
+      : DEFAULT_CONFIG.improvedX,
+    preferTraining: typeof config?.preferTraining === "boolean"
+      ? config.preferTraining
+      : DEFAULT_CONFIG.preferTraining
   });
 
   const normalizeAccounts = (accounts) => (
@@ -138,6 +144,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     mapClickMovement.checked = normalized.mapClickMovement;
     acceleratedH.checked = normalized.acceleratedH;
     improvedX.checked = normalized.improvedX;
+    preferTraining.checked = normalized.preferTraining;
+    preferTrainingLabel.textContent = normalized.preferTraining
+      ? "Preferuj Trening"
+      : "Preferuj Misje";
   }
 
   function readWindowConfig() {
@@ -147,7 +157,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       hideReports: hideReports.checked,
       mapClickMovement: mapClickMovement.checked,
       acceleratedH: acceleratedH.checked,
-      improvedX: improvedX.checked
+      improvedX: improvedX.checked,
+      preferTraining: preferTraining.checked
     };
   }
 
@@ -388,6 +399,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   mapClickMovement.addEventListener("change", saveConfig);
   acceleratedH.addEventListener("change", saveConfig);
   improvedX.addEventListener("change", saveConfig);
+  preferTraining.addEventListener("change", () => {
+    preferTrainingLabel.textContent = preferTraining.checked
+      ? "Preferuj Trening"
+      : "Preferuj Misje";
+    saveConfig();
+  });
 
   resetBtn.addEventListener("click", async () => {
     try {
