@@ -97,6 +97,10 @@
             this.roninRunning = false;
             this.quickPanelButtons = [];
             this.quickPanelStatus = null;
+            this.quickLogEntries = [];
+            this.quickLogPreview = null;
+            this.quickLogList = null;
+            this.quickLogExpanded = false;
             this.roninCounter = 0;
             this.roninTimers = [];
             this.roninFinishedAt = 0;
@@ -1278,17 +1282,93 @@
             };
         }
 
-        setQuickPanelStatus(message, type = "") {
-            const status = this.quickPanelStatus;
-            if (!status) return;
+        quickLogColor(type = "") {
+            return type === "error"
+                ? "#ffb3b3"
+                : type === "success"
+                    ? "#b8f3c0"
+                    : "#c8c3d4";
+        }
 
-            status.textContent = String(message || "");
-            status.style.color =
-                type === "error"
-                    ? "#ffb3b3"
-                    : type === "success"
-                        ? "#b8f3c0"
-                        : "#c8c3d4";
+        renderQuickLog() {
+            const renderEntry = (entry) => {
+                const row = document.createElement("div");
+                Object.assign(row.style, {
+                    display: "grid",
+                    gridTemplateColumns: "46px 1fr",
+                    gap: "5px",
+                    padding: "2px 0",
+                    color: this.quickLogColor(entry.type),
+                    fontSize: "9px",
+                    lineHeight: "1.3",
+                    wordBreak: "break-word"
+                });
+
+                const time = document.createElement("span");
+                time.textContent = entry.time;
+                time.style.opacity = "0.65";
+
+                const message = document.createElement("span");
+                message.textContent = entry.message;
+
+                row.append(time, message);
+                return row;
+            };
+
+            if (this.quickLogPreview) {
+                this.quickLogPreview.textContent = "";
+                const preview = this.quickLogEntries.slice(-3);
+
+                for (const entry of preview) {
+                    this.quickLogPreview.appendChild(
+                        renderEntry(entry)
+                    );
+                }
+            }
+
+            if (this.quickLogList) {
+                this.quickLogList.textContent = "";
+
+                for (const entry of this.quickLogEntries) {
+                    this.quickLogList.appendChild(
+                        renderEntry(entry)
+                    );
+                }
+
+                this.quickLogList.scrollTop =
+                    this.quickLogList.scrollHeight;
+            }
+        }
+
+        addQuickLog(message, type = "") {
+            const text = String(message || "").trim();
+            if (!text) return;
+
+            const now = new Date();
+            const time = [
+                String(now.getHours()).padStart(2, "0"),
+                String(now.getMinutes()).padStart(2, "0"),
+                String(now.getSeconds()).padStart(2, "0")
+            ].join(":");
+
+            this.quickLogEntries.push({
+                time,
+                message: text,
+                type
+            });
+
+            if (this.quickLogEntries.length > 200) {
+                this.quickLogEntries.splice(
+                    0,
+                    this.quickLogEntries.length - 200
+                );
+            }
+
+            this.renderQuickLog();
+        }
+
+        setQuickPanelStatus(message, type = "") {
+            this.addQuickLog(message, type);
         }
 
         setQuickPanelBusy(busy) {
@@ -3291,7 +3371,7 @@
             this.roninCounter++;
         }
 
-        async runQuickRonin() {
+        async runSingleRoninAttempt() {
             if (this.roninRunning) {
                 throw new Error("Ronin jest już wykonywany.");
             }
@@ -3364,6 +3444,64 @@
             return {
                 status: "done",
                 run: this.roninCounter
+            };
+        }
+
+        async runQuickRonin() {
+            const availability =
+                await this.quickAllRoninAvailability();
+
+            if (!availability.available) {
+                return {
+                    status: "skipped",
+                    attempts: 0,
+                    used: availability.used || 0,
+                    limit:
+                        availability.limit ||
+                        this.roninDailyLimit,
+                    reason:
+                        availability.reason ||
+                        "niedostępny"
+                };
+            }
+
+            const characterId = this._int(
+                GAME.char_id || this.currentCharacterId
+            );
+            const limit = availability.limit;
+            let used = availability.used;
+            let attempts = 0;
+
+            while (used < limit) {
+                const beforeUsed = used;
+                const attempt = beforeUsed + 1;
+
+                this.setQuickPanelStatus(
+                    "Ronin: próba " +
+                    attempt +
+                    "/" +
+                    limit +
+                    "..."
+                );
+
+                await this.runSingleRoninAttempt();
+                attempts++;
+
+                used = await this.confirmRoninDailyUsage(
+                    characterId,
+                    Math.min(limit, beforeUsed + 1)
+                );
+
+                await this.ensureRoninReturned(
+                    characterId
+                );
+            }
+
+            return {
+                status: "done",
+                attempts,
+                used,
+                limit
             };
         }
 
@@ -3521,11 +3659,26 @@
                 "Quick ALL: sprawdzanie Ronina..."
             );
 
-            let roninAvailability;
-
             try {
-                roninAvailability =
-                    await this.quickAllRoninAvailability();
+                const ronin = await this.runQuickRonin();
+
+                if (ronin.status === "skipped") {
+                    summary.push(
+                        "Ronin pominięty (" +
+                        ronin.reason +
+                        ")"
+                    );
+                    this.setQuickPanelStatus(
+                        "Quick ALL: Ronin pominięty — " +
+                        ronin.reason
+                    );
+                } else {
+                    summary.push(
+                        "Ronin " +
+                        ronin.attempts +
+                        "x ✓"
+                    );
+                }
             } catch (error) {
                 const message =
                     error instanceof Error
@@ -3533,65 +3686,13 @@
                         : String(error);
 
                 console.error(
-                    "[SW Tool][QUICK ALL] Nie udało się sprawdzić Ronina — zatrzymuję Quick ALL:",
+                    "[SW Tool][QUICK ALL] Ronin nie zakończył się poprawnie — zatrzymuję Quick ALL:",
                     error
                 );
 
                 throw new Error(
-                    "Quick ALL: nie udało się sprawdzić dostępności Ronina: " +
+                    "Quick ALL zatrzymany podczas Ronina: " +
                     message
-                );
-            }
-
-            if (roninAvailability.available) {
-                this.setQuickPanelStatus(
-                    "Quick ALL: Ronin..."
-                );
-
-                try {
-                    const characterId = this._int(
-                        GAME.char_id ||
-                        this.currentCharacterId
-                    );
-
-                    await this.runQuickRonin();
-
-                    // runQuickRonin() czeka już na a:777 instance_finished.
-                    // Dodatkowo wymagamy potwierdzonego powrotu postaci
-                    // poza mapę instancji, zanim Quick ALL ruszy dalej.
-                    await this.ensureRoninReturned(
-                        characterId
-                    );
-
-                    summary.push("Ronin ✓");
-                } catch (error) {
-                    const message =
-                        error instanceof Error
-                            ? error.message
-                            : String(error);
-
-                    console.error(
-                        "[SW Tool][QUICK ALL] Ronin nie zakończył się poprawnie — zatrzymuję Quick ALL:",
-                        error
-                    );
-
-                    throw new Error(
-                        "Quick ALL zatrzymany podczas Ronina: " +
-                        message
-                    );
-                }
-            } else {
-                const reason =
-                    roninAvailability.reason ||
-                    "niedostępny";
-                summary.push(
-                    "Ronin pominięty (" +
-                    reason +
-                    ")"
-                );
-                console.info(
-                    "[SW Tool][QUICK ALL] Ronin pominięty:",
-                    roninAvailability
                 );
             }
 
@@ -3759,12 +3860,24 @@
                     this.setQuickPanelStatus("Quick Ronin...");
                     const result = await this.runQuickRonin();
 
-                    this.setQuickPanelStatus(
-                        "Ronin wykonany. Próba #" +
-                        result.run +
-                        ".",
-                        "success"
-                    );
+                    if (result.status === "skipped") {
+                        this.setQuickPanelStatus(
+                            "Ronin pominięty: " +
+                            result.reason +
+                            "."
+                        );
+                    } else {
+                        this.setQuickPanelStatus(
+                            "Ronin wykonany " +
+                            result.attempts +
+                            "x (" +
+                            result.used +
+                            "/" +
+                            result.limit +
+                            ").",
+                            "success"
+                        );
+                    }
                     return;
                 }
 
@@ -5397,7 +5510,7 @@
 
                             const beforeUsed = used;
 
-                            await this.runQuickRonin();
+                            await this.runSingleRoninAttempt();
                             completed++;
 
                             used = await this.confirmRoninDailyUsage(
@@ -5457,9 +5570,22 @@
         }
 
         async runAccountAll() {
+            const characters = [...this.chars];
+            const originalId = Number(
+                GAME.char_id ||
+                this.lastCharacterId ||
+                this.currentCharacterId ||
+                0
+            );
+
+            let completed = 0;
+            let failed = 0;
+            let dailyClaimed = 0;
+
             console.info(
                 "[SW Tool][ACCOUNT ALL] Start.",
                 {
+                    characters: characters.length,
                     preferred:
                         this.config.preferTraining === true
                             ? "training"
@@ -5467,36 +5593,109 @@
                 }
             );
 
-            this.setQuickPanelStatus(
-                "ALL konto: Otchłań..."
-            );
-            await this.runAccountSoulAbyss();
+            try {
+                for (let i = 0; i < characters.length; i++) {
+                    const char = characters[i];
+                    const id = this._int(char?.id);
+                    const label =
+                        String(char?.name || "").trim() ||
+                        ("#" + id);
 
-            this.setQuickPanelStatus(
-                "ALL konto: Arena PvP..."
-            );
-            await this.runAccountArenaPvp();
+                    try {
+                        this.setQuickPanelStatus(
+                            "ALL konto: " +
+                            (i + 1) +
+                            "/" +
+                            characters.length +
+                            " — " +
+                            label +
+                            "..."
+                        );
 
-            this.setQuickPanelStatus(
-                "ALL konto: Ronin..."
-            );
-            await this.runAccountRonin();
+                        await this.switchCharacterForAccountAction(
+                            id,
+                            0,
+                            true
+                        );
 
-            if (this.config.preferTraining === true) {
-                this.setQuickPanelStatus(
-                    "ALL konto: Treningi..."
+                        if (
+                            await this.claimDailyRewardForAccountAction(
+                                label
+                            )
+                        ) {
+                            dailyClaimed++;
+                        }
+
+                        const result =
+                            await this.runQuickAllForCurrentCharacter(
+                                label
+                            );
+
+                        completed++;
+
+                        this.setQuickPanelStatus(
+                            "ALL konto: " +
+                            label +
+                            " — " +
+                            result.summary.join(" • "),
+                            result.warnings.length > 0
+                                ? ""
+                                : "success"
+                        );
+                    } catch (error) {
+                        if (this.isFatalAccountError(error)) {
+                            throw error;
+                        }
+
+                        failed++;
+                        console.warn(
+                            "[SW Tool][ACCOUNT ALL] " +
+                            label +
+                            ":",
+                            error
+                        );
+
+                        this.setQuickPanelStatus(
+                            "ALL konto: " +
+                            label +
+                            " — błąd: " +
+                            (
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error)
+                            ),
+                            "error"
+                        );
+                    } finally {
+                        this.stopNavigation(
+                            "koniec ALL dla bieżącej postaci"
+                        );
+                    }
+                }
+            } finally {
+                this.stopNavigation(
+                    "koniec operacji ALL konta"
                 );
-                await this.runAccountTrainings();
-            } else {
-                this.setQuickPanelStatus(
-                    "ALL konto: Misje..."
+                await this.restoreAccountCharacter(
+                    originalId
                 );
-                await this.runAccountMissions();
             }
+
+            this.setQuickPanelStatus(
+                "ALL konto zakończone: " +
+                completed +
+                " OK, " +
+                failed +
+                " błędów.",
+                failed > 0 ? "" : "success"
+            );
 
             console.info(
                 "[SW Tool][ACCOUNT ALL] Zakończone.",
                 {
+                    completed,
+                    failed,
+                    dailyClaimed,
                     preferred:
                         this.config.preferTraining === true
                             ? "training"
