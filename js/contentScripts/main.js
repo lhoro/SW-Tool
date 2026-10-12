@@ -5456,6 +5456,55 @@
             });
         }
 
+        async runAccountAll() {
+            console.info(
+                "[SW Tool][ACCOUNT ALL] Start.",
+                {
+                    preferred:
+                        this.config.preferTraining === true
+                            ? "training"
+                            : "mission"
+                }
+            );
+
+            this.setQuickPanelStatus(
+                "ALL konto: Otchłań..."
+            );
+            await this.runAccountSoulAbyss();
+
+            this.setQuickPanelStatus(
+                "ALL konto: Arena PvP..."
+            );
+            await this.runAccountArenaPvp();
+
+            this.setQuickPanelStatus(
+                "ALL konto: Ronin..."
+            );
+            await this.runAccountRonin();
+
+            if (this.config.preferTraining === true) {
+                this.setQuickPanelStatus(
+                    "ALL konto: Treningi..."
+                );
+                await this.runAccountTrainings();
+            } else {
+                this.setQuickPanelStatus(
+                    "ALL konto: Misje..."
+                );
+                await this.runAccountMissions();
+            }
+
+            console.info(
+                "[SW Tool][ACCOUNT ALL] Zakończone.",
+                {
+                    preferred:
+                        this.config.preferTraining === true
+                            ? "training"
+                            : "mission"
+                }
+            );
+        }
+
         startAccountOperation(action) {
             if (
                 action === "accountTournaments" &&
@@ -5490,7 +5539,8 @@
                 accountArenaPvp: () => this.runAccountArenaPvp(),
                 accountTrainings: () => this.runAccountTrainings(),
                 accountMissions: () => this.runAccountMissions(),
-                accountRonin: () => this.runAccountRonin()
+                accountRonin: () => this.runAccountRonin(),
+                accountAll: () => this.runAccountAll()
             };
             const runner = runners[action];
             if (!runner) {
