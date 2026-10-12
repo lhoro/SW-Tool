@@ -4302,22 +4302,44 @@
         async switchCharacterForAccountAction(
             charId,
             settleMs = 150,
-            forceRefresh = false
+            forceRefresh = false,
+            retryAttempt = 0
         ) {
             const targetId = Number(charId);
-            if (targetId <= 0) throw new Error("Nieprawidłowe ID postaci.");
+            if (targetId <= 0) {
+                throw new Error("Nieprawidłowe ID postaci.");
+            }
 
             if (
                 !forceRefresh &&
-                Number(GAME.char_id || this.currentCharacterId || 0) === targetId &&
+                Number(
+                    GAME.char_id ||
+                    this.currentCharacterId ||
+                    0
+                ) === targetId &&
                 this.currentCharacterSnapshot?.char_data
             ) {
                 return this.currentCharacterSnapshot;
             }
 
+            const maxAttempts = 3;
+            const attempt = Math.max(
+                0,
+                this._int(retryAttempt)
+            ) + 1;
+
+            this.setQuickPanelStatus(
+                "Zmiana postaci: " +
+                targetId +
+                " — próba " +
+                attempt +
+                "/" +
+                maxAttempts +
+                "..."
+            );
+
             // Operacje całego konta naśladują synchronizację z APP:
-            // relog a:5 -> lista a:1 -> wybór a:2 -> pełne char_data.
-            // Skróty "," i "." nadal przełączają postać bezpośrednim a:2.
+            // a:5 -> lista a:1 -> wybór a:2 -> pełne char_data.
             const listResponse = await this.sendAndWait(
                 { a: 5 },
                 [1, 999],
@@ -4337,13 +4359,14 @@
             }
 
             if (!Array.isArray(listResponse.chars)) {
-                throw new Error("Serwer nie zwrócił listy postaci.");
+                throw new Error(
+                    "Serwer nie zwrócił listy postaci."
+                );
             }
 
-            // handleGameResponse() synchronizuje this.chars przed rozwiązaniem
-            // waitera, ale sprawdzamy target także na surowej odpowiedzi.
-            const targetExists = listResponse.chars.some((char) =>
-                this._int(char?.id) === targetId
+            const targetExists = listResponse.chars.some(
+                (char) =>
+                    this._int(char?.id) === targetId
             );
 
             if (!targetExists) {
@@ -4357,40 +4380,138 @@
             this.currentQuickOptionsCharacterId = targetId;
             this.currentQuickOptionsFresh = false;
 
-            const response = await this.sendAndWait(
-                { a: 2, char_id: targetId },
-                [2, 999],
-                (event) =>
-                    this._int(event.e) !== 0 ||
-                    (
-                        this._int(event.a) === 2 &&
-                        this._int(event.char_id || targetId) === targetId &&
-                        event.char_data &&
-                        typeof event.char_data === "object"
-                    ),
-                20000
-            );
+            let response;
 
-            if (this._int(response.e) !== 0) {
-                throw new Error("Serwer odrzucił zmianę postaci.");
+            try {
+                response = await this.sendAndWait(
+                    { a: 2, char_id: targetId },
+                    [2, 999],
+                    (event) =>
+                        this._int(event.e) !== 0 ||
+                        (
+                            this._int(event.a) === 2 &&
+                            this._int(
+                                event.char_id || targetId
+                            ) === targetId &&
+                            event.char_data &&
+                            typeof event.char_data ===
+                                "object"
+                        ),
+                    10000
+                );
+            } catch (error) {
+                const activeId = Number(
+                    GAME.char_id ||
+                    this.currentCharacterId ||
+                    0
+                );
+                const snapshotId = this._int(
+                    this.currentCharacterSnapshot?.char_id ||
+                    this.currentCharacterSnapshot
+                        ?.char_data?.id
+                );
+
+                // Odpowiedź a:2 mogła dotrzeć tuż przy granicy timeoutu.
+                // Jeżeli klient i snapshot już wskazują właściwą postać,
+                // uznajemy przełączenie za zakończone zamiast dublować a:2.
+                if (
+                    activeId === targetId &&
+                    snapshotId === targetId &&
+                    this.currentCharacterSnapshot?.char_data
+                ) {
+                    response =
+                        this.currentCharacterSnapshot;
+
+                    console.info(
+                        "[SW Tool][ACCOUNT] a:2 potwierdzone stanem klienta po timeout.",
+                        {
+                            char_id: targetId,
+                            attempt
+                        }
+                    );
+                } else if (attempt < maxAttempts) {
+                    const message =
+                        error instanceof Error
+                            ? error.message
+                            : String(error);
+
+                    console.warn(
+                        "[SW Tool][ACCOUNT] Zmiana postaci nie została potwierdzona — ponawiam synchronizację.",
+                        {
+                            char_id: targetId,
+                            attempt,
+                            error: message
+                        }
+                    );
+
+                    this.setQuickPanelStatus(
+                        "Zmiana postaci " +
+                        targetId +
+                        ": brak odpowiedzi, ponawiam...",
+                        "error"
+                    );
+
+                    await this.sleep(300);
+
+                    return this.switchCharacterForAccountAction(
+                        targetId,
+                        settleMs,
+                        true,
+                        attempt
+                    );
+                } else {
+                    throw new Error(
+                        "Nie udało się przełączyć na postać " +
+                        targetId +
+                        " po " +
+                        maxAttempts +
+                        " próbach. Ostatni błąd: " +
+                        (
+                            error instanceof Error
+                                ? error.message
+                                : String(error)
+                        )
+                    );
+                }
             }
 
-            if (!response.char_data || typeof response.char_data !== "object") {
-                throw new Error("Serwer nie zwrócił pełnych danych postaci.");
+            if (this._int(response.e) !== 0) {
+                throw new Error(
+                    "Serwer odrzucił zmianę postaci."
+                );
+            }
+
+            if (
+                !response.char_data ||
+                typeof response.char_data !== "object"
+            ) {
+                throw new Error(
+                    "Serwer nie zwrócił pełnych danych postaci."
+                );
             }
 
             this.currentCharacterSnapshot = response;
             this.lastCharacterId = targetId;
             this.currentCharacterId = targetId;
-            this.currentCharacterIndex = this.chars.findIndex(
-                (char) => Number(char.id) === targetId
+            this.currentCharacterIndex =
+                this.chars.findIndex(
+                    (char) =>
+                        Number(char.id) === targetId
+                );
+
+            await this.waitForCharacterSettled(
+                targetId,
+                3000,
+                settleMs
             );
 
-            await this.waitForCharacterSettled(targetId, 3000, settleMs);
-
-            console.info("[SW Tool][ACCOUNT] Postać gotowa:", {
-                char_id: targetId
-            });
+            console.info(
+                "[SW Tool][ACCOUNT] Postać gotowa:",
+                {
+                    char_id: targetId,
+                    attempt
+                }
+            );
 
             return response;
         }
@@ -5786,6 +5907,11 @@
                         this.stopNavigation(
                             "koniec ALL dla bieżącej postaci"
                         );
+
+                        // Po Treningu/Misji oficjalny klient potrafi jeszcze
+                        // przebudowywać stan postaci. Nie wysyłamy kolejnego
+                        // a:5/a:2 w tej samej chwili.
+                        await this.sleep(250);
                     }
                 }
             } finally {
