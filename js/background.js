@@ -4,7 +4,8 @@ const DEFAULT_CONFIG = Object.freeze({
   hideReports: false,
   mapClickMovement: true,
   acceleratedH: false,
-  improvedX: false
+  improvedX: false,
+  preferTraining: true
 });
 
 const ACCOUNT_LIMIT = 5;
