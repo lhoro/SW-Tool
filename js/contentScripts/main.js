@@ -4561,6 +4561,12 @@
                 "sw-tool-quick-panel"
             )?.remove();
             document.getElementById(
+                "sw-tool-pve-panel"
+            )?.remove();
+            document.getElementById(
+                "sw-tool-pvp-panel"
+            )?.remove();
+            document.getElementById(
                 "sw-tool-log-panel"
             )?.remove();
 
@@ -4577,8 +4583,14 @@
                 fontFamily: "Verdana, sans-serif"
             });
 
-            const makePanel = (id, width = "250px") => {
-                const element = document.createElement("div");
+            const PANEL_WIDTH = "250px";
+
+            const makePanel = (
+                id,
+                width = PANEL_WIDTH
+            ) => {
+                const element =
+                    document.createElement("div");
                 element.id = id;
                 Object.assign(element.style, {
                     width,
@@ -4596,7 +4608,8 @@
             };
 
             const makeToggle = (text) => {
-                const button = document.createElement("button");
+                const button =
+                    document.createElement("button");
                 button.type = "button";
                 button.textContent = text;
                 Object.assign(button.style, {
@@ -4612,55 +4625,38 @@
                 return button;
             };
 
-            const makeHeader = (label, toggle) => {
-                const header = document.createElement("div");
+            const makeHeader = (
+                label,
+                toggle
+            ) => {
+                const header =
+                    document.createElement("div");
                 Object.assign(header.style, {
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "space-between",
+                    justifyContent:
+                        "space-between",
                     color: "#c29e51",
                     fontWeight: "700"
                 });
 
-                const title = document.createElement("span");
+                const title =
+                    document.createElement("span");
                 title.textContent = label;
 
                 header.append(title, toggle);
                 return header;
             };
 
-            const panel = makePanel(
-                "sw-tool-quick-panel"
-            );
-            const collapse = makeToggle("−");
-            const header = makeHeader(
-                "SW TOOL — QUICK",
-                collapse
-            );
-            header.style.marginBottom = "6px";
-
-            const body = document.createElement("div");
-            Object.assign(body.style, {
-                display: "grid",
-                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-                gap: "5px"
-            });
-
-            const actions = [
-                ["arena", "Arena"],
-                ["abyss", "Otchłań"],
-                ["ronin", "Ronin"],
-                ["training", "Trening"],
-                ["mission", "Misja"],
-                ["all", "ALL"]
-            ];
-
-            this.quickPanelButtons = [];
-
-            for (const [action, label] of actions) {
-                const button = document.createElement("button");
+            const makeActionButton = (
+                label,
+                onClick
+            ) => {
+                const button =
+                    document.createElement("button");
                 button.type = "button";
                 button.textContent = label;
+
                 Object.assign(button.style, {
                     width: "100%",
                     padding: "6px 7px",
@@ -4669,7 +4665,8 @@
                     background: "#30294a",
                     color: "#fff",
                     fontSize: "11px",
-                    fontFamily: "Verdana, sans-serif",
+                    fontFamily:
+                        "Verdana, sans-serif",
                     cursor: "pointer"
                 });
 
@@ -4682,6 +4679,7 @@
                         }
                     }
                 );
+
                 button.addEventListener(
                     "mouseleave",
                     () => {
@@ -4689,42 +4687,216 @@
                             "#30294a";
                     }
                 );
-                button.addEventListener("click", () => {
-                    this.runQuickAction(action).catch(
-                        (error) => {
-                            console.warn(
-                                "[SW Tool][QUICK] Nie można uruchomić akcji:",
-                                action,
-                                error
-                            );
-                            this.setQuickPanelStatus(
-                                error instanceof Error
-                                    ? error.message
-                                    : String(error),
-                                "error"
+
+                button.addEventListener(
+                    "click",
+                    onClick
+                );
+
+                return button;
+            };
+
+            const bindCollapse = (
+                panel,
+                body,
+                header,
+                toggle
+            ) => {
+                let collapsed = false;
+
+                toggle.addEventListener(
+                    "click",
+                    () => {
+                        collapsed = !collapsed;
+
+                        body.style.display =
+                            collapsed
+                                ? "none"
+                                : body.dataset.display ||
+                                  "grid";
+                        header.style.marginBottom =
+                            collapsed
+                                ? "0"
+                                : "6px";
+                        toggle.textContent =
+                            collapsed
+                                ? "+"
+                                : "−";
+
+                        panel.style.width =
+                            collapsed
+                                ? "150px"
+                                : PANEL_WIDTH;
+                    }
+                );
+            };
+
+            const panel = makePanel(
+                "sw-tool-quick-panel"
+            );
+            const collapse = makeToggle("−");
+            const header = makeHeader(
+                "Szybkie akcje",
+                collapse
+            );
+            header.style.marginBottom = "6px";
+
+            const body =
+                document.createElement("div");
+            body.dataset.display = "grid";
+            Object.assign(body.style, {
+                display: "grid",
+                gridTemplateColumns:
+                    "repeat(3, minmax(0, 1fr))",
+                gap: "5px"
+            });
+
+            const actions = [
+                ["all", "ALL"],
+                ["training", "Trening"],
+                ["mission", "Misja"],
+                ["arena", "Arena"],
+                ["abyss", "Otchłań"],
+                ["ronin", "Ronin"]
+            ];
+
+            this.quickPanelButtons = [];
+
+            for (const [action, label] of actions) {
+                const button =
+                    makeActionButton(
+                        label,
+                        () => {
+                            this.runQuickAction(
+                                action
+                            ).catch(
+                                (error) => {
+                                    console.warn(
+                                        "[SW Tool][QUICK] Nie można uruchomić akcji:",
+                                        action,
+                                        error
+                                    );
+
+                                    this.setQuickPanelStatus(
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error),
+                                        "error"
+                                    );
+                                }
                             );
                         }
                     );
-                });
 
-                this.quickPanelButtons.push(button);
+                this.quickPanelButtons.push(
+                    button
+                );
                 body.appendChild(button);
             }
 
-            let collapsed = false;
-            collapse.addEventListener("click", () => {
-                collapsed = !collapsed;
-                body.style.display =
-                    collapsed ? "none" : "grid";
-                header.style.marginBottom =
-                    collapsed ? "0" : "6px";
-                collapse.textContent =
-                    collapsed ? "+" : "−";
-                panel.style.width =
-                    collapsed ? "150px" : "250px";
+            bindCollapse(
+                panel,
+                body,
+                header,
+                collapse
+            );
+            panel.append(header, body);
+
+            const pvePanel = makePanel(
+                "sw-tool-pve-panel"
+            );
+            const pveToggle = makeToggle("−");
+            const pveHeader = makeHeader(
+                "PVE",
+                pveToggle
+            );
+            pveHeader.style.marginBottom = "6px";
+
+            const pveBody =
+                document.createElement("div");
+            pveBody.dataset.display = "grid";
+            Object.assign(pveBody.style, {
+                display: "grid",
+                gridTemplateColumns: "1fr",
+                gap: "5px"
             });
 
-            panel.append(header, body);
+            const questKillsButton =
+                makeActionButton(
+                    "Quest Kille",
+                    () => {
+                        this.setQuickPanelStatus(
+                            "PVE: Quest Kille — panel gotowy, mechanika będzie dodana w kolejnym kroku."
+                        );
+
+                        console.info(
+                            "[SW Tool][PVE] Quest Kille — mechanika oczekuje na implementację."
+                        );
+                    }
+                );
+
+            pveBody.appendChild(
+                questKillsButton
+            );
+
+            bindCollapse(
+                pvePanel,
+                pveBody,
+                pveHeader,
+                pveToggle
+            );
+            pvePanel.append(
+                pveHeader,
+                pveBody
+            );
+
+            const pvpPanel = makePanel(
+                "sw-tool-pvp-panel"
+            );
+            const pvpToggle = makeToggle("−");
+            const pvpHeader = makeHeader(
+                "PVP",
+                pvpToggle
+            );
+            pvpHeader.style.marginBottom = "6px";
+
+            const pvpBody =
+                document.createElement("div");
+            pvpBody.dataset.display = "grid";
+            Object.assign(pvpBody.style, {
+                display: "grid",
+                gridTemplateColumns: "1fr",
+                gap: "5px"
+            });
+
+            const quickAttackButton =
+                makeActionButton(
+                    "Quick Atak",
+                    () => {
+                        this.setQuickPanelStatus(
+                            "PVP: Quick Atak — panel gotowy, mechanika będzie dodana w kolejnym kroku."
+                        );
+
+                        console.info(
+                            "[SW Tool][PVP] Quick Atak — mechanika oczekuje na implementację."
+                        );
+                    }
+                );
+
+            pvpBody.appendChild(
+                quickAttackButton
+            );
+
+            bindCollapse(
+                pvpPanel,
+                pvpBody,
+                pvpHeader,
+                pvpToggle
+            );
+            pvpPanel.append(
+                pvpHeader,
+                pvpBody
+            );
 
             const logPanel = makePanel(
                 "sw-tool-log-panel"
@@ -4766,28 +4938,33 @@
             this.quickLogExpanded = false;
             this.quickPanelStatus = null;
 
-            logToggle.addEventListener("click", () => {
-                this.quickLogExpanded =
-                    !this.quickLogExpanded;
+            logToggle.addEventListener(
+                "click",
+                () => {
+                    this.quickLogExpanded =
+                        !this.quickLogExpanded;
 
-                logPreview.style.display =
-                    this.quickLogExpanded
-                        ? "none"
-                        : "block";
-                logList.style.display =
-                    this.quickLogExpanded
-                        ? "block"
-                        : "none";
-                logToggle.textContent =
-                    this.quickLogExpanded
-                        ? "−"
-                        : "+";
+                    logPreview.style.display =
+                        this.quickLogExpanded
+                            ? "none"
+                            : "block";
+                    logList.style.display =
+                        this.quickLogExpanded
+                            ? "block"
+                            : "none";
+                    logToggle.textContent =
+                        this.quickLogExpanded
+                            ? "−"
+                            : "+";
 
-                if (this.quickLogExpanded) {
-                    logList.scrollTop =
-                        logList.scrollHeight;
+                    if (
+                        this.quickLogExpanded
+                    ) {
+                        logList.scrollTop =
+                            logList.scrollHeight;
+                    }
                 }
-            });
+            );
 
             logPanel.append(
                 logHeader,
@@ -4795,10 +4972,18 @@
                 logList
             );
 
-            host.append(panel, logPanel);
+            host.append(
+                panel,
+                pvePanel,
+                pvpPanel,
+                logPanel
+            );
             document.body.appendChild(host);
 
-            if (this.quickLogEntries.length === 0) {
+            if (
+                this.quickLogEntries.length ===
+                0
+            ) {
                 this.addQuickLog(
                     "Gotowy.",
                     "success"
