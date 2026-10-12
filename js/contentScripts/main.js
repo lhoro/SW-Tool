@@ -1772,15 +1772,145 @@
             return null;
         }
 
-        runImprovedXFromUserKey(event = null) {
+        improvedXHQuestState() {
+            const quest = this.currentHQuest;
+
+            if (
+                !quest ||
+                this._int(quest.id) <= 0 ||
+                this._int(quest.max) <= 0 ||
+                Boolean(quest.isMet)
+            ) {
+                return null;
+            }
+
+            const count = Math.max(
+                0,
+                this._int(quest.count)
+            );
+            const max = Math.max(
+                0,
+                this._int(quest.max)
+            );
+
+            if (max <= count) {
+                return null;
+            }
+
+            return {
+                id: this._int(quest.id),
+                count,
+                max,
+                missing: max - count
+            };
+        }
+
+        async runImprovedXFromUserKey(event = null) {
             if (
                 this.config.improvedX !== true ||
                 this.improvedXPending ||
                 this.quickActionRunning ||
                 this.accountOperationRunning ||
+                this.responseWaiter ||
                 this.characterSwitch
             ) {
                 return false;
+            }
+
+            // Aktywny quest typu H ma pierwszeństwo przed klikaniem
+            // przycisków questa. Jedno X = jedna akcja: dobijamy H do 100%,
+            // a dopiero kolejne X może przejść dialog dalej.
+            const hQuest =
+                this.improvedXHQuestState();
+
+            if (hQuest) {
+                if (event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.stopImmediatePropagation();
+                }
+
+                this.improvedXPending = true;
+                this.acceleratedHPending = true;
+
+                try {
+                    this.setQuickPanelStatus(
+                        "X: quest H " +
+                        hQuest.count +
+                        "/" +
+                        hQuest.max +
+                        " → 100%..."
+                    );
+
+                    this.currentHQuest = {
+                        ...this.currentHQuest,
+                        id: hQuest.id,
+                        count: hQuest.count,
+                        max: hQuest.max,
+                        isMet: false
+                    };
+
+                    const sent =
+                        await this.sendHQuestCount(
+                            hQuest.missing,
+                            {
+                                waitForResponse: true
+                            }
+                        );
+
+                    if (!sent) {
+                        throw new Error(
+                            "Nie udało się wysłać brakujących H."
+                        );
+                    }
+
+                    const updated =
+                        this.currentHQuest;
+
+                    console.info(
+                        "[SW Tool][X] Quest H dobity socketowo.",
+                        {
+                            id: hQuest.id,
+                            before: hQuest.count,
+                            sent: hQuest.missing,
+                            max: hQuest.max,
+                            after: this._int(
+                                updated?.count
+                            )
+                        }
+                    );
+
+                    this.setQuickPanelStatus(
+                        "X: quest H zaliczony " +
+                        hQuest.max +
+                        "/" +
+                        hQuest.max +
+                        ".",
+                        "success"
+                    );
+
+                    return true;
+                } catch (error) {
+                    console.error(
+                        "[SW Tool][X] Automatyczne H nie powiodło się:",
+                        error
+                    );
+
+                    this.setQuickPanelStatus(
+                        "X: H — " +
+                        (
+                            error instanceof Error
+                                ? error.message
+                                : String(error)
+                        ),
+                        "error"
+                    );
+
+                    return true;
+                } finally {
+                    this.acceleratedHPending = false;
+                    this.improvedXPending = false;
+                }
             }
 
             // Sprawdzamy stan PRZED natywną obsługą X przez grę.
@@ -1812,7 +1942,10 @@
             this.improvedXPending = true;
 
             try {
-                this.clickQuestAction(actions[0], "improved-x");
+                this.clickQuestAction(
+                    actions[0],
+                    "improved-x"
+                );
                 return true;
             } finally {
                 this.improvedXPending = false;
@@ -6195,7 +6328,16 @@
                     }
 
                     BOT.improvedXHeld = true;
-                    BOT.runImprovedXFromUserKey(event);
+                    BOT.runImprovedXFromUserKey(event).catch(
+                        (error) => {
+                            console.error(
+                                "[SW Tool][X] Obsługa X nie powiodła się:",
+                                error
+                            );
+                            BOT.improvedXPending = false;
+                            BOT.acceleratedHPending = false;
+                        }
+                    );
                 }
                 return;
             }
