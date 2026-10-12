@@ -4577,7 +4577,7 @@
                 fontFamily: "Verdana, sans-serif"
             });
 
-            const makePanel = (id, width = "188px") => {
+            const makePanel = (id, width = "250px") => {
                 const element = document.createElement("div");
                 element.id = id;
                 Object.assign(element.style, {
@@ -4640,16 +4640,19 @@
             header.style.marginBottom = "6px";
 
             const body = document.createElement("div");
-            body.style.display = "grid";
-            body.style.gap = "5px";
+            Object.assign(body.style, {
+                display: "grid",
+                gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                gap: "5px"
+            });
 
             const actions = [
-                ["all", "Quick ALL"],
-                ["training", "Quick Trening"],
-                ["arena", "Quick Arena"],
-                ["abyss", "Quick Otchłań"],
-                ["mission", "Quick Misje"],
-                ["ronin", "Quick Ronin"]
+                ["arena", "Arena"],
+                ["abyss", "Otchłań"],
+                ["ronin", "Ronin"],
+                ["training", "Trening"],
+                ["mission", "Misja"],
+                ["all", "ALL"]
             ];
 
             this.quickPanelButtons = [];
@@ -4718,7 +4721,7 @@
                 collapse.textContent =
                     collapsed ? "+" : "−";
                 panel.style.width =
-                    collapsed ? "150px" : "188px";
+                    collapsed ? "150px" : "250px";
             });
 
             panel.append(header, body);
