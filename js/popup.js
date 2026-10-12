@@ -32,6 +32,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const accTrainingsBtn = document.getElementById("accTrainingsBtn");
   const accMissionsBtn = document.getElementById("accMissionsBtn");
   const accRoninBtn = document.getElementById("accRoninBtn");
+  const accAllBtn = document.getElementById("accAllBtn");
 
   const accountQuickSwitch = document.getElementById("accountQuickSwitch");
   const accountsList = document.getElementById("accountsList");
@@ -465,6 +466,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       action: "accountRonin",
       start: "Uruchamiam Ronina na całym koncie...",
       success: "Ronin uruchomiony na koncie."
+    },
+    {
+      button: accAllBtn,
+      action: "accountAll",
+      start: "Uruchamiam ALL na całym koncie...",
+      success: "ALL uruchomione na koncie."
     }
   ];
 
