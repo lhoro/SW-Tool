@@ -110,6 +110,10 @@
             this.currentHQuest = null;
             this.currentHQuestStep = null;
             this.currentHTracked = null;
+            this.currentQuestStep = null;
+            this.questKillRunning = false;
+            this.questKillState = null;
+            this.questKillButton = null;
             this.hTrackedVersion = 0;
             this.acceleratedHPending = false;
             this.currentQuestMove = null;
@@ -418,6 +422,7 @@
                 this.handleRoninQuestStepResponse(response);
                 this.handleQuestMoveResponse(response);
                 this.handleHQuestResponse(response);
+                this.handleQuestKillResponse(response);
             }
 
             if (
@@ -1609,6 +1614,7 @@
                 return;
             }
 
+            this.currentQuestStep = step;
             this.currentRoninQuestStep = step;
 
             if (
@@ -4400,10 +4406,810 @@
             };
         }
 
+        questKillWantState(want, questId = 0) {
+            if (
+                !want ||
+                typeof want !== "object" ||
+                this._int(want.type) !== 1
+            ) {
+                return null;
+            }
+
+            const id = this._int(
+                want.qbid ||
+                want.qb_id ||
+                questId
+            );
+            const count = Math.max(
+                0,
+                this._int(want.count)
+            );
+            const max = Math.max(
+                0,
+                this._int(want.maxv),
+                this._int(want.amount)
+            );
+
+            if (id <= 0 || max <= 0) {
+                return null;
+            }
+
+            return {
+                questId: id,
+                count,
+                max,
+                isMet:
+                    Boolean(want.is_met) ||
+                    count >= max,
+                targetId: this._int(want.id),
+                targetName: String(
+                    want.name || ""
+                ).trim()
+            };
+        }
+
+        handleQuestKillResponse(response) {
+            const state = this.questKillState;
+            if (
+                !this.questKillRunning ||
+                !state ||
+                !response ||
+                typeof response !== "object"
+            ) {
+                return;
+            }
+
+            let nextCount = Math.max(
+                0,
+                this._int(state.count)
+            );
+            let nextMax = Math.max(
+                0,
+                this._int(state.max)
+            );
+
+            const applyWant = (
+                want,
+                fallbackQuestId = 0
+            ) => {
+                const parsed =
+                    this.questKillWantState(
+                        want,
+                        fallbackQuestId
+                    );
+
+                if (
+                    !parsed ||
+                    parsed.questId !==
+                        this._int(state.questId)
+                ) {
+                    return;
+                }
+
+                nextCount = Math.max(
+                    nextCount,
+                    parsed.count,
+                    parsed.isMet
+                        ? parsed.max
+                        : 0
+                );
+                nextMax = Math.max(
+                    nextMax,
+                    parsed.max
+                );
+            };
+
+            if (
+                response.q_step &&
+                typeof response.q_step === "object"
+            ) {
+                applyWant(
+                    response.q_step.want,
+                    response.q_step.qb_id
+                );
+            }
+
+            if (Array.isArray(response.tracked)) {
+                for (const entry of response.tracked) {
+                    applyWant(
+                        entry?.want,
+                        entry?.qb_id
+                    );
+                }
+            }
+
+            if (
+                this._int(response.track) ===
+                this._int(state.questId)
+            ) {
+                nextCount = Math.max(
+                    nextCount,
+                    this._int(
+                        response.new_amount
+                    )
+                );
+            }
+
+            if (
+                this._int(
+                    response.map_handler
+                        ?.send_tracker
+                ) === this._int(state.questId)
+            ) {
+                nextCount = Math.max(
+                    nextCount,
+                    this._int(
+                        response.map_handler
+                            ?.new_amount
+                    )
+                );
+            }
+
+            nextCount = Math.min(
+                nextMax || nextCount,
+                nextCount
+            );
+
+            if (
+                nextCount !== state.count ||
+                nextMax !== state.max
+            ) {
+                const before = state.count;
+                state.count = nextCount;
+                state.max = nextMax;
+
+                this.setQuickPanelStatus(
+                    "Quest Kille: " +
+                    state.count +
+                    "/" +
+                    state.max +
+                    (
+                        state.count > before
+                            ? " ✓"
+                            : ""
+                    )
+                );
+
+                console.info(
+                    "[SW Tool][PVE] Quest Kille — progres:",
+                    {
+                        questId:
+                            state.questId,
+                        before,
+                        count:
+                            state.count,
+                        max: state.max
+                    }
+                );
+            }
+        }
+
+        questKillPatrolOrder(
+            map,
+            startX,
+            startY
+        ) {
+            if (!map?.cells) {
+                return [];
+            }
+
+            const keyOf = (x, y) =>
+                x + "_" + y;
+            const start = {
+                x: this._int(startX),
+                y: this._int(startY)
+            };
+
+            if (
+                start.x <= 0 ||
+                start.y <= 0
+            ) {
+                return [];
+            }
+
+            const directions = [
+                [0, 1],
+                [1, 1],
+                [1, 0],
+                [1, -1],
+                [0, -1],
+                [-1, -1],
+                [-1, 0],
+                [-1, 1]
+            ];
+
+            const queue = [start];
+            const visited = new Set([
+                keyOf(start.x, start.y)
+            ]);
+            const order = [];
+
+            while (queue.length > 0) {
+                const point = queue.shift();
+                order.push(point);
+
+                for (const [dx, dy] of directions) {
+                    const x = point.x + dx;
+                    const y = point.y + dy;
+
+                    if (
+                        x < 1 ||
+                        y < 1 ||
+                        x > map.maxX ||
+                        y > map.maxY
+                    ) {
+                        continue;
+                    }
+
+                    const key = keyOf(x, y);
+                    if (visited.has(key)) {
+                        continue;
+                    }
+
+                    const cell =
+                        map.cells.get(key);
+                    if (
+                        !cell ||
+                        !cell.movable
+                    ) {
+                        continue;
+                    }
+
+                    visited.add(key);
+                    queue.push({ x, y });
+                }
+            }
+
+            return order;
+        }
+
+        async waitForQuestKillField(
+            x,
+            y,
+            timeoutMs = 2500
+        ) {
+            const targetX = this._int(x);
+            const targetY = this._int(y);
+            const startedAt = Date.now();
+
+            while (
+                Date.now() - startedAt <
+                timeoutMs
+            ) {
+                const field =
+                    this.mapSolver?.field;
+
+                if (
+                    field &&
+                    this._int(field.x) ===
+                        targetX &&
+                    this._int(field.y) ===
+                        targetY
+                ) {
+                    return field;
+                }
+
+                await this.sleep(25);
+            }
+
+            return null;
+        }
+
+        questKillRemovedCount(response) {
+            const removed =
+                response?.remove_mob;
+
+            if (
+                Array.isArray(removed) &&
+                Array.isArray(removed[1])
+            ) {
+                return removed[1].length;
+            }
+
+            return 0;
+        }
+
+        async questKillClearCurrentField(
+            state,
+            point
+        ) {
+            const field =
+                await this.waitForQuestKillField(
+                    point.x,
+                    point.y
+                );
+
+            if (!field) {
+                this.setQuickPanelStatus(
+                    "Quest Kille: " +
+                    point.x +
+                    "|" +
+                    point.y +
+                    " — brak a:602, pomijam."
+                );
+                return {
+                    fights: 0,
+                    skipped: true
+                };
+            }
+
+            const mobs = Math.max(
+                0,
+                this._int(
+                    field.mobs?.count
+                )
+            );
+            const multiAvailable =
+                Array.isArray(
+                    field.multiFight
+                ) &&
+                field.multiFight.includes(0);
+
+            console.info(
+                "[SW Tool][PVE] Quest Kille — pole:",
+                {
+                    x: point.x,
+                    y: point.y,
+                    mobs,
+                    multiAvailable,
+                    progress:
+                        state.count +
+                        "/" +
+                        state.max
+                }
+            );
+
+            if (mobs <= 0) {
+                return {
+                    fights: 0,
+                    skipped: false
+                };
+            }
+
+            if (!multiAvailable) {
+                this.setQuickPanelStatus(
+                    "Quest Kille: " +
+                    point.x +
+                    "|" +
+                    point.y +
+                    " — moby " +
+                    mobs +
+                    ", brak multi (pomijam)."
+                );
+
+                return {
+                    fights: 0,
+                    skipped: true
+                };
+            }
+
+            this.setQuickPanelStatus(
+                "Quest Kille: " +
+                point.x +
+                "|" +
+                point.y +
+                " — moby " +
+                mobs +
+                ", czyszczę multi..."
+            );
+
+            let fights = 0;
+            let removed = 0;
+
+            while (
+                state.count < state.max &&
+                fights < 25
+            ) {
+                const response =
+                    await this.sendAndWait(
+                        {
+                            a: 13,
+                            mob_num: 0,
+                            fo: [1, 1, 1, 1, 1]
+                        },
+                        [7, 999],
+                        (event) =>
+                            this._int(event.e) !== 0 ||
+                            (
+                                this._int(event.a) === 7 &&
+                                (
+                                    this._int(event.mm) === 1 ||
+                                    this._int(event.me) > 0 ||
+                                    event.result !== undefined
+                                )
+                            ),
+                        5000
+                    );
+
+                if (
+                    this._int(response.e) !== 0
+                ) {
+                    throw new Error(
+                        "Serwer odrzucił multiwalkę na polu " +
+                        point.x +
+                        "|" +
+                        point.y +
+                        "."
+                    );
+                }
+
+                if (
+                    this._int(response.me) > 0
+                ) {
+                    console.info(
+                        "[SW Tool][PVE] Quest Kille — koniec multi na polu:",
+                        {
+                            x: point.x,
+                            y: point.y,
+                            me: this._int(
+                                response.me
+                            ),
+                            fights,
+                            removed
+                        }
+                    );
+                    break;
+                }
+
+                fights++;
+                removed +=
+                    this.questKillRemovedCount(
+                        response
+                    );
+            }
+
+            this.setQuickPanelStatus(
+                "Quest Kille: pole " +
+                point.x +
+                "|" +
+                point.y +
+                " — multi " +
+                fights +
+                "x" +
+                (
+                    removed > 0
+                        ? ", remove_mob " +
+                          removed
+                        : ""
+                ) +
+                "."
+            );
+
+            return {
+                fights,
+                removed,
+                skipped: false
+            };
+        }
+
+        async runQuestKills() {
+            if (
+                this.questKillRunning ||
+                this.quickActionRunning ||
+                this.accountOperationRunning ||
+                this.dailyRewardClaimStage !== 0 ||
+                this.characterSwitch ||
+                this.responseWaiter ||
+                this.mapSolver?.active
+            ) {
+                throw new Error(
+                    "Poczekaj na zakończenie bieżącej operacji."
+                );
+            }
+
+            if (
+                !this.improvedXQuestWindowOpen()
+            ) {
+                throw new Error(
+                    "Quest Kille: najpierw otwórz okno questa."
+                );
+            }
+
+            const step =
+                this.currentQuestStep;
+
+            if (
+                !step ||
+                typeof step !== "object"
+            ) {
+                throw new Error(
+                    "Quest Kille: brak zsynchronizowanego q_step."
+                );
+            }
+
+            const parsed =
+                this.questKillWantState(
+                    step.want,
+                    step.qb_id
+                );
+
+            if (!parsed) {
+                throw new Error(
+                    "Quest Kille: aktywny etap nie jest wymaganiem zabijania mobów (want.type !== 1)."
+                );
+            }
+
+            if (parsed.isMet) {
+                throw new Error(
+                    "Quest Kille: wymaganie jest już zaliczone."
+                );
+            }
+
+            const map =
+                this.mapSolver?.map;
+
+            if (
+                !map ||
+                this._int(map.locationId) <= 0 ||
+                this._int(map.x) <= 0 ||
+                this._int(map.y) <= 0
+            ) {
+                throw new Error(
+                    "Quest Kille: brak gotowej mapy/pozycji."
+                );
+            }
+
+            const start = {
+                locationId:
+                    this._int(map.locationId),
+                locationName:
+                    String(
+                        map.locationName || ""
+                    ),
+                x: this._int(map.x),
+                y: this._int(map.y)
+            };
+
+            const patrol =
+                this.questKillPatrolOrder(
+                    map,
+                    start.x,
+                    start.y
+                );
+
+            if (patrol.length === 0) {
+                throw new Error(
+                    "Quest Kille: brak osiągalnych pól do patrolu."
+                );
+            }
+
+            const state = {
+                questId:
+                    parsed.questId,
+                targetId:
+                    parsed.targetId,
+                targetName:
+                    parsed.targetName,
+                count:
+                    parsed.count,
+                max:
+                    parsed.max,
+                start,
+                visited: 0,
+                fights: 0,
+                removed: 0
+            };
+
+            this.questKillRunning = true;
+            this.questKillState = state;
+
+            if (this.questKillButton) {
+                this.questKillButton.disabled =
+                    true;
+                this.questKillButton.style.opacity =
+                    "0.55";
+                this.questKillButton.style.cursor =
+                    "default";
+            }
+
+            this.setQuickPanelStatus(
+                "Quest Kille: start " +
+                state.count +
+                "/" +
+                state.max +
+                " • " +
+                start.locationName +
+                " " +
+                start.x +
+                "|" +
+                start.y +
+                " • pola " +
+                patrol.length +
+                "."
+            );
+
+            console.info(
+                "[SW Tool][PVE] Quest Kille — start:",
+                {
+                    ...state,
+                    patrolFields:
+                        patrol.length
+                }
+            );
+
+            let operationError = null;
+
+            try {
+                for (const point of patrol) {
+                    if (
+                        state.count >=
+                        state.max
+                    ) {
+                        break;
+                    }
+
+                    if (
+                        this._int(
+                            this.mapSolver?.map
+                                ?.locationId
+                        ) !==
+                        start.locationId
+                    ) {
+                        throw new Error(
+                            "Quest Kille: postać opuściła mapę patrolu."
+                        );
+                    }
+
+                    const currentX =
+                        this._int(
+                            this.mapSolver?.map?.x
+                        );
+                    const currentY =
+                        this._int(
+                            this.mapSolver?.map?.y
+                        );
+
+                    if (
+                        currentX !== point.x ||
+                        currentY !== point.y
+                    ) {
+                        this.setQuickPanelStatus(
+                            "Quest Kille: idę " +
+                            point.x +
+                            "|" +
+                            point.y +
+                            " (" +
+                            state.count +
+                            "/" +
+                            state.max +
+                            ")."
+                        );
+
+                        await this.mapSolver.navigateTo(
+                            point.x,
+                            point.y,
+                            {
+                                source:
+                                    "quest-kills",
+                                allowBusy: true
+                            }
+                        );
+                    }
+
+                    state.visited++;
+
+                    const cleared =
+                        await this.questKillClearCurrentField(
+                            state,
+                            point
+                        );
+
+                    state.fights +=
+                        this._int(
+                            cleared?.fights
+                        );
+                    state.removed +=
+                        this._int(
+                            cleared?.removed
+                        );
+                }
+            } catch (error) {
+                operationError = error;
+                console.error(
+                    "[SW Tool][PVE] Quest Kille — błąd patrolu:",
+                    error
+                );
+            } finally {
+                try {
+                    this.setQuickPanelStatus(
+                        "Quest Kille: wracam na pole startowe " +
+                        start.x +
+                        "|" +
+                        start.y +
+                        "..."
+                    );
+
+                    await this.mapSolver
+                        .navigateToLocation(
+                            start.locationId,
+                            start.x,
+                            start.y,
+                            {
+                                source:
+                                    "quest-kills-return",
+                                allowBusy: true
+                            }
+                        );
+                } catch (returnError) {
+                    console.error(
+                        "[SW Tool][PVE] Quest Kille — nie udało się wrócić na start:",
+                        returnError
+                    );
+
+                    if (!operationError) {
+                        operationError =
+                            returnError;
+                    }
+                }
+
+                this.questKillRunning =
+                    false;
+                this.questKillState =
+                    null;
+
+                if (
+                    this.questKillButton
+                ) {
+                    this.questKillButton.disabled =
+                        false;
+                    this.questKillButton.style.opacity =
+                        "1";
+                    this.questKillButton.style.cursor =
+                        "pointer";
+                }
+            }
+
+            if (operationError) {
+                throw operationError;
+            }
+
+            if (
+                state.count >= state.max
+            ) {
+                this.setQuickPanelStatus(
+                    "Quest Kille: cel osiągnięty " +
+                    state.count +
+                    "/" +
+                    state.max +
+                    " • odwiedzone pola " +
+                    state.visited +
+                    " • multi " +
+                    state.fights +
+                    "x. Powrót na start ✓",
+                    "success"
+                );
+            } else {
+                this.setQuickPanelStatus(
+                    "Quest Kille: mapa przeszukana, nadal " +
+                    state.count +
+                    "/" +
+                    state.max +
+                    " • odwiedzone pola " +
+                    state.visited +
+                    " • multi " +
+                    state.fights +
+                    "x. Powrót na start ✓"
+                );
+            }
+
+            console.info(
+                "[SW Tool][PVE] Quest Kille — koniec:",
+                state
+            );
+
+            return {
+                ...state,
+                done:
+                    state.count >=
+                    state.max
+            };
+        }
+
         async runQuickAction(action) {
             if (
                 this.quickActionRunning ||
                 this.accountOperationRunning ||
+                this.questKillRunning ||
                 this.dailyRewardClaimStage !== 0 ||
                 this.characterSwitch ||
                 this.responseWaiter ||
@@ -4825,15 +5631,26 @@
                 makeActionButton(
                     "Quest Kille",
                     () => {
-                        this.setQuickPanelStatus(
-                            "PVE: Quest Kille — panel gotowy, mechanika będzie dodana w kolejnym kroku."
-                        );
+                        this.runQuestKills().catch(
+                            (error) => {
+                                console.error(
+                                    "[SW Tool][PVE] Quest Kille nie powiodło się:",
+                                    error
+                                );
 
-                        console.info(
-                            "[SW Tool][PVE] Quest Kille — mechanika oczekuje na implementację."
+                                this.setQuickPanelStatus(
+                                    error instanceof Error
+                                        ? error.message
+                                        : String(error),
+                                    "error"
+                                );
+                            }
                         );
                     }
                 );
+
+            this.questKillButton =
+                questKillsButton;
 
             pveBody.appendChild(
                 questKillsButton
@@ -6798,8 +7615,14 @@
             if (this.accountOperationRunning) {
                 throw new Error("Trwa już operacja na całym koncie.");
             }
-            if (this.quickActionRunning || this.mapSolver?.active) {
-                throw new Error("Trwa szybka akcja lub nawigacja.");
+            if (
+                this.quickActionRunning ||
+                this.questKillRunning ||
+                this.mapSolver?.active
+            ) {
+                throw new Error(
+                    "Trwa szybka akcja, Quest Kille lub nawigacja."
+                );
             }
             if (this.dailyRewardClaimStage !== 0 || this.responseWaiter) {
                 throw new Error(
