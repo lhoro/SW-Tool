@@ -1805,75 +1805,12 @@
             };
         }
 
-        async completeImprovedXHQuest(
-            initialState,
-            chunkSize = 299
-        ) {
-            let state = {
-                ...initialState
-            };
-            let requests = 0;
-
-            while (state.count < state.max) {
-                const missing =
-                    state.max - state.count;
-                const chunk = Math.min(
-                    missing,
-                    Math.max(1, this._int(chunkSize))
-                );
-
-                this.currentHQuest = {
-                    ...(this.currentHQuest || {}),
-                    id: state.id,
-                    count: state.count,
-                    max: state.max,
-                    isMet: false
-                };
-
-                this.setQuickPanelStatus(
-                    "X: H " +
-                    state.count +
-                    "/" +
-                    state.max +
-                    " — wysyłam +" +
-                    chunk +
-                    "..."
-                );
-
-                const response =
-                    await this.sendHQuestCount(
-                        chunk,
-                        {
-                            waitForResponse: true
-                        }
-                    );
-
-                const confirmed = this._int(
-                    response?.new_amount
-                );
-
-                if (confirmed <= state.count) {
-                    throw new Error(
-                        "Serwer nie zwiększył licznika H po porcji " +
-                        chunk +
-                        "."
-                    );
-                }
-
-                state = {
-                    ...state,
-                    count: Math.min(
-                        state.max,
-                        confirmed
-                    )
-                };
-                requests++;
-            }
-
-            return {
-                ...state,
-                requests
-            };
+        improvedXQuestWindowOpen() {
+            return [
+                ...document.querySelectorAll(".quest_win")
+            ].some((windowElement) =>
+                this.isVisibleQuestAction(windowElement)
+            );
         }
 
         async runImprovedXFromUserKey(event = null) {
@@ -1895,6 +1832,26 @@
                 this.improvedXHQuestState();
 
             if (hQuest) {
+                // Jeżeli tracker H jest aktywny, ale okno questa jest zamknięte,
+                // pierwsze X zostawiamy klientowi gry. Otworzy ono quest.
+                // Dopiero kolejne X, przy widocznym .quest_win, wysyła pełne H.
+                if (!this.improvedXQuestWindowOpen()) {
+                    console.info(
+                        "[SW Tool][X] Quest H aktywny, ale okno questa jest zamknięte — pierwsze X otwiera okno.",
+                        {
+                            id: hQuest.id,
+                            count: hQuest.count,
+                            max: hQuest.max
+                        }
+                    );
+
+                    this.setQuickPanelStatus(
+                        "X: otwieram okno questa H..."
+                    );
+
+                    return false;
+                }
+
                 if (event) {
                     event.preventDefault();
                     event.stopPropagation();
@@ -1913,34 +1870,53 @@
                         " → 100%..."
                     );
 
-                    const completed =
-                        await this.completeImprovedXHQuest(
-                            hQuest
+                    this.currentHQuest = {
+                        ...(this.currentHQuest || {}),
+                        id: hQuest.id,
+                        count: hQuest.count,
+                        max: hQuest.max,
+                        isMet: false
+                    };
+
+                    const response =
+                        await this.sendHQuestCount(
+                            hQuest.missing,
+                            {
+                                waitForResponse: true
+                            }
                         );
+
+                    const confirmed = this._int(
+                        response?.new_amount
+                    );
+
+                    if (confirmed < hQuest.max) {
+                        throw new Error(
+                            "Serwer potwierdził tylko " +
+                            confirmed +
+                            "/" +
+                            hQuest.max +
+                            "."
+                        );
+                    }
 
                     console.info(
                         "[SW Tool][X] Quest H dobity socketowo.",
                         {
                             id: hQuest.id,
                             before: hQuest.count,
-                            sent:
-                                hQuest.max -
-                                hQuest.count,
+                            sent: hQuest.missing,
                             max: hQuest.max,
-                            after: completed.count,
-                            requests:
-                                completed.requests
+                            after: confirmed
                         }
                     );
 
                     this.setQuickPanelStatus(
                         "X: quest H zaliczony " +
-                        completed.count +
+                        confirmed +
                         "/" +
-                        completed.max +
-                        " (" +
-                        completed.requests +
-                        " requesty).",
+                        hQuest.max +
+                        ".",
                         "success"
                     );
 
