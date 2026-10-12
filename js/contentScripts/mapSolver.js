@@ -210,6 +210,7 @@
         isBusy() {
             return Boolean(
                 this.tool.accountOperationRunning ||
+                this.tool.questKillRunning ||
                 this.tool.dailyRewardClaimStage !== 0 ||
                 this.tool.characterSwitch ||
                 this.tool.trainingCaptchaWaiter
