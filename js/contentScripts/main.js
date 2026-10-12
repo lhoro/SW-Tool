@@ -1805,6 +1805,77 @@
             };
         }
 
+        async completeImprovedXHQuest(
+            initialState,
+            chunkSize = 299
+        ) {
+            let state = {
+                ...initialState
+            };
+            let requests = 0;
+
+            while (state.count < state.max) {
+                const missing =
+                    state.max - state.count;
+                const chunk = Math.min(
+                    missing,
+                    Math.max(1, this._int(chunkSize))
+                );
+
+                this.currentHQuest = {
+                    ...(this.currentHQuest || {}),
+                    id: state.id,
+                    count: state.count,
+                    max: state.max,
+                    isMet: false
+                };
+
+                this.setQuickPanelStatus(
+                    "X: H " +
+                    state.count +
+                    "/" +
+                    state.max +
+                    " — wysyłam +" +
+                    chunk +
+                    "..."
+                );
+
+                const response =
+                    await this.sendHQuestCount(
+                        chunk,
+                        {
+                            waitForResponse: true
+                        }
+                    );
+
+                const confirmed = this._int(
+                    response?.new_amount
+                );
+
+                if (confirmed <= state.count) {
+                    throw new Error(
+                        "Serwer nie zwiększył licznika H po porcji " +
+                        chunk +
+                        "."
+                    );
+                }
+
+                state = {
+                    ...state,
+                    count: Math.min(
+                        state.max,
+                        confirmed
+                    )
+                };
+                requests++;
+            }
+
+            return {
+                ...state,
+                requests
+            };
+        }
+
         async runImprovedXFromUserKey(event = null) {
             if (
                 this.config.improvedX !== true ||
@@ -1842,50 +1913,34 @@
                         " → 100%..."
                     );
 
-                    this.currentHQuest = {
-                        ...this.currentHQuest,
-                        id: hQuest.id,
-                        count: hQuest.count,
-                        max: hQuest.max,
-                        isMet: false
-                    };
-
-                    const sent =
-                        await this.sendHQuestCount(
-                            hQuest.missing,
-                            {
-                                waitForResponse: true
-                            }
+                    const completed =
+                        await this.completeImprovedXHQuest(
+                            hQuest
                         );
-
-                    if (!sent) {
-                        throw new Error(
-                            "Nie udało się wysłać brakujących H."
-                        );
-                    }
-
-                    const updated =
-                        this.currentHQuest;
 
                     console.info(
                         "[SW Tool][X] Quest H dobity socketowo.",
                         {
                             id: hQuest.id,
                             before: hQuest.count,
-                            sent: hQuest.missing,
+                            sent:
+                                hQuest.max -
+                                hQuest.count,
                             max: hQuest.max,
-                            after: this._int(
-                                updated?.count
-                            )
+                            after: completed.count,
+                            requests:
+                                completed.requests
                         }
                     );
 
                     this.setQuickPanelStatus(
                         "X: quest H zaliczony " +
-                        hQuest.max +
+                        completed.count +
                         "/" +
-                        hQuest.max +
-                        ".",
+                        completed.max +
+                        " (" +
+                        completed.requests +
+                        " requesty).",
                         "success"
                     );
 
@@ -2999,7 +3054,36 @@
                             "Serwer odrzucił przyśpieszone H."
                         );
                     }
-                    return true;
+
+                    const confirmed = this._int(
+                        response.new_amount
+                    );
+
+                    if (confirmed > 0) {
+                        const next = {
+                            ...(this.currentHQuest || quest),
+                            id: quest.id,
+                            count: confirmed,
+                            max: quest.max,
+                            isMet: confirmed >= quest.max
+                        };
+
+                        this.currentHQuest = next;
+
+                        if (
+                            this.currentHTracked &&
+                            this._int(
+                                this.currentHTracked.id
+                            ) === quest.id
+                        ) {
+                            this.currentHTracked.count =
+                                confirmed;
+                            this.currentHTracked.isMet =
+                                confirmed >= quest.max;
+                        }
+                    }
+
+                    return response;
                 });
             }
 
