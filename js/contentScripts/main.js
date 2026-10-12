@@ -6,7 +6,8 @@
         hideReports: false,
         mapClickMovement: true,
         acceleratedH: false,
-        improvedX: false
+        improvedX: false,
+        preferTraining: true
     });
 
     let BOT = null;
@@ -33,7 +34,10 @@
                 : DEFAULT_CONFIG.acceleratedH,
             improvedX: typeof source.improvedX === "boolean"
                 ? source.improvedX
-                : DEFAULT_CONFIG.improvedX
+                : DEFAULT_CONFIG.improvedX,
+            preferTraining: typeof source.preferTraining === "boolean"
+                ? source.preferTraining
+                : DEFAULT_CONFIG.preferTraining
         };
     };
 
@@ -3363,6 +3367,269 @@
             };
         }
 
+        async quickAllRoninAvailability() {
+            const characterId = this._int(
+                GAME.char_id || this.currentCharacterId
+            );
+
+            if (characterId <= 0) {
+                return {
+                    available: false,
+                    reason: "brak aktywnej postaci"
+                };
+            }
+
+            await this.getRoninInstanceDefinition();
+
+            // Świeże a:2 daje aktualny icd_5 także po resecie o północy.
+            await this.switchCharacterForAccountAction(
+                characterId,
+                0,
+                true
+            );
+
+            const data = this.characterData();
+            const level = this._int(data?.level);
+            const requiredLevel = this.roninRequiredLevel();
+            const used = this.roninDailyUsage();
+            const limit = this.roninDailyLimit;
+            const instanceId = this._int(data?.instance_id);
+
+            if (level < requiredLevel) {
+                return {
+                    available: false,
+                    reason:
+                        "poziom " +
+                        level +
+                        "/" +
+                        requiredLevel,
+                    level,
+                    requiredLevel,
+                    used,
+                    limit
+                };
+            }
+
+            if (used >= limit) {
+                return {
+                    available: false,
+                    reason:
+                        "limit " +
+                        used +
+                        "/" +
+                        limit,
+                    level,
+                    requiredLevel,
+                    used,
+                    limit
+                };
+            }
+
+            if (instanceId > 0) {
+                return {
+                    available: false,
+                    reason: "postać jest już w instancji",
+                    level,
+                    requiredLevel,
+                    used,
+                    limit,
+                    instanceId
+                };
+            }
+
+            return {
+                available: true,
+                level,
+                requiredLevel,
+                used,
+                limit
+            };
+        }
+
+        async runQuickAllForCurrentCharacter(label) {
+            const summary = [];
+            const warnings = [];
+
+            const runStep = async (
+                name,
+                status,
+                callback
+            ) => {
+                this.setQuickPanelStatus(status);
+
+                try {
+                    const result = await callback();
+                    return {
+                        ok: true,
+                        result
+                    };
+                } catch (error) {
+                    const message =
+                        error instanceof Error
+                            ? error.message
+                            : String(error);
+
+                    warnings.push(name + ": " + message);
+                    console.warn(
+                        "[SW Tool][QUICK ALL] " +
+                        name +
+                        " nie powiodło się:",
+                        error
+                    );
+
+                    return {
+                        ok: false,
+                        error: message
+                    };
+                }
+            };
+
+            const abyss = await runStep(
+                "Otchłań",
+                "Quick ALL: Otchłań...",
+                () => this.attackSoulAbyssForCurrentCharacter()
+            );
+
+            if (abyss.ok) {
+                summary.push(
+                    abyss.result
+                        ? "Otchłań ✓"
+                        : "Otchłań cooldown"
+                );
+            } else {
+                summary.push("Otchłań błąd");
+            }
+
+            const arena = await runStep(
+                "Arena",
+                "Quick ALL: Arena PvP...",
+                () => this.attackArenaForCurrentCharacter()
+            );
+
+            if (arena.ok) {
+                const result = arena.result || {};
+                summary.push(
+                    "Arena " +
+                    this._int(result.attacked) +
+                    " at."
+                );
+            } else {
+                summary.push("Arena błąd");
+            }
+
+            this.setQuickPanelStatus(
+                "Quick ALL: sprawdzanie Ronina..."
+            );
+
+            let roninAvailability = null;
+            try {
+                roninAvailability =
+                    await this.quickAllRoninAvailability();
+            } catch (error) {
+                const message =
+                    error instanceof Error
+                        ? error.message
+                        : String(error);
+                warnings.push(
+                    "Ronin sprawdzenie: " + message
+                );
+                console.warn(
+                    "[SW Tool][QUICK ALL] Nie udało się sprawdzić Ronina:",
+                    error
+                );
+            }
+
+            if (roninAvailability?.available) {
+                const ronin = await runStep(
+                    "Ronin",
+                    "Quick ALL: Ronin...",
+                    async () => {
+                        const result = await this.runQuickRonin();
+                        await this.ensureRoninReturned(
+                            this._int(
+                                GAME.char_id ||
+                                this.currentCharacterId
+                            )
+                        );
+                        return result;
+                    }
+                );
+
+                summary.push(
+                    ronin.ok
+                        ? "Ronin ✓"
+                        : "Ronin błąd"
+                );
+            } else {
+                const reason =
+                    roninAvailability?.reason ||
+                    "niedostępny";
+                summary.push(
+                    "Ronin pominięty (" +
+                    reason +
+                    ")"
+                );
+                console.info(
+                    "[SW Tool][QUICK ALL] Ronin pominięty:",
+                    roninAvailability || {
+                        reason
+                    }
+                );
+            }
+
+            if (this.config.preferTraining === true) {
+                const training = await runStep(
+                    "Trening",
+                    "Quick ALL: Trening...",
+                    () =>
+                        this.startMaxTrainingForCurrentCharacter(
+                            label,
+                            {
+                                trustServerTimedState: true
+                            }
+                        )
+                );
+
+                if (training.ok) {
+                    const result = training.result;
+                    if (result === "started") {
+                        summary.push("Trening uruchomiony");
+                    } else if (result === "timed") {
+                        summary.push("Akcja czasowa już trwa");
+                    } else {
+                        summary.push("Brak treningu");
+                    }
+                } else {
+                    summary.push("Trening błąd");
+                }
+            } else {
+                const mission = await runStep(
+                    "Misje",
+                    "Quick ALL: Misje...",
+                    () =>
+                        this.runQuickMissionForCurrentCharacter()
+                );
+
+                if (mission.ok) {
+                    summary.push(
+                        mission.result?.message ||
+                        "Misje zakończone"
+                    );
+                } else {
+                    summary.push("Misje błąd");
+                }
+            }
+
+            return {
+                summary,
+                warnings,
+                preferred:
+                    this.config.preferTraining === true
+                        ? "training"
+                        : "mission"
+            };
+        }
+
         async runQuickAction(action) {
             if (
                 this.quickActionRunning ||
@@ -3387,6 +3654,21 @@
             this.setQuickPanelBusy(true);
 
             try {
+                if (action === "all") {
+                    const result =
+                        await this.runQuickAllForCurrentCharacter(
+                            label
+                        );
+
+                    this.setQuickPanelStatus(
+                        result.summary.join(" • "),
+                        result.warnings.length > 0
+                            ? ""
+                            : "success"
+                    );
+                    return;
+                }
+
                 if (action === "training") {
                     this.setQuickPanelStatus("Quick Trening...");
                     const result =
@@ -3544,6 +3826,7 @@
             body.style.gap = "5px";
 
             const actions = [
+                ["all", "Quick ALL"],
                 ["training", "Quick Trening"],
                 ["arena", "Quick Arena"],
                 ["abyss", "Quick Otchłań"],
@@ -5255,6 +5538,7 @@
         };
 
         window.SW_TOOL_QUICK = {
+            all: () => BOT.runQuickAction("all"),
             training: () => BOT.runQuickAction("training"),
             arena: () => BOT.runQuickAction("arena"),
             abyss: () => BOT.runQuickAction("abyss"),
