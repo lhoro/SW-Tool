@@ -2010,8 +2010,14 @@
                             }
                         );
 
-                    const confirmed = this._int(
-                        response?.new_amount
+                    const confirmed = Math.max(
+                        this._int(
+                            response?.swToolHConfirmedAmount
+                        ),
+                        this.hQuestConfirmedAmount(
+                            response,
+                            hQuest.id
+                        )
                     );
 
                     if (confirmed < hQuest.max) {
@@ -3108,6 +3114,92 @@
             return Math.max(0, quest.max - quest.count);
         }
 
+        hQuestConfirmedAmount(response, questId) {
+            if (!response || typeof response !== "object") {
+                return 0;
+            }
+
+            const targetId = this._int(questId);
+            let confirmed = 0;
+
+            if (
+                this._int(response.track) === targetId
+            ) {
+                confirmed = Math.max(
+                    confirmed,
+                    this._int(response.new_amount)
+                );
+            }
+
+            const handler = response.map_handler;
+            if (
+                this._int(handler?.send_tracker) ===
+                targetId
+            ) {
+                confirmed = Math.max(
+                    confirmed,
+                    this._int(handler?.new_amount)
+                );
+            }
+
+            if (Array.isArray(response.tracked)) {
+                for (const entry of response.tracked) {
+                    const want = entry?.want;
+                    if (
+                        !want ||
+                        typeof want !== "object" ||
+                        this._int(want.type) !== 39
+                    ) {
+                        continue;
+                    }
+
+                    const id = this._int(
+                        want.qbid ||
+                        want.qb_id ||
+                        entry?.qb_id
+                    );
+
+                    if (id !== targetId) {
+                        continue;
+                    }
+
+                    confirmed = Math.max(
+                        confirmed,
+                        this._int(want.count),
+                        Boolean(want.is_met)
+                            ? this._int(want.maxv)
+                            : 0
+                    );
+                }
+            }
+
+            const qStep = response.q_step;
+            const want = qStep?.want;
+            if (
+                want &&
+                typeof want === "object" &&
+                this._int(want.type) === 39
+            ) {
+                const id = this._int(
+                    want.qbid ||
+                    want.qb_id ||
+                    qStep?.qb_id
+                );
+
+                if (id === targetId) {
+                    confirmed = Math.max(
+                        confirmed,
+                        this._int(want.count),
+                        Boolean(want.is_met)
+                            ? this._int(want.maxv)
+                            : 0
+                    );
+                }
+            }
+
+            return confirmed;
+        }
+
         sendHQuestCount(count, { waitForResponse = false } = {}) {
             const quest = this.currentHQuest;
             const amount = Math.max(0, this._int(count));
@@ -3141,16 +3233,15 @@
                             return true;
                         }
 
-                        if (
-                            this._int(event.a) !== 22 ||
-                            this._int(event.track) !== quest.id
-                        ) {
+                        if (this._int(event.a) !== 22) {
                             return false;
                         }
 
                         return (
-                            this._int(event.new_amount) >=
-                            expectedTotal
+                            this.hQuestConfirmedAmount(
+                                event,
+                                quest.id
+                            ) >= expectedTotal
                         );
                     },
                     10000
@@ -3161,9 +3252,11 @@
                         );
                     }
 
-                    const confirmed = this._int(
-                        response.new_amount
-                    );
+                    const confirmed =
+                        this.hQuestConfirmedAmount(
+                            response,
+                            quest.id
+                        );
 
                     if (confirmed > 0) {
                         const next = {
@@ -3187,9 +3280,24 @@
                             this.currentHTracked.isMet =
                                 confirmed >= quest.max;
                         }
+
+                        if (
+                            this.currentHQuestStep &&
+                            this._int(
+                                this.currentHQuestStep.id
+                            ) === quest.id &&
+                            confirmed >= quest.max
+                        ) {
+                            this.currentHQuestStep.isMet =
+                                true;
+                        }
                     }
 
-                    return response;
+                    return {
+                        ...response,
+                        swToolHConfirmedAmount:
+                            confirmed
+                    };
                 });
             }
 
