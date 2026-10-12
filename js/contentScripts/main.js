@@ -422,8 +422,12 @@
                 this.handleRoninQuestStepResponse(response);
                 this.handleQuestMoveResponse(response);
                 this.handleHQuestResponse(response);
-                this.handleQuestKillResponse(response);
             }
+
+            // Progres killi może przyjść bezpośrednio w odpowiedzi walki
+            // (np. a=7: track/new_amount albo map_handler.send_tracker),
+            // a nie wyłącznie w a=22.
+            this.handleQuestKillResponse(response);
 
             if (
                 action === 998 &&
@@ -4448,6 +4452,29 @@
             };
         }
 
+        questKillTrackerMatches(
+            trackerId,
+            state = this.questKillState
+        ) {
+            const id = this._int(trackerId);
+            if (id <= 0 || !state) {
+                return false;
+            }
+
+            const questId =
+                this._int(state.questId);
+            const targetId =
+                this._int(state.targetId);
+
+            return (
+                id === questId ||
+                (
+                    targetId > 0 &&
+                    id === targetId
+                )
+            );
+        }
+
         handleQuestKillResponse(response) {
             const state = this.questKillState;
             if (
@@ -4478,10 +4505,21 @@
                         fallbackQuestId
                     );
 
+                if (!parsed) {
+                    return;
+                }
+
+                const sameQuest =
+                    parsed.questId ===
+                        this._int(state.questId);
+                const sameTarget =
+                    this._int(state.targetId) > 0 &&
+                    this._int(parsed.targetId) ===
+                        this._int(state.targetId);
+
                 if (
-                    !parsed ||
-                    parsed.questId !==
-                        this._int(state.questId)
+                    !sameQuest &&
+                    !sameTarget
                 ) {
                     return;
                 }
@@ -4519,8 +4557,10 @@
             }
 
             if (
-                this._int(response.track) ===
-                this._int(state.questId)
+                this.questKillTrackerMatches(
+                    response.track,
+                    state
+                )
             ) {
                 nextCount = Math.max(
                     nextCount,
@@ -4531,10 +4571,11 @@
             }
 
             if (
-                this._int(
+                this.questKillTrackerMatches(
                     response.map_handler
-                        ?.send_tracker
-                ) === this._int(state.questId)
+                        ?.send_tracker,
+                    state
+                )
             ) {
                 nextCount = Math.max(
                     nextCount,
@@ -4666,7 +4707,7 @@
         async waitForQuestKillField(
             x,
             y,
-            timeoutMs = 2500
+            timeoutMs = 350
         ) {
             const targetX = this._int(x);
             const targetY = this._int(y);
@@ -4690,53 +4731,6 @@
                 }
 
                 await this.sleep(25);
-            }
-
-            return null;
-        }
-
-        async waitForQuestKillFieldRefresh(
-            previousField,
-            x,
-            y,
-            timeoutMs = 1000
-        ) {
-            const targetX = this._int(x);
-            const targetY = this._int(y);
-            const startedAt = Date.now();
-
-            while (
-                Date.now() - startedAt <
-                timeoutMs
-            ) {
-                const field =
-                    this.mapSolver?.field;
-
-                if (
-                    field &&
-                    field !== previousField &&
-                    this._int(field.x) ===
-                        targetX &&
-                    this._int(field.y) ===
-                        targetY
-                ) {
-                    return field;
-                }
-
-                await this.sleep(25);
-            }
-
-            const field =
-                this.mapSolver?.field;
-
-            if (
-                field &&
-                this._int(field.x) ===
-                    targetX &&
-                this._int(field.y) ===
-                    targetY
-            ) {
-                return field;
             }
 
             return null;
@@ -4858,6 +4852,7 @@
 
                 const fieldBeforeFight =
                     field;
+                let response = null;
 
                 if (!multiAvailable) {
                     this.setQuickPanelStatus(
@@ -4870,7 +4865,7 @@
                         ", czekam na multi..."
                     );
 
-                    const response =
+                    response =
                         await this.sendAndWait(
                             {
                                 a: 7,
@@ -4937,7 +4932,7 @@
                         "..."
                     );
 
-                    const response =
+                    response =
                         await this.sendAndWait(
                             {
                                 a: 13,
@@ -4996,19 +4991,25 @@
                         );
                 }
 
-                const refreshedField =
-                    await this.waitForQuestKillFieldRefresh(
-                        fieldBeforeFight,
-                        point.x,
-                        point.y
-                    );
+                // Nie blokujemy socketów czekaniem na a=602.
+                // Jeśli nowy stan pola już dotarł, użyjemy go od razu;
+                // jeśli dotrze chwilę później, kolejna iteracja go przejmie.
+                const liveAfterFight =
+                    this.mapSolver?.field;
+                const wasMulti =
+                    multiAvailable;
 
-                if (refreshedField) {
-                    const wasMulti =
-                        multiAvailable;
-
+                if (
+                    liveAfterFight &&
+                    liveAfterFight !==
+                        fieldBeforeFight &&
+                    this._int(liveAfterFight.x) ===
+                        this._int(point.x) &&
+                    this._int(liveAfterFight.y) ===
+                        this._int(point.y)
+                ) {
                     field =
-                        refreshedField;
+                        liveAfterFight;
                     mobs = Math.max(
                         0,
                         this._int(
@@ -5020,45 +5021,50 @@
                             field.multiFight
                         ) &&
                         field.multiFight.includes(0);
-
-                    if (
-                        !wasMulti &&
-                        multiAvailable
-                    ) {
-                        console.info(
-                            "[SW Tool][PVE] Quest Kille — multiwalka odblokowana:",
-                            {
-                                x: point.x,
-                                y: point.y,
-                                singleFights,
-                                mf:
-                                    field.multiFight
-                            }
-                        );
-
-                        this.setQuickPanelStatus(
-                            "Quest Kille: " +
-                            point.x +
-                            "|" +
-                            point.y +
-                            " — multi odblokowane po " +
-                            singleFights +
-                            " zwykłych walkach."
-                        );
-                    }
                 } else {
-                    // Fallback tylko dla licznika mobów. Gdy a:602 przyjdzie
-                    // później, kolejna iteracja pobierze świeży stan pola.
+                    const removedNow =
+                        this.questKillRemovedCount(
+                            response
+                        );
+
                     mobs = Math.max(
                         0,
-                        mobs - 1
+                        mobs -
+                            Math.max(
+                                1,
+                                removedNow
+                            )
                     );
                 }
 
-                // Tracker questa może przyjść tuż po odpowiedzi walki.
-                // Krótka pauza pozwala handleQuestKillResponse zaktualizować
-                // state.count przed następnym atakiem.
-                await this.sleep(50);
+                if (
+                    !wasMulti &&
+                    multiAvailable
+                ) {
+                    console.info(
+                        "[SW Tool][PVE] Quest Kille — multiwalka odblokowana:",
+                        {
+                            x: point.x,
+                            y: point.y,
+                            singleFights,
+                            mf:
+                                field.multiFight
+                        }
+                    );
+
+                    this.setQuickPanelStatus(
+                        "Quest Kille: " +
+                        point.x +
+                        "|" +
+                        point.y +
+                        " — multi odblokowane po " +
+                        singleFights +
+                        " zwykłych walkach."
+                    );
+                }
+
+                // Minimalny yield dla event loop; bez sztucznego 1 s oczekiwania.
+                await this.sleep(20);
             }
 
             this.setQuickPanelStatus(
