@@ -4483,7 +4483,7 @@
                 !response ||
                 typeof response !== "object"
             ) {
-                return;
+                return false;
             }
 
             let nextCount = Math.max(
@@ -4494,6 +4494,8 @@
                 0,
                 this._int(state.max)
             );
+            const beforeCount =
+                nextCount;
 
             const applyWant = (
                 want,
@@ -4506,12 +4508,17 @@
                     );
 
                 if (!parsed) {
-                    return;
+                    return false;
                 }
 
                 const sameQuest =
                     parsed.questId ===
-                        this._int(state.questId);
+                        this._int(state.questId) ||
+                    (
+                        this._int(state.stepId) > 0 &&
+                        parsed.questId ===
+                            this._int(state.stepId)
+                    );
                 const sameTarget =
                     this._int(state.targetId) > 0 &&
                     this._int(parsed.targetId) ===
@@ -4521,7 +4528,7 @@
                     !sameQuest &&
                     !sameTarget
                 ) {
-                    return;
+                    return false;
                 }
 
                 nextCount = Math.max(
@@ -4535,69 +4542,203 @@
                     nextMax,
                     parsed.max
                 );
+
+                return true;
             };
 
-            if (
-                response.q_step &&
-                typeof response.q_step === "object"
-            ) {
-                applyWant(
-                    response.q_step.want,
-                    response.q_step.qb_id
-                );
-            }
+            const applyTracker = (
+                trackerId,
+                amount
+            ) => {
+                if (
+                    !this.questKillTrackerMatches(
+                        trackerId,
+                        state
+                    )
+                ) {
+                    return false;
+                }
 
-            if (Array.isArray(response.tracked)) {
-                for (const entry of response.tracked) {
+                const value =
+                    Math.max(
+                        0,
+                        this._int(amount)
+                    );
+
+                if (value <= 0) {
+                    return false;
+                }
+
+                nextCount = Math.max(
+                    nextCount,
+                    value
+                );
+                return true;
+            };
+
+            // Odpowiedzi multiwalki nie zawsze mają progres w tym samym
+            // miejscu co zwykła walka. Przechodzimy więc po odpowiedzi
+            // rekurencyjnie, ale z limitem głębokości/liczby obiektów.
+            const seen = new Set();
+            let scanned = 0;
+
+            const scan = (
+                value,
+                depth = 0
+            ) => {
+                if (
+                    !value ||
+                    typeof value !== "object" ||
+                    depth > 7 ||
+                    scanned >= 300 ||
+                    seen.has(value)
+                ) {
+                    return;
+                }
+
+                seen.add(value);
+                scanned++;
+
+                if (Array.isArray(value)) {
+                    for (const entry of value) {
+                        scan(
+                            entry,
+                            depth + 1
+                        );
+                    }
+                    return;
+                }
+
+                const fallbackQuestId =
+                    this._int(
+                        value.qb_id ||
+                        value.qbid
+                    );
+
+                if (
+                    value.want &&
+                    typeof value.want === "object"
+                ) {
                     applyWant(
-                        entry?.want,
-                        entry?.qb_id
+                        value.want,
+                        fallbackQuestId
                     );
                 }
-            }
 
-            if (
-                this.questKillTrackerMatches(
-                    response.track,
-                    state
-                )
-            ) {
-                nextCount = Math.max(
-                    nextCount,
-                    this._int(
-                        response.new_amount
+                // Czasem sam obiekt trackera jest już strukturą want.
+                if (
+                    this._int(value.type) === 1 &&
+                    (
+                        value.count !== undefined ||
+                        value.maxv !== undefined ||
+                        value.amount !== undefined
                     )
-                );
-            }
+                ) {
+                    applyWant(
+                        value,
+                        fallbackQuestId
+                    );
+                }
 
-            if (
-                this.questKillTrackerMatches(
-                    response.map_handler
-                        ?.send_tracker,
-                    state
-                )
-            ) {
-                nextCount = Math.max(
-                    nextCount,
-                    this._int(
-                        response.map_handler
-                            ?.new_amount
-                    )
+                applyTracker(
+                    value.track,
+                    value.new_amount
                 );
-            }
+                applyTracker(
+                    value.send_tracker,
+                    value.new_amount
+                );
+
+                // Spotykany wariant: identyfikator qbid/qb_id + count
+                // bez zewnętrznego wrappera "want".
+                const objectQuestId =
+                    this._int(
+                        value.qbid ||
+                        value.qb_id
+                    );
+
+                if (
+                    objectQuestId > 0 &&
+                    (
+                        objectQuestId ===
+                            this._int(state.questId) ||
+                        objectQuestId ===
+                            this._int(state.stepId)
+                    )
+                ) {
+                    const objectCount =
+                        Math.max(
+                            0,
+                            this._int(
+                                value.count
+                            ),
+                            this._int(
+                                value.new_amount
+                            )
+                        );
+
+                    if (objectCount > 0) {
+                        nextCount = Math.max(
+                            nextCount,
+                            objectCount
+                        );
+                    }
+
+                    nextMax = Math.max(
+                        nextMax,
+                        this._int(
+                            value.maxv
+                        ),
+                        this._int(
+                            value.amount
+                        )
+                    );
+
+                    if (
+                        Boolean(value.is_met) &&
+                        nextMax > 0
+                    ) {
+                        nextCount = Math.max(
+                            nextCount,
+                            nextMax
+                        );
+                    }
+                }
+
+                for (
+                    const nested of
+                    Object.values(value)
+                ) {
+                    if (
+                        nested &&
+                        typeof nested === "object"
+                    ) {
+                        scan(
+                            nested,
+                            depth + 1
+                        );
+                    }
+                }
+            };
+
+            scan(response);
 
             nextCount = Math.min(
                 nextMax || nextCount,
                 nextCount
             );
 
-            if (
+            const changed =
                 nextCount !== state.count ||
-                nextMax !== state.max
-            ) {
-                const before = state.count;
-                state.count = nextCount;
-                state.max = nextMax;
+                nextMax !== state.max;
+
+            if (changed) {
+                const before =
+                    state.count;
+                state.count =
+                    nextCount;
+                state.max =
+                    nextMax;
 
                 this.setQuickPanelStatus(
                     "Quest Kille: " +
@@ -4616,94 +4757,35 @@
                     {
                         questId:
                             state.questId,
+                        stepId:
+                            state.stepId,
+                        targetId:
+                            state.targetId,
                         before,
                         count:
                             state.count,
-                        max: state.max
+                        max: state.max,
+                        action:
+                            this._int(
+                                response.a
+                            ),
+                        scanned
                     }
                 );
             }
-        }
 
-        async refreshQuestKillProgress(
-            state
-        ) {
-            const stepId =
-                this._int(
-                    state?.stepId ||
-                    state?.questId
-                );
-
-            if (stepId <= 0) {
-                return false;
-            }
-
-            try {
-                const response =
-                    await this.sendAndWait(
-                        {
-                            a: 22,
-                            type: 1,
-                            id: stepId
-                        },
-                        [22, 999],
-                        (event) =>
-                            this._int(event.e) !== 0 ||
-                            (
-                                this._int(event.a) === 22 &&
-                                event.q_step &&
-                                typeof event.q_step === "object" &&
-                                (
-                                    this._int(
-                                        event.q_step.qb_id
-                                    ) === stepId ||
-                                    this._int(
-                                        event.q_step.want?.type
-                                    ) === 1
-                                )
-                            ),
-                        2000
-                    );
-
-                if (
-                    this._int(response.e) !== 0
-                ) {
-                    return false;
-                }
-
-                this.handleQuestKillResponse(
-                    response
-                );
-
-                console.info(
-                    "[SW Tool][PVE] Quest Kille — odświeżono progres przed kolejnym atakiem:",
-                    {
-                        stepId,
-                        count:
-                            this._int(
-                                state?.count
-                            ),
-                        max:
-                            this._int(
-                                state?.max
-                            )
-                    }
-                );
-
-                return true;
-            } catch (error) {
-                console.warn(
-                    "[SW Tool][PVE] Quest Kille — nie udało się odświeżyć progresu:",
-                    error
-                );
-                return false;
-            }
+            return (
+                nextCount >
+                    beforeCount ||
+                nextCount >=
+                    nextMax
+            );
         }
 
         async waitForQuestKillProgress(
             state,
             beforeCount,
-            timeoutMs = 120
+            timeoutMs = 80
         ) {
             const before =
                 Math.max(
@@ -5258,16 +5340,32 @@
                             countBeforeFight
                         );
 
-                    // Jeśli push trackera się spóźnił albo przyszedł w innym
-                    // wariancie odpowiedzi, odświeżamy q_step zanim wydamy
-                    // kolejne punkty akcji na następny atak.
-                    if (
-                        !progressed &&
-                        this._int(state.count) ===
-                            countBeforeFight
-                    ) {
-                        await this.refreshQuestKillProgress(
-                            state
+                    if (!progressed) {
+                        console.debug(
+                            "[SW Tool][PVE] Quest Kille — walka usunęła moby, ale tracker nie zwiększył licznika.",
+                            {
+                                action:
+                                    this._int(
+                                        response?.a
+                                    ),
+                                questId:
+                                    state.questId,
+                                stepId:
+                                    state.stepId,
+                                targetId:
+                                    state.targetId,
+                                count:
+                                    state.count,
+                                max:
+                                    state.max,
+                                keys:
+                                    response &&
+                                    typeof response === "object"
+                                        ? Object.keys(
+                                            response
+                                        )
+                                        : []
+                            }
                         );
                     }
                 }
@@ -5675,8 +5773,61 @@
                     error
                 );
             } finally {
-                // Nie wracamy automatycznie na pole startowe. Powrót nie daje
-                // żadnego progresu questa, a zużywa punkty akcji na każde pole.
+                try {
+                    const currentLocation =
+                        this._int(
+                            this.mapSolver?.map
+                                ?.locationId
+                        );
+                    const currentX =
+                        this._int(
+                            this.mapSolver?.map?.x
+                        );
+                    const currentY =
+                        this._int(
+                            this.mapSolver?.map?.y
+                        );
+
+                    if (
+                        currentLocation !==
+                            start.locationId ||
+                        currentX !==
+                            start.x ||
+                        currentY !==
+                            start.y
+                    ) {
+                        this.setQuickPanelStatus(
+                            "Quest Kille: wracam na pole startowe " +
+                            start.x +
+                            "|" +
+                            start.y +
+                            "..."
+                        );
+
+                        await this.mapSolver
+                            .navigateToLocation(
+                                start.locationId,
+                                start.x,
+                                start.y,
+                                {
+                                    source:
+                                        "quest-kills-return",
+                                    allowBusy: true
+                                }
+                            );
+                    }
+                } catch (returnError) {
+                    console.error(
+                        "[SW Tool][PVE] Quest Kille — nie udało się wrócić na start:",
+                        returnError
+                    );
+
+                    if (!operationError) {
+                        operationError =
+                            returnError;
+                    }
+                }
+
                 this.questKillRunning =
                     false;
                 this.questKillState =
@@ -5725,11 +5876,7 @@
                     state.singleFights +
                     "x • multi " +
                     state.fights +
-                    "x • stop " +
-                    endX +
-                    "|" +
-                    endY +
-                    " ✓",
+                    "x • powrót na start ✓",
                     "success"
                 );
             } else {
@@ -5744,11 +5891,7 @@
                     state.visited +
                     " • powtórki " +
                     state.revisits +
-                    " • stop " +
-                    endX +
-                    "|" +
-                    endY +
-                    "."
+                    " • powrót na start ✓"
                 );
             }
 
