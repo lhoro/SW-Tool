@@ -4625,6 +4625,165 @@
             }
         }
 
+        async waitForQuestKillProgress(
+            state,
+            beforeCount,
+            timeoutMs = 120
+        ) {
+            const before =
+                Math.max(
+                    0,
+                    this._int(beforeCount)
+                );
+            const startedAt = Date.now();
+
+            while (
+                Date.now() - startedAt <
+                timeoutMs
+            ) {
+                if (
+                    this._int(state?.count) >
+                        before ||
+                    this._int(state?.count) >=
+                        this._int(state?.max)
+                ) {
+                    return true;
+                }
+
+                await this.sleep(10);
+            }
+
+            return (
+                this._int(state?.count) >
+                    before ||
+                this._int(state?.count) >=
+                    this._int(state?.max)
+            );
+        }
+
+        questKillPathToNearestUnvisited(
+            map,
+            startX,
+            startY,
+            visited
+        ) {
+            if (
+                !map?.cells ||
+                !(visited instanceof Set)
+            ) {
+                return null;
+            }
+
+            const start = {
+                x: this._int(startX),
+                y: this._int(startY)
+            };
+
+            if (
+                start.x <= 0 ||
+                start.y <= 0
+            ) {
+                return null;
+            }
+
+            const keyOf = (x, y) =>
+                x + "_" + y;
+            const startKey =
+                keyOf(start.x, start.y);
+
+            const directions = [
+                [0, 1],
+                [1, 1],
+                [1, 0],
+                [1, -1],
+                [0, -1],
+                [-1, -1],
+                [-1, 0],
+                [-1, 1]
+            ];
+
+            const queue = [start];
+            const searched =
+                new Set([startKey]);
+            const parent = new Map();
+            const coords =
+                new Map([
+                    [startKey, start]
+                ]);
+
+            while (queue.length > 0) {
+                const point =
+                    queue.shift();
+
+                for (const [dx, dy] of directions) {
+                    const next = {
+                        x: point.x + dx,
+                        y: point.y + dy
+                    };
+
+                    if (
+                        next.x < 1 ||
+                        next.y < 1 ||
+                        next.x > map.maxX ||
+                        next.y > map.maxY
+                    ) {
+                        continue;
+                    }
+
+                    const key =
+                        keyOf(next.x, next.y);
+                    if (searched.has(key)) {
+                        continue;
+                    }
+
+                    const cell =
+                        map.cells.get(key);
+                    if (
+                        !cell ||
+                        !cell.movable
+                    ) {
+                        continue;
+                    }
+
+                    searched.add(key);
+                    parent.set(
+                        key,
+                        keyOf(point.x, point.y)
+                    );
+                    coords.set(key, next);
+
+                    if (!visited.has(key)) {
+                        const reversed = [];
+                        let cursor = key;
+
+                        while (
+                            cursor !== startKey
+                        ) {
+                            const current =
+                                coords.get(cursor);
+                            if (!current) {
+                                return null;
+                            }
+
+                            reversed.push(current);
+                            cursor =
+                                parent.get(cursor);
+
+                            if (!cursor) {
+                                return null;
+                            }
+                        }
+
+                        return reversed.reverse();
+                    }
+
+                    queue.push(next);
+                }
+            }
+
+            return null;
+        }
+
         questKillPatrolOrder(
             map,
             startX,
@@ -4852,6 +5011,8 @@
 
                 const fieldBeforeFight =
                     field;
+                const countBeforeFight =
+                    this._int(state.count);
                 let response = null;
 
                 if (!multiAvailable) {
@@ -4989,6 +5150,44 @@
                         this.questKillRemovedCount(
                             response
                         );
+                }
+
+                // sendAndWait rozwiązuje się po odpowiedzi walki, ale
+                // tracker questa może przyjść w osobnym evencie chwilę później.
+                // Najpierw przetwarzamy samą odpowiedź jeszcze raz lokalnie,
+                // a jeśli licznik nie drgnął, dajemy trackerowi krótkie okno.
+                this.handleQuestKillResponse(
+                    response
+                );
+
+                if (
+                    this._int(state.count) >=
+                    this._int(state.max)
+                ) {
+                    break;
+                }
+
+                const removedInFight =
+                    this.questKillRemovedCount(
+                        response
+                    );
+
+                if (
+                    removedInFight > 0 &&
+                    this._int(state.count) ===
+                        countBeforeFight
+                ) {
+                    await this.waitForQuestKillProgress(
+                        state,
+                        countBeforeFight
+                    );
+                }
+
+                if (
+                    this._int(state.count) >=
+                    this._int(state.max)
+                ) {
+                    break;
                 }
 
                 // Nie blokujemy socketów czekaniem na a=602.
@@ -5172,14 +5371,14 @@
                 y: this._int(map.y)
             };
 
-            const patrol =
+            const reachable =
                 this.questKillPatrolOrder(
                     map,
                     start.x,
                     start.y
                 );
 
-            if (patrol.length === 0) {
+            if (reachable.length === 0) {
                 throw new Error(
                     "Quest Kille: brak osiągalnych pól do patrolu."
                 );
@@ -5198,10 +5397,15 @@
                     parsed.max,
                 start,
                 visited: 0,
+                moves: 0,
+                revisits: 0,
                 fights: 0,
                 singleFights: 0,
                 removed: 0
             };
+
+            const visited =
+                new Set();
 
             this.questKillRunning = true;
             this.questKillState = state;
@@ -5226,31 +5430,27 @@
                 start.x +
                 "|" +
                 start.y +
-                " • pola " +
-                patrol.length +
+                " • osiągalne pola " +
+                reachable.length +
                 "."
             );
 
             console.info(
-                "[SW Tool][PVE] Quest Kille — start:",
+                "[SW Tool][PVE] Quest Kille — start oszczędnego patrolu:",
                 {
                     ...state,
-                    patrolFields:
-                        patrol.length
+                    reachableFields:
+                        reachable.length
                 }
             );
 
             let operationError = null;
 
             try {
-                for (const point of patrol) {
-                    if (
-                        state.count >=
+                while (
+                    state.count <
                         state.max
-                    ) {
-                        break;
-                    }
-
+                ) {
                     if (
                         this._int(
                             this.mapSolver?.map
@@ -5271,54 +5471,109 @@
                         this._int(
                             this.mapSolver?.map?.y
                         );
+                    const currentKey =
+                        currentX +
+                        "_" +
+                        currentY;
 
-                    if (
-                        currentX !== point.x ||
-                        currentY !== point.y
-                    ) {
-                        this.setQuickPanelStatus(
-                            "Quest Kille: idę " +
-                            point.x +
-                            "|" +
-                            point.y +
-                            " (" +
-                            state.count +
-                            "/" +
-                            state.max +
-                            ")."
+                    // Pole czyścimy tylko przy pierwszej faktycznej wizycie.
+                    // Przejście przez stare pole do nowego frontu nie powoduje
+                    // ponownego atakowania i nie zawyża visited.
+                    if (!visited.has(currentKey)) {
+                        visited.add(
+                            currentKey
                         );
+                        state.visited =
+                            visited.size;
 
-                        await this.mapSolver.navigateTo(
-                            point.x,
-                            point.y,
-                            {
-                                source:
-                                    "quest-kills",
-                                allowBusy: true
-                            }
-                        );
+                        const cleared =
+                            await this.questKillClearCurrentField(
+                                state,
+                                {
+                                    x: currentX,
+                                    y: currentY
+                                }
+                            );
+
+                        state.fights +=
+                            this._int(
+                                cleared?.fights
+                            );
+                        state.singleFights +=
+                            this._int(
+                                cleared?.singleFights
+                            );
+                        state.removed +=
+                            this._int(
+                                cleared?.removed
+                            );
+
+                        if (
+                            state.count >=
+                            state.max
+                        ) {
+                            break;
+                        }
                     }
 
-                    state.visited++;
-
-                    const cleared =
-                        await this.questKillClearCurrentField(
-                            state,
-                            point
+                    const path =
+                        this.questKillPathToNearestUnvisited(
+                            map,
+                            currentX,
+                            currentY,
+                            visited
                         );
 
-                    state.fights +=
-                        this._int(
-                            cleared?.fights
-                        );
-                    state.singleFights +=
-                        this._int(
-                            cleared?.singleFights
-                        );
-                    state.removed +=
-                        this._int(
-                            cleared?.removed
-                        );
+                    if (
+                        !path ||
+                        path.length === 0
+                    ) {
+                        break;
+                    }
+
+                    // Idziemy tylko o jeden krok. Dzięki temu każde nowe pole
+                    // jest sprawdzane/atakowane od razu, zamiast przelatywać
+                    // przez nie w drodze do odległego punktu patrolu.
+                    const next =
+                        path[0];
+                    const nextKey =
+                        next.x +
+                        "_" +
+                        next.y;
+
+                    if (visited.has(nextKey)) {
+                        state.revisits++;
+                    }
+
+                    state.moves++;
+
+                    this.setQuickPanelStatus(
+                        "Quest Kille: " +
+                        state.count +
+                        "/" +
+                        state.max +
+                        " • ruch " +
+                        state.moves +
+                        " • unikalne pola " +
+                        state.visited +
+                        (
+                            state.revisits > 0
+                                ? " • powtórki " +
+                                  state.revisits
+                                : ""
+                        ) +
+                        "."
+                    );
+
+                    await this.mapSolver.navigateTo(
+                        next.x,
+                        next.y,
+                        {
+                            source:
+                                "quest-kills",
+                            allowBusy: true
+                        }
+                    );
                 }
             } catch (error) {
                 operationError = error;
@@ -5327,38 +5582,8 @@
                     error
                 );
             } finally {
-                try {
-                    this.setQuickPanelStatus(
-                        "Quest Kille: wracam na pole startowe " +
-                        start.x +
-                        "|" +
-                        start.y +
-                        "..."
-                    );
-
-                    await this.mapSolver
-                        .navigateToLocation(
-                            start.locationId,
-                            start.x,
-                            start.y,
-                            {
-                                source:
-                                    "quest-kills-return",
-                                allowBusy: true
-                            }
-                        );
-                } catch (returnError) {
-                    console.error(
-                        "[SW Tool][PVE] Quest Kille — nie udało się wrócić na start:",
-                        returnError
-                    );
-
-                    if (!operationError) {
-                        operationError =
-                            returnError;
-                    }
-                }
-
+                // Nie wracamy automatycznie na pole startowe. Powrót nie daje
+                // żadnego progresu questa, a zużywa punkty akcji na każde pole.
                 this.questKillRunning =
                     false;
                 this.questKillState =
@@ -5380,6 +5605,15 @@
                 throw operationError;
             }
 
+            const endX =
+                this._int(
+                    this.mapSolver?.map?.x
+                );
+            const endY =
+                this._int(
+                    this.mapSolver?.map?.y
+                );
+
             if (
                 state.count >= state.max
             ) {
@@ -5388,13 +5622,21 @@
                     state.count +
                     "/" +
                     state.max +
-                    " • odwiedzone pola " +
+                    " • ruchy " +
+                    state.moves +
+                    " • unikalne pola " +
                     state.visited +
+                    " • powtórki " +
+                    state.revisits +
                     " • zwykłe " +
                     state.singleFights +
                     "x • multi " +
                     state.fights +
-                    "x. Powrót na start ✓",
+                    "x • stop " +
+                    endX +
+                    "|" +
+                    endY +
+                    " ✓",
                     "success"
                 );
             } else {
@@ -5403,13 +5645,17 @@
                     state.count +
                     "/" +
                     state.max +
-                    " • odwiedzone pola " +
+                    " • ruchy " +
+                    state.moves +
+                    " • unikalne pola " +
                     state.visited +
-                    " • zwykłe " +
-                    state.singleFights +
-                    "x • multi " +
-                    state.fights +
-                    "x. Powrót na start ✓"
+                    " • powtórki " +
+                    state.revisits +
+                    " • stop " +
+                    endX +
+                    "|" +
+                    endY +
+                    "."
                 );
             }
 
@@ -5420,6 +5666,10 @@
 
             return {
                 ...state,
+                end: {
+                    x: endX,
+                    y: endY
+                },
                 done:
                     state.count >=
                     state.max
