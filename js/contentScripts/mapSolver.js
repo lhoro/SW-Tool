@@ -359,7 +359,12 @@
                         });
                     }
 
-                    if (!source.startsWith("ronin-")) {
+                    if (source.startsWith("quest-kills")) {
+                        // Quest Kille poruszają się po jednym polu i po każdym
+                        // kroku od razu sprawdzają pole. Nie dokładamy pełnego
+                        // 100 ms opóźnienia ogólnego solvera.
+                        await this.tool.sleep(20);
+                    } else if (!source.startsWith("ronin-")) {
                         await this.tool.sleep(STEP_DELAY_MS);
                     }
                 }
