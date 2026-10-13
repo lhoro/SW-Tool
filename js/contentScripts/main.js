@@ -114,6 +114,7 @@
             this.questKillRunning = false;
             this.questKillState = null;
             this.questKillButton = null;
+            this.questKillDomObserver = null;
             this.hTrackedVersion = 0;
             this.acceleratedHPending = false;
             this.currentQuestMove = null;
@@ -4475,6 +4476,341 @@
             );
         }
 
+        questKillDomRoots() {
+            const roots = [];
+
+            const tracker =
+                document.getElementById(
+                    "quest_track_con"
+                );
+            if (tracker) {
+                roots.push(tracker);
+            }
+
+            for (
+                const element of
+                document.querySelectorAll(
+                    ".mob_list_con"
+                )
+            ) {
+                if (
+                    !roots.includes(element)
+                ) {
+                    roots.push(element);
+                }
+            }
+
+            return roots;
+        }
+
+        questKillDomProgressCandidate(
+            state
+        ) {
+            if (!state) {
+                return null;
+            }
+
+            const expectedMax =
+                Math.max(
+                    0,
+                    this._int(state.max)
+                );
+            const currentCount =
+                Math.max(
+                    0,
+                    this._int(state.count)
+                );
+            const targetName =
+                String(
+                    state.targetName || ""
+                )
+                    .trim()
+                    .toLowerCase();
+
+            if (expectedMax <= 0) {
+                return null;
+            }
+
+            const candidates = [];
+            const pushCandidate = (
+                count,
+                max,
+                element,
+                source
+            ) => {
+                const parsedCount =
+                    Math.max(
+                        0,
+                        this._int(count)
+                    );
+                const parsedMax =
+                    Math.max(
+                        0,
+                        this._int(max)
+                    );
+
+                if (
+                    parsedMax <= 0 ||
+                    parsedCount >
+                        parsedMax ||
+                    parsedMax !==
+                        expectedMax
+                ) {
+                    return;
+                }
+
+                const text =
+                    String(
+                        element?.textContent ||
+                        ""
+                    )
+                        .replace(
+                            /\s+/g,
+                            " "
+                        )
+                        .trim();
+                const normalized =
+                    text.toLowerCase();
+
+                let score = 100;
+
+                if (
+                    targetName &&
+                    normalized.includes(
+                        targetName
+                    )
+                ) {
+                    score += 80;
+                }
+
+                if (
+                    parsedCount >=
+                    currentCount
+                ) {
+                    score += 20;
+                }
+
+                if (
+                    text.length > 0 &&
+                    text.length <= 160
+                ) {
+                    score += 10;
+                }
+
+                candidates.push({
+                    count:
+                        parsedCount,
+                    max:
+                        parsedMax,
+                    score,
+                    source,
+                    text
+                });
+            };
+
+            for (
+                const root of
+                this.questKillDomRoots()
+            ) {
+                const elements = [
+                    root,
+                    ...root.querySelectorAll(
+                        "*"
+                    )
+                ];
+
+                for (const element of elements) {
+                    if (
+                        !(element instanceof Element)
+                    ) {
+                        continue;
+                    }
+
+                    const attrCount =
+                        element.getAttribute(
+                            "data-count"
+                        );
+                    const attrMax =
+                        element.getAttribute(
+                            "data-max"
+                        );
+
+                    if (
+                        attrCount !== null &&
+                        attrMax !== null
+                    ) {
+                        pushCandidate(
+                            attrCount,
+                            attrMax,
+                            element,
+                            "data-count"
+                        );
+                    }
+
+                    const text =
+                        String(
+                            element.textContent ||
+                            ""
+                        );
+
+                    const regex =
+                        /(\d+)\s*(?:\/|\bz\b)\s*(\d+)/gi;
+                    let match = null;
+
+                    while (
+                        (
+                            match =
+                                regex.exec(
+                                    text
+                                )
+                        )
+                    ) {
+                        pushCandidate(
+                            match[1],
+                            match[2],
+                            element,
+                            "text"
+                        );
+                    }
+                }
+            }
+
+            if (
+                candidates.length === 0
+            ) {
+                return null;
+            }
+
+            candidates.sort(
+                (left, right) =>
+                    (
+                        right.score -
+                        left.score
+                    ) ||
+                    (
+                        right.count -
+                        left.count
+                    )
+            );
+
+            return candidates[0];
+        }
+
+        syncQuestKillProgressFromDom(
+            state = this.questKillState
+        ) {
+            if (
+                !this.questKillRunning ||
+                !state
+            ) {
+                return false;
+            }
+
+            const candidate =
+                this.questKillDomProgressCandidate(
+                    state
+                );
+
+            if (!candidate) {
+                return false;
+            }
+
+            const before =
+                this._int(state.count);
+            const next =
+                Math.max(
+                    before,
+                    this._int(
+                        candidate.count
+                    )
+                );
+
+            if (next === before) {
+                return false;
+            }
+
+            state.count =
+                Math.min(
+                    this._int(state.max),
+                    next
+                );
+
+            this.setQuickPanelStatus(
+                "Quest Kille: " +
+                state.count +
+                "/" +
+                state.max +
+                " ✓"
+            );
+
+            console.info(
+                "[SW Tool][PVE] Quest Kille — progres z trackera klienta:",
+                {
+                    before,
+                    count:
+                        state.count,
+                    max:
+                        state.max,
+                    source:
+                        candidate.source,
+                    text:
+                        candidate.text
+                }
+            );
+
+            return true;
+        }
+
+        startQuestKillDomObserver() {
+            this.stopQuestKillDomObserver();
+
+            const roots =
+                this.questKillDomRoots();
+
+            if (
+                roots.length === 0 ||
+                typeof MutationObserver !==
+                    "function"
+            ) {
+                return;
+            }
+
+            this.questKillDomObserver =
+                new MutationObserver(
+                    () => {
+                        this.syncQuestKillProgressFromDom();
+                    }
+                );
+
+            for (const root of roots) {
+                this.questKillDomObserver.observe(
+                    root,
+                    {
+                        childList: true,
+                        subtree: true,
+                        characterData: true,
+                        attributes: true,
+                        attributeFilter: [
+                            "data-count",
+                            "data-max"
+                        ]
+                    }
+                );
+            }
+
+            this.syncQuestKillProgressFromDom();
+        }
+
+        stopQuestKillDomObserver() {
+            if (
+                this.questKillDomObserver
+            ) {
+                this.questKillDomObserver.disconnect();
+                this.questKillDomObserver =
+                    null;
+            }
+        }
+
         handleQuestKillResponse(response) {
             const state = this.questKillState;
             if (
@@ -4483,6 +4819,25 @@
                 !response ||
                 typeof response !== "object"
             ) {
+                return false;
+            }
+
+            const action =
+                this._int(response.a);
+            const relevant =
+                action === 7 ||
+                action === 22 ||
+                response.track !==
+                    undefined ||
+                Array.isArray(
+                    response.tracked
+                ) ||
+                response.map_handler !==
+                    undefined ||
+                response.q_step !==
+                    undefined;
+
+            if (!relevant) {
                 return false;
             }
 
@@ -5023,7 +5378,7 @@
         async waitForQuestKillField(
             x,
             y,
-            timeoutMs = 350
+            timeoutMs = 150
         ) {
             const targetX = this._int(x);
             const targetY = this._int(y);
@@ -5136,6 +5491,17 @@
                 mobs > 0 &&
                 attempts < 40
             ) {
+                this.syncQuestKillProgressFromDom(
+                    state
+                );
+
+                if (
+                    this._int(state.count) >=
+                    this._int(state.max)
+                ) {
+                    break;
+                }
+
                 attempts++;
 
                 const liveField =
@@ -5449,8 +5815,13 @@
                     );
                 }
 
-                // Minimalny yield dla event loop; bez sztucznego 1 s oczekiwania.
+                // Minimalny yield dla event loop. Tracker klienta jest
+                // źródłem prawdy dla multiwalki, więc po renderze synchronizujemy
+                // licznik jeszcze raz przed następnym atakiem.
                 await this.sleep(20);
+                this.syncQuestKillProgressFromDom(
+                    state
+                );
             }
 
             this.setQuickPanelStatus(
@@ -5600,6 +5971,7 @@
 
             this.questKillRunning = true;
             this.questKillState = state;
+            this.startQuestKillDomObserver();
 
             if (this.questKillButton) {
                 this.questKillButton.disabled =
@@ -5828,6 +6200,7 @@
                     }
                 }
 
+                this.stopQuestKillDomObserver();
                 this.questKillRunning =
                     false;
                 this.questKillState =
