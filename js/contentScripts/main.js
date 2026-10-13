@@ -6443,7 +6443,7 @@
                     texts.join(" | ")
                 );
 
-            const exhausted =
+            const textMatch =
                 /brak.{0,40}punkt.{0,20}akcji/.test(text) ||
                 /za malo.{0,40}punkt.{0,20}akcji/.test(text) ||
                 /niewystarczaj.{0,40}punkt.{0,20}akcji/.test(text) ||
@@ -6452,10 +6452,21 @@
                 /brak.{0,20}\bpa\b/.test(text) ||
                 /za malo.{0,20}\bpa\b/.test(text) ||
                 /not enough.{0,30}action points?/.test(text) ||
-                /insufficient.{0,30}action points?/.test(text) ||
+                /insufficient.{0,30}action points?/.test(text);
+
+            const failureSignal =
+                this._int(
+                    response?.e
+                ) !== 0 ||
+                this._int(
+                    response?.me
+                ) > 0;
+
+            const exhausted =
+                zeroCounter ||
                 (
-                    this._int(response?.e) !== 0 &&
-                    zeroCounter
+                    failureSignal &&
+                    textMatch
                 );
 
             return {
