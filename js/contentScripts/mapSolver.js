@@ -211,6 +211,8 @@
             return Boolean(
                 this.tool.accountOperationRunning ||
                 this.tool.questKillRunning ||
+                this.tool.respawnRunning ||
+                this.tool.expRunning ||
                 this.tool.dailyRewardClaimStage !== 0 ||
                 this.tool.characterSwitch ||
                 this.tool.trainingCaptchaWaiter
@@ -359,9 +361,13 @@
                         });
                     }
 
-                    if (source.startsWith("quest-kills")) {
-                        // Quest Kille poruszają się po jednym polu i po każdym
-                        // kroku od razu sprawdzają pole. Nie dokładamy pełnego
+                    if (
+                        source.startsWith("quest-kills") ||
+                        source.startsWith("pve-respawn") ||
+                        source.startsWith("pve-exp")
+                    ) {
+                        // Tryby PVE pracują pole po polu i same kontrolują
+                        // tempo kolejnej akcji, więc nie dokładamy pełnego
                         // 100 ms opóźnienia ogólnego solvera.
                         await this.tool.sleep(20);
                     } else if (!source.startsWith("ronin-")) {
