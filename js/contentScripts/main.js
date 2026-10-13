@@ -5153,6 +5153,10 @@
                 Date.now() - startedAt <
                 timeoutMs
             ) {
+                this.syncQuestKillProgressFromDom(
+                    state
+                );
+
                 if (
                     this._int(state?.count) >
                         before ||
@@ -5164,6 +5168,10 @@
 
                 await this.sleep(10);
             }
+
+            this.syncQuestKillProgressFromDom(
+                state
+            );
 
             return (
                 this._int(state?.count) >
