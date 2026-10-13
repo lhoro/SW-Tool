@@ -4625,6 +4625,81 @@
             }
         }
 
+        async refreshQuestKillProgress(
+            state
+        ) {
+            const stepId =
+                this._int(
+                    state?.stepId ||
+                    state?.questId
+                );
+
+            if (stepId <= 0) {
+                return false;
+            }
+
+            try {
+                const response =
+                    await this.sendAndWait(
+                        {
+                            a: 22,
+                            type: 1,
+                            id: stepId
+                        },
+                        [22, 999],
+                        (event) =>
+                            this._int(event.e) !== 0 ||
+                            (
+                                this._int(event.a) === 22 &&
+                                event.q_step &&
+                                typeof event.q_step === "object" &&
+                                (
+                                    this._int(
+                                        event.q_step.qb_id
+                                    ) === stepId ||
+                                    this._int(
+                                        event.q_step.want?.type
+                                    ) === 1
+                                )
+                            ),
+                        2000
+                    );
+
+                if (
+                    this._int(response.e) !== 0
+                ) {
+                    return false;
+                }
+
+                this.handleQuestKillResponse(
+                    response
+                );
+
+                console.info(
+                    "[SW Tool][PVE] Quest Kille — odświeżono progres przed kolejnym atakiem:",
+                    {
+                        stepId,
+                        count:
+                            this._int(
+                                state?.count
+                            ),
+                        max:
+                            this._int(
+                                state?.max
+                            )
+                    }
+                );
+
+                return true;
+            } catch (error) {
+                console.warn(
+                    "[SW Tool][PVE] Quest Kille — nie udało się odświeżyć progresu:",
+                    error
+                );
+                return false;
+            }
+        }
+
         async waitForQuestKillProgress(
             state,
             beforeCount,
@@ -5177,10 +5252,24 @@
                     this._int(state.count) ===
                         countBeforeFight
                 ) {
-                    await this.waitForQuestKillProgress(
-                        state,
-                        countBeforeFight
-                    );
+                    const progressed =
+                        await this.waitForQuestKillProgress(
+                            state,
+                            countBeforeFight
+                        );
+
+                    // Jeśli push trackera się spóźnił albo przyszedł w innym
+                    // wariancie odpowiedzi, odświeżamy q_step zanim wydamy
+                    // kolejne punkty akcji na następny atak.
+                    if (
+                        !progressed &&
+                        this._int(state.count) ===
+                            countBeforeFight
+                    ) {
+                        await this.refreshQuestKillProgress(
+                            state
+                        );
+                    }
                 }
 
                 if (
@@ -5387,6 +5476,10 @@
             const state = {
                 questId:
                     parsed.questId,
+                stepId:
+                    this._int(
+                        step.qb_id
+                    ),
                 targetId:
                     parsed.targetId,
                 targetName:
