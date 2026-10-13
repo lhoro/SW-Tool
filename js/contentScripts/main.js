@@ -6277,6 +6277,31 @@
                 }
             }
 
+            if (
+                operationError &&
+                this.isPveNoActionPointsError(
+                    operationError
+                )
+            ) {
+                return {
+                    ...state,
+                    end: {
+                        x:
+                            this._int(
+                                this.mapSolver?.map?.x
+                            ),
+                        y:
+                            this._int(
+                                this.mapSolver?.map?.y
+                            )
+                    },
+                    done: false,
+                    stopped: true,
+                    reason:
+                        "no-action-points"
+                };
+            }
+
             if (operationError) {
                 throw operationError;
             }
@@ -6896,6 +6921,30 @@
                 this.respawnRunning =
                     false;
                 this.syncPveModeButtons();
+            }
+
+            if (
+                operationError &&
+                this.isPveNoActionPointsError(
+                    operationError
+                )
+            ) {
+                return {
+                    moves,
+                    stopped: true,
+                    reason:
+                        "no-action-points",
+                    end: {
+                        x:
+                            this._int(
+                                this.mapSolver?.map?.x
+                            ),
+                        y:
+                            this._int(
+                                this.mapSolver?.map?.y
+                            )
+                    }
+                };
             }
 
             if (operationError) {
@@ -7983,6 +8032,31 @@
             this.expStopRequested =
                 false;
             this.syncPveModeButtons();
+
+            if (
+                operationError &&
+                this.isPveNoActionPointsError(
+                    operationError
+                )
+            ) {
+                return {
+                    ...state,
+                    stoppedByUser: false,
+                    stopped: true,
+                    reason:
+                        "no-action-points",
+                    end: {
+                        x:
+                            this._int(
+                                this.mapSolver?.map?.x
+                            ),
+                        y:
+                            this._int(
+                                this.mapSolver?.map?.y
+                            )
+                    }
+                };
+            }
 
             if (operationError) {
                 throw operationError;
