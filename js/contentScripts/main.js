@@ -115,6 +115,11 @@
             this.questKillState = null;
             this.questKillButton = null;
             this.questKillDomObserver = null;
+            this.respawnRunning = false;
+            this.respawnButton = null;
+            this.expRunning = false;
+            this.expStopRequested = false;
+            this.expButton = null;
             this.hTrackedVersion = 0;
             this.acceleratedHPending = false;
             this.currentQuestMove = null;
@@ -5862,6 +5867,8 @@
         async runQuestKills() {
             if (
                 this.questKillRunning ||
+                this.respawnRunning ||
+                this.expRunning ||
                 this.quickActionRunning ||
                 this.accountOperationRunning ||
                 this.dailyRewardClaimStage !== 0 ||
@@ -5980,6 +5987,7 @@
             this.questKillRunning = true;
             this.questKillState = state;
             this.startQuestKillDomObserver();
+            this.syncPveModeButtons();
 
             if (this.questKillButton) {
                 this.questKillButton.disabled =
@@ -6213,6 +6221,7 @@
                     false;
                 this.questKillState =
                     null;
+                this.syncPveModeButtons();
 
                 if (
                     this.questKillButton
@@ -6293,11 +6302,1081 @@
             };
         }
 
+        syncPveModeButtons() {
+            if (this.respawnButton) {
+                this.respawnButton.textContent =
+                    this.respawnRunning
+                        ? "Respiarka STOP"
+                        : "Respiarka";
+            }
+
+            if (this.expButton) {
+                this.expButton.textContent =
+                    this.expRunning
+                        ? "Expiarka STOP"
+                        : "Expiarka";
+            }
+
+            if (this.questKillButton) {
+                const blocked =
+                    this.respawnRunning ||
+                    this.expRunning;
+
+                if (!this.questKillRunning) {
+                    this.questKillButton.disabled =
+                        blocked;
+                    this.questKillButton.style.opacity =
+                        blocked ? "0.55" : "1";
+                    this.questKillButton.style.cursor =
+                        blocked
+                            ? "default"
+                            : "pointer";
+                }
+            }
+
+            if (this.respawnButton) {
+                const blocked =
+                    !this.respawnRunning &&
+                    (
+                        this.questKillRunning ||
+                        this.expRunning
+                    );
+
+                this.respawnButton.disabled =
+                    blocked;
+                this.respawnButton.style.opacity =
+                    blocked ? "0.55" : "1";
+                this.respawnButton.style.cursor =
+                    blocked
+                        ? "default"
+                        : "pointer";
+            }
+
+            if (this.expButton) {
+                const blocked =
+                    !this.expRunning &&
+                    (
+                        this.questKillRunning ||
+                        this.respawnRunning
+                    );
+
+                this.expButton.disabled =
+                    blocked;
+                this.expButton.style.opacity =
+                    blocked ? "0.55" : "1";
+                this.expButton.style.cursor =
+                    blocked
+                        ? "default"
+                        : "pointer";
+            }
+        }
+
+        pveModeStartGuard(mode) {
+            const otherPveRunning =
+                (
+                    mode !== "quest-kills" &&
+                    this.questKillRunning
+                ) ||
+                (
+                    mode !== "respawn" &&
+                    this.respawnRunning
+                ) ||
+                (
+                    mode !== "exp" &&
+                    this.expRunning
+                );
+
+            if (
+                otherPveRunning ||
+                this.quickActionRunning ||
+                this.accountOperationRunning ||
+                this.dailyRewardClaimStage !== 0 ||
+                this.characterSwitch ||
+                this.responseWaiter ||
+                this.mapSolver?.active
+            ) {
+                throw new Error(
+                    "Poczekaj na zakończenie bieżącej operacji."
+                );
+            }
+
+            if (!this.mapSolver?.map) {
+                throw new Error(
+                    "Brak danych mapy. Otwórz mapę gry i spróbuj ponownie."
+                );
+            }
+        }
+
+        respawnPairForCurrentField() {
+            const map =
+                this.mapSolver?.map;
+
+            if (
+                !map ||
+                this._int(map.x) <= 0 ||
+                this._int(map.y) <= 0
+            ) {
+                return null;
+            }
+
+            const start = {
+                x: this._int(map.x),
+                y: this._int(map.y)
+            };
+
+            // Najpierw dokładnie wzorzec W/S, potem pozostałe przeciwne
+            // kierunki. Skosy są fallbackiem dla map z wąskimi przejściami.
+            const candidates = [
+                {
+                    dx: 0,
+                    dy: -1,
+                    label: "W/S"
+                },
+                {
+                    dx: 0,
+                    dy: 1,
+                    label: "S/W"
+                },
+                {
+                    dx: -1,
+                    dy: 0,
+                    label: "A/D"
+                },
+                {
+                    dx: 1,
+                    dy: 0,
+                    label: "D/A"
+                },
+                {
+                    dx: -1,
+                    dy: -1,
+                    label: "Q/C"
+                },
+                {
+                    dx: 1,
+                    dy: -1,
+                    label: "E/Z"
+                },
+                {
+                    dx: -1,
+                    dy: 1,
+                    label: "Z/E"
+                },
+                {
+                    dx: 1,
+                    dy: 1,
+                    label: "C/Q"
+                }
+            ];
+
+            for (const candidate of candidates) {
+                const neighbor = {
+                    x:
+                        start.x +
+                        candidate.dx,
+                    y:
+                        start.y +
+                        candidate.dy
+                };
+
+                const cell =
+                    map.cells?.get(
+                        neighbor.x +
+                        "_" +
+                        neighbor.y
+                    );
+
+                if (
+                    cell &&
+                    cell.movable
+                ) {
+                    return {
+                        start,
+                        neighbor,
+                        label:
+                            candidate.label
+                    };
+                }
+            }
+
+            return null;
+        }
+
+        stopRespawner() {
+            if (!this.respawnRunning) {
+                return;
+            }
+
+            this.respawnRunning = false;
+
+            if (
+                this.mapSolver?.active &&
+                String(
+                    this.mapSolver.source || ""
+                ).startsWith(
+                    "pve-respawn"
+                )
+            ) {
+                this.mapSolver.stop(
+                    "Respiarka STOP"
+                );
+            }
+
+            this.syncPveModeButtons();
+            this.setQuickPanelStatus(
+                "Respiarka zatrzymana."
+            );
+        }
+
+        async runRespawner() {
+            this.pveModeStartGuard(
+                "respawn"
+            );
+
+            const map =
+                this.mapSolver?.map;
+            const startLocationId =
+                this._int(
+                    map?.locationId
+                );
+            const pair =
+                this.respawnPairForCurrentField();
+
+            if (!pair) {
+                throw new Error(
+                    "Respiarka: brak sąsiedniego dostępnego pola."
+                );
+            }
+
+            this.respawnRunning = true;
+            this.syncPveModeButtons();
+
+            let moves = 0;
+            let toNeighbor = true;
+            let operationError = null;
+
+            this.setQuickPanelStatus(
+                "Respiarka START • " +
+                pair.label +
+                " • " +
+                pair.start.x +
+                "|" +
+                pair.start.y +
+                " ↔ " +
+                pair.neighbor.x +
+                "|" +
+                pair.neighbor.y +
+                "."
+            );
+
+            console.info(
+                "[SW Tool][PVE] Respiarka — start:",
+                {
+                    locationId:
+                        startLocationId,
+                    pair
+                }
+            );
+
+            try {
+                while (
+                    this.respawnRunning
+                ) {
+                    if (
+                        this._int(
+                            this.mapSolver?.map
+                                ?.locationId
+                        ) !==
+                        startLocationId
+                    ) {
+                        throw new Error(
+                            "Respiarka: postać opuściła mapę startową."
+                        );
+                    }
+
+                    const target =
+                        toNeighbor
+                            ? pair.neighbor
+                            : pair.start;
+
+                    const result =
+                        await this.mapSolver
+                            .navigateTo(
+                                target.x,
+                                target.y,
+                                {
+                                    source:
+                                        "pve-respawn",
+                                    allowBusy: true
+                                }
+                            );
+
+                    if (
+                        !this.respawnRunning
+                    ) {
+                        break;
+                    }
+
+                    if (
+                        !result?.ok
+                    ) {
+                        throw new Error(
+                            "Respiarka: nie udało się wykonać ruchu."
+                        );
+                    }
+
+                    moves++;
+                    toNeighbor =
+                        !toNeighbor;
+
+                    this.setQuickPanelStatus(
+                        "Respiarka • ruchy " +
+                        moves +
+                        " • " +
+                        pair.label +
+                        "."
+                    );
+                }
+            } catch (error) {
+                operationError =
+                    error;
+            } finally {
+                this.respawnRunning =
+                    false;
+                this.syncPveModeButtons();
+            }
+
+            if (operationError) {
+                throw operationError;
+            }
+
+            console.info(
+                "[SW Tool][PVE] Respiarka — stop:",
+                {
+                    moves,
+                    x:
+                        this._int(
+                            this.mapSolver?.map?.x
+                        ),
+                    y:
+                        this._int(
+                            this.mapSolver?.map?.y
+                        )
+                }
+            );
+
+            return {
+                moves,
+                stopped: true
+            };
+        }
+
+        toggleRespawner() {
+            if (this.respawnRunning) {
+                this.stopRespawner();
+                return Promise.resolve({
+                    stopped: true
+                });
+            }
+
+            return this.runRespawner();
+        }
+
+        async waitForExpField(
+            x,
+            y,
+            timeoutMs = 150
+        ) {
+            const targetX =
+                this._int(x);
+            const targetY =
+                this._int(y);
+            const startedAt =
+                Date.now();
+
+            while (
+                Date.now() - startedAt <
+                timeoutMs
+            ) {
+                const field =
+                    this.mapSolver?.field;
+
+                if (
+                    field &&
+                    this._int(field.x) ===
+                        targetX &&
+                    this._int(field.y) ===
+                        targetY
+                ) {
+                    return field;
+                }
+
+                await this.sleep(15);
+            }
+
+            return null;
+        }
+
+        async expClearCurrentField(
+            point
+        ) {
+            let field =
+                await this.waitForExpField(
+                    point.x,
+                    point.y
+                );
+
+            if (
+                !field ||
+                !this.expRunning
+            ) {
+                return {
+                    fights: 0,
+                    singleFights: 0,
+                    removed: 0,
+                    skipped:
+                        !field
+                };
+            }
+
+            let mobs =
+                Math.max(
+                    0,
+                    this._int(
+                        field.mobs?.count
+                    )
+                );
+            let fights = 0;
+            let singleFights = 0;
+            let removed = 0;
+            let attempts = 0;
+
+            while (
+                this.expRunning &&
+                mobs > 0 &&
+                attempts < 50
+            ) {
+                attempts++;
+
+                const liveField =
+                    this.mapSolver?.field;
+
+                if (
+                    liveField &&
+                    this._int(liveField.x) ===
+                        this._int(point.x) &&
+                    this._int(liveField.y) ===
+                        this._int(point.y)
+                ) {
+                    field =
+                        liveField;
+                    mobs =
+                        Math.max(
+                            0,
+                            this._int(
+                                field.mobs?.count
+                            )
+                        );
+                }
+
+                if (
+                    !this.expRunning ||
+                    mobs <= 0
+                ) {
+                    break;
+                }
+
+                const multiAvailable =
+                    Array.isArray(
+                        field.multiFight
+                    ) &&
+                    field.multiFight.includes(
+                        0
+                    );
+                const fieldBeforeFight =
+                    field;
+                let response = null;
+
+                if (multiAvailable) {
+                    response =
+                        await this.sendAndWait(
+                            {
+                                a: 13,
+                                mob_num: 0,
+                                fo: [
+                                    1,
+                                    1,
+                                    1,
+                                    1,
+                                    1
+                                ]
+                            },
+                            [7, 999],
+                            (event) =>
+                                this._int(
+                                    event.e
+                                ) !== 0 ||
+                                (
+                                    this._int(
+                                        event.a
+                                    ) === 7 &&
+                                    (
+                                        this._int(
+                                            event.mm
+                                        ) === 1 ||
+                                        this._int(
+                                            event.me
+                                        ) > 0 ||
+                                        event.result !==
+                                            undefined ||
+                                        event.remove_mob !==
+                                            undefined
+                                    )
+                                ),
+                            5000
+                        );
+
+                    if (
+                        this._int(
+                            response.e
+                        ) !== 0
+                    ) {
+                        throw new Error(
+                            "Expiarka: serwer odrzucił multiwalkę."
+                        );
+                    }
+
+                    if (
+                        this._int(
+                            response.me
+                        ) > 0
+                    ) {
+                        break;
+                    }
+
+                    fights++;
+                } else {
+                    response =
+                        await this.sendAndWait(
+                            {
+                                a: 7,
+                                mob_num: 0,
+                                rank: 0,
+                                quick: 1
+                            },
+                            [7, 999],
+                            (event) =>
+                                this._int(
+                                    event.e
+                                ) !== 0 ||
+                                (
+                                    this._int(
+                                        event.a
+                                    ) === 7 &&
+                                    (
+                                        this._int(
+                                            event.me
+                                        ) > 0 ||
+                                        event.result !==
+                                            undefined ||
+                                        event.remove_mob !==
+                                            undefined
+                                    )
+                                ),
+                            5000
+                        );
+
+                    if (
+                        this._int(
+                            response.e
+                        ) !== 0
+                    ) {
+                        throw new Error(
+                            "Expiarka: serwer odrzucił zwykłą walkę."
+                        );
+                    }
+
+                    if (
+                        this._int(
+                            response.me
+                        ) > 0
+                    ) {
+                        break;
+                    }
+
+                    singleFights++;
+                }
+
+                const removedNow =
+                    this.questKillRemovedCount(
+                        response
+                    );
+                removed +=
+                    removedNow;
+
+                const liveAfterFight =
+                    this.mapSolver?.field;
+
+                if (
+                    liveAfterFight &&
+                    liveAfterFight !==
+                        fieldBeforeFight &&
+                    this._int(
+                        liveAfterFight.x
+                    ) ===
+                        this._int(point.x) &&
+                    this._int(
+                        liveAfterFight.y
+                    ) ===
+                        this._int(point.y)
+                ) {
+                    field =
+                        liveAfterFight;
+                    mobs =
+                        Math.max(
+                            0,
+                            this._int(
+                                field.mobs?.count
+                            )
+                        );
+                } else {
+                    mobs =
+                        Math.max(
+                            0,
+                            mobs -
+                                Math.max(
+                                    1,
+                                    removedNow
+                                )
+                        );
+                }
+
+                this.setQuickPanelStatus(
+                    "Expiarka: " +
+                    point.x +
+                    "|" +
+                    point.y +
+                    " • moby " +
+                    mobs +
+                    " • zwykłe " +
+                    singleFights +
+                    "x • multi " +
+                    fights +
+                    "x."
+                );
+
+                await this.sleep(20);
+            }
+
+            return {
+                fights,
+                singleFights,
+                removed,
+                skipped: false
+            };
+        }
+
+        stopExpiarka() {
+            if (!this.expRunning) {
+                return;
+            }
+
+            this.expStopRequested =
+                true;
+            this.expRunning =
+                false;
+
+            if (
+                this.mapSolver?.active &&
+                String(
+                    this.mapSolver.source || ""
+                ).startsWith(
+                    "pve-exp"
+                )
+            ) {
+                this.mapSolver.stop(
+                    "Expiarka STOP"
+                );
+            }
+
+            this.syncPveModeButtons();
+            this.setQuickPanelStatus(
+                "Expiarka zatrzymana — pozostaję na aktualnym polu."
+            );
+        }
+
+        async runExpiarka() {
+            this.pveModeStartGuard(
+                "exp"
+            );
+
+            const map =
+                this.mapSolver?.map;
+
+            if (
+                !map ||
+                this._int(
+                    map.locationId
+                ) <= 0 ||
+                this._int(map.x) <= 0 ||
+                this._int(map.y) <= 0
+            ) {
+                throw new Error(
+                    "Expiarka: brak gotowej mapy/pozycji."
+                );
+            }
+
+            const start = {
+                locationId:
+                    this._int(
+                        map.locationId
+                    ),
+                locationName:
+                    String(
+                        map.locationName || ""
+                    ),
+                x:
+                    this._int(map.x),
+                y:
+                    this._int(map.y)
+            };
+
+            const reachable =
+                this.questKillPatrolOrder(
+                    map,
+                    start.x,
+                    start.y
+                );
+
+            if (
+                reachable.length === 0
+            ) {
+                throw new Error(
+                    "Expiarka: brak osiągalnych pól."
+                );
+            }
+
+            const visited =
+                new Set();
+            const state = {
+                start,
+                visited: 0,
+                moves: 0,
+                revisits: 0,
+                fights: 0,
+                singleFights: 0,
+                removed: 0
+            };
+
+            this.expRunning =
+                true;
+            this.expStopRequested =
+                false;
+            this.syncPveModeButtons();
+
+            this.setQuickPanelStatus(
+                "Expiarka START • " +
+                start.locationName +
+                " " +
+                start.x +
+                "|" +
+                start.y +
+                " • pola " +
+                reachable.length +
+                "."
+            );
+
+            console.info(
+                "[SW Tool][PVE] Expiarka — start:",
+                {
+                    ...state,
+                    reachableFields:
+                        reachable.length
+                }
+            );
+
+            let operationError = null;
+
+            try {
+                while (
+                    this.expRunning
+                ) {
+                    if (
+                        this._int(
+                            this.mapSolver?.map
+                                ?.locationId
+                        ) !==
+                        start.locationId
+                    ) {
+                        throw new Error(
+                            "Expiarka: postać opuściła mapę patrolu."
+                        );
+                    }
+
+                    const currentX =
+                        this._int(
+                            this.mapSolver?.map?.x
+                        );
+                    const currentY =
+                        this._int(
+                            this.mapSolver?.map?.y
+                        );
+                    const currentKey =
+                        currentX +
+                        "_" +
+                        currentY;
+
+                    if (
+                        !visited.has(
+                            currentKey
+                        )
+                    ) {
+                        visited.add(
+                            currentKey
+                        );
+                        state.visited =
+                            visited.size;
+
+                        const cleared =
+                            await this.expClearCurrentField(
+                                {
+                                    x:
+                                        currentX,
+                                    y:
+                                        currentY
+                                }
+                            );
+
+                        state.fights +=
+                            this._int(
+                                cleared?.fights
+                            );
+                        state.singleFights +=
+                            this._int(
+                                cleared?.singleFights
+                            );
+                        state.removed +=
+                            this._int(
+                                cleared?.removed
+                            );
+
+                        if (
+                            !this.expRunning
+                        ) {
+                            break;
+                        }
+                    }
+
+                    const path =
+                        this.questKillPathToNearestUnvisited(
+                            map,
+                            currentX,
+                            currentY,
+                            visited
+                        );
+
+                    if (
+                        !path ||
+                        path.length === 0
+                    ) {
+                        break;
+                    }
+
+                    const next =
+                        path[0];
+                    const nextKey =
+                        next.x +
+                        "_" +
+                        next.y;
+
+                    if (
+                        visited.has(
+                            nextKey
+                        )
+                    ) {
+                        state.revisits++;
+                    }
+
+                    state.moves++;
+
+                    this.setQuickPanelStatus(
+                        "Expiarka • pola " +
+                        state.visited +
+                        "/" +
+                        reachable.length +
+                        " • ruchy " +
+                        state.moves +
+                        " • walki " +
+                        (
+                            state.singleFights +
+                            state.fights
+                        ) +
+                        "."
+                    );
+
+                    const moved =
+                        await this.mapSolver
+                            .navigateTo(
+                                next.x,
+                                next.y,
+                                {
+                                    source:
+                                        "pve-exp",
+                                    allowBusy: true
+                                }
+                            );
+
+                    if (
+                        !this.expRunning
+                    ) {
+                        break;
+                    }
+
+                    if (
+                        !moved?.ok
+                    ) {
+                        throw new Error(
+                            "Expiarka: nie udało się przejść na kolejne pole."
+                        );
+                    }
+                }
+            } catch (error) {
+                operationError =
+                    error;
+            }
+
+            const stoppedByUser =
+                this.expStopRequested;
+
+            if (
+                !stoppedByUser &&
+                !operationError
+            ) {
+                try {
+                    const currentLocation =
+                        this._int(
+                            this.mapSolver?.map
+                                ?.locationId
+                        );
+                    const currentX =
+                        this._int(
+                            this.mapSolver?.map?.x
+                        );
+                    const currentY =
+                        this._int(
+                            this.mapSolver?.map?.y
+                        );
+
+                    if (
+                        currentLocation !==
+                            start.locationId ||
+                        currentX !==
+                            start.x ||
+                        currentY !==
+                            start.y
+                    ) {
+                        this.setQuickPanelStatus(
+                            "Expiarka: mapa wyczyszczona — wracam na " +
+                            start.x +
+                            "|" +
+                            start.y +
+                            "..."
+                        );
+
+                        await this.mapSolver
+                            .navigateToLocation(
+                                start.locationId,
+                                start.x,
+                                start.y,
+                                {
+                                    source:
+                                        "pve-exp-return",
+                                    allowBusy: true
+                                }
+                            );
+                    }
+                } catch (error) {
+                    operationError =
+                        error;
+                }
+            }
+
+            this.expRunning =
+                false;
+            this.expStopRequested =
+                false;
+            this.syncPveModeButtons();
+
+            if (operationError) {
+                throw operationError;
+            }
+
+            const end = {
+                x:
+                    this._int(
+                        this.mapSolver?.map?.x
+                    ),
+                y:
+                    this._int(
+                        this.mapSolver?.map?.y
+                    )
+            };
+
+            this.setQuickPanelStatus(
+                stoppedByUser
+                    ? "Expiarka STOP • pozostaję " +
+                      end.x +
+                      "|" +
+                      end.y +
+                      "."
+                    : "Expiarka zakończona • pola " +
+                      state.visited +
+                      "/" +
+                      reachable.length +
+                      " • zwykłe " +
+                      state.singleFights +
+                      "x • multi " +
+                      state.fights +
+                      "x • powrót na start ✓",
+                stoppedByUser
+                    ? ""
+                    : "success"
+            );
+
+            console.info(
+                "[SW Tool][PVE] Expiarka — koniec:",
+                {
+                    ...state,
+                    stoppedByUser,
+                    end
+                }
+            );
+
+            return {
+                ...state,
+                stoppedByUser,
+                end
+            };
+        }
+
+        toggleExpiarka() {
+            if (this.expRunning) {
+                this.stopExpiarka();
+                return Promise.resolve({
+                    stopped: true
+                });
+            }
+
+            return this.runExpiarka();
+        }
+
         async runQuickAction(action) {
             if (
                 this.quickActionRunning ||
                 this.accountOperationRunning ||
                 this.questKillRunning ||
+                this.respawnRunning ||
+                this.expRunning ||
                 this.dailyRewardClaimStage !== 0 ||
                 this.characterSwitch ||
                 this.responseWaiter ||
@@ -6740,9 +7819,64 @@
             this.questKillButton =
                 questKillsButton;
 
-            pveBody.appendChild(
-                questKillsButton
+            const respawnButton =
+                makeActionButton(
+                    "Respiarka",
+                    () => {
+                        this.toggleRespawner()
+                            .catch(
+                                (error) => {
+                                    console.error(
+                                        "[SW Tool][PVE] Respiarka nie powiodła się:",
+                                        error
+                                    );
+
+                                    this.setQuickPanelStatus(
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error),
+                                        "error"
+                                    );
+                                }
+                            );
+                    }
+                );
+
+            const expButton =
+                makeActionButton(
+                    "Expiarka",
+                    () => {
+                        this.toggleExpiarka()
+                            .catch(
+                                (error) => {
+                                    console.error(
+                                        "[SW Tool][PVE] Expiarka nie powiodła się:",
+                                        error
+                                    );
+
+                                    this.setQuickPanelStatus(
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error),
+                                        "error"
+                                    );
+                                }
+                            );
+                    }
+                );
+
+            this.respawnButton =
+                respawnButton;
+            this.expButton =
+                expButton;
+
+            pveBody.append(
+                questKillsButton,
+                respawnButton,
+                expButton
             );
+
+            this.syncPveModeButtons();
 
             bindCollapse(
                 pvePanel,
@@ -8706,10 +9840,12 @@
             if (
                 this.quickActionRunning ||
                 this.questKillRunning ||
+                this.respawnRunning ||
+                this.expRunning ||
                 this.mapSolver?.active
             ) {
                 throw new Error(
-                    "Trwa szybka akcja, Quest Kille lub nawigacja."
+                    "Trwa szybka akcja, operacja PVE lub nawigacja."
                 );
             }
             if (this.dailyRewardClaimStage !== 0 || this.responseWaiter) {
