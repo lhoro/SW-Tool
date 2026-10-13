@@ -343,7 +343,37 @@
                         5000
                     );
 
-                    if (this._int(response.e) !== 0) {
+                    if (
+                        this._int(response.e) !== 0
+                    ) {
+                        if (
+                            (
+                                source.startsWith(
+                                    "quest-kills"
+                                ) ||
+                                source.startsWith(
+                                    "pve-respawn"
+                                ) ||
+                                source.startsWith(
+                                    "pve-exp"
+                                )
+                            ) &&
+                            this.tool
+                                .isPveActionPointFailure?.(
+                                    response
+                                )
+                        ) {
+                            this.tool
+                                .pveActionPointsExhausted =
+                                true;
+
+                            throw this.tool
+                                .createPveNoActionPointsError(
+                                    "ruch",
+                                    response
+                                );
+                        }
+
                         throw new Error(
                             "Serwer odrzucił ruch (e=" +
                             this._int(response.e) +
