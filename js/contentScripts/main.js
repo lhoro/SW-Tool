@@ -6629,13 +6629,18 @@
                     toNeighbor =
                         !toNeighbor;
 
-                    this.setQuickPanelStatus(
-                        "Respiarka • ruchy " +
-                        moves +
-                        " • " +
-                        pair.label +
-                        "."
-                    );
+                    if (
+                        moves === 1 ||
+                        moves % 20 === 0
+                    ) {
+                        this.setQuickPanelStatus(
+                            "Respiarka • ruchy " +
+                            moves +
+                            " • " +
+                            pair.label +
+                            "."
+                        );
+                    }
                 }
             } catch (error) {
                 operationError =
@@ -6951,19 +6956,25 @@
                         );
                 }
 
-                this.setQuickPanelStatus(
-                    "Expiarka: " +
-                    point.x +
-                    "|" +
-                    point.y +
-                    " • moby " +
-                    mobs +
-                    " • zwykłe " +
-                    singleFights +
-                    "x • multi " +
-                    fights +
-                    "x."
-                );
+                if (
+                    attempts === 1 ||
+                    attempts % 5 === 0 ||
+                    mobs <= 0
+                ) {
+                    this.setQuickPanelStatus(
+                        "Expiarka: " +
+                        point.x +
+                        "|" +
+                        point.y +
+                        " • moby " +
+                        mobs +
+                        " • zwykłe " +
+                        singleFights +
+                        "x • multi " +
+                        fights +
+                        "x."
+                    );
+                }
 
                 await this.sleep(20);
             }
@@ -7199,20 +7210,27 @@
 
                     state.moves++;
 
-                    this.setQuickPanelStatus(
-                        "Expiarka • pola " +
-                        state.visited +
-                        "/" +
-                        reachable.length +
-                        " • ruchy " +
-                        state.moves +
-                        " • walki " +
-                        (
-                            state.singleFights +
-                            state.fights
-                        ) +
-                        "."
-                    );
+                    if (
+                        state.moves === 1 ||
+                        state.moves % 10 === 0 ||
+                        state.visited ===
+                            reachable.length
+                    ) {
+                        this.setQuickPanelStatus(
+                            "Expiarka • pola " +
+                            state.visited +
+                            "/" +
+                            reachable.length +
+                            " • ruchy " +
+                            state.moves +
+                            " • walki " +
+                            (
+                                state.singleFights +
+                                state.fights
+                            ) +
+                            "."
+                        );
+                    }
 
                     const moved =
                         await this.mapSolver
