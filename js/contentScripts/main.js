@@ -7016,6 +7016,312 @@
             );
         }
 
+        expSweepPlan(
+            map,
+            startX,
+            startY
+        ) {
+            const reachable =
+                this.questKillPatrolOrder(
+                    map,
+                    startX,
+                    startY
+                );
+
+            if (
+                !Array.isArray(reachable) ||
+                reachable.length === 0
+            ) {
+                return null;
+            }
+
+            const keys =
+                new Set(
+                    reachable.map(
+                        (point) =>
+                            point.x +
+                            "_" +
+                            point.y
+                    )
+                );
+
+            const xs =
+                reachable.map(
+                    (point) =>
+                        this._int(point.x)
+                );
+            const ys =
+                reachable.map(
+                    (point) =>
+                        this._int(point.y)
+                );
+
+            const minX =
+                Math.min(...xs);
+            const maxX =
+                Math.max(...xs);
+            const minY =
+                Math.min(...ys);
+            const maxY =
+                Math.max(...ys);
+
+            const vertical = [];
+            let columnIndex = 0;
+
+            for (
+                let x = minX;
+                x <= maxX;
+                x++
+            ) {
+                const ysInColumn = [];
+
+                for (
+                    let y = minY;
+                    y <= maxY;
+                    y++
+                ) {
+                    if (
+                        keys.has(
+                            x +
+                            "_" +
+                            y
+                        )
+                    ) {
+                        ysInColumn.push(y);
+                    }
+                }
+
+                if (
+                    ysInColumn.length === 0
+                ) {
+                    continue;
+                }
+
+                if (
+                    columnIndex % 2 === 1
+                ) {
+                    ysInColumn.reverse();
+                }
+
+                for (
+                    const y of
+                    ysInColumn
+                ) {
+                    vertical.push({
+                        x,
+                        y
+                    });
+                }
+
+                columnIndex++;
+            }
+
+            const horizontal = [];
+            let rowIndex = 0;
+
+            for (
+                let y = minY;
+                y <= maxY;
+                y++
+            ) {
+                const xsInRow = [];
+
+                for (
+                    let x = minX;
+                    x <= maxX;
+                    x++
+                ) {
+                    if (
+                        keys.has(
+                            x +
+                            "_" +
+                            y
+                        )
+                    ) {
+                        xsInRow.push(x);
+                    }
+                }
+
+                if (
+                    xsInRow.length === 0
+                ) {
+                    continue;
+                }
+
+                if (
+                    rowIndex % 2 === 1
+                ) {
+                    xsInRow.reverse();
+                }
+
+                for (
+                    const x of
+                    xsInRow
+                ) {
+                    horizontal.push({
+                        x,
+                        y
+                    });
+                }
+
+                rowIndex++;
+            }
+
+            const transitionScore = (
+                order
+            ) => {
+                if (
+                    !Array.isArray(order) ||
+                    order.length === 0
+                ) {
+                    return Number.POSITIVE_INFINITY;
+                }
+
+                let score = 0;
+                let breaks = 0;
+                let previous = {
+                    x:
+                        this._int(
+                            startX
+                        ),
+                    y:
+                        this._int(
+                            startY
+                        )
+                };
+
+                for (
+                    const point of order
+                ) {
+                    const dx =
+                        Math.abs(
+                            point.x -
+                            previous.x
+                        );
+                    const dy =
+                        Math.abs(
+                            point.y -
+                            previous.y
+                        );
+                    const distance =
+                        Math.max(
+                            dx,
+                            dy
+                        );
+
+                    score +=
+                        Math.max(
+                            1,
+                            distance
+                        );
+
+                    if (
+                        distance > 1
+                    ) {
+                        // Duża kara za przerwę w pasie — wtedy będzie potrzebny
+                        // solver zamiast prostego kroku do sąsiedniego pola.
+                        breaks++;
+                        score += 12;
+                    }
+
+                    previous =
+                        point;
+                }
+
+                return {
+                    score,
+                    breaks
+                };
+            };
+
+            const verticalScore =
+                transitionScore(
+                    vertical
+                );
+            const horizontalScore =
+                transitionScore(
+                    horizontal
+                );
+
+            const useVertical =
+                verticalScore.score <=
+                horizontalScore.score;
+            const order =
+                useVertical
+                    ? vertical
+                    : horizontal;
+            const score =
+                useVertical
+                    ? verticalScore
+                    : horizontalScore;
+
+            return {
+                orientation:
+                    useVertical
+                        ? "pionowo"
+                        : "poziomo",
+                order,
+                reachableCount:
+                    reachable.length,
+                bounds: {
+                    minX,
+                    maxX,
+                    minY,
+                    maxY
+                },
+                breaks:
+                    score.breaks,
+                score:
+                    score.score,
+                first:
+                    order[0] || null,
+                last:
+                    order[
+                        order.length - 1
+                    ] || null
+            };
+        }
+
+        async expVisitField(
+            state,
+            visited,
+            point
+        ) {
+            const key =
+                point.x +
+                "_" +
+                point.y;
+
+            if (
+                visited.has(key) ||
+                !this.expRunning
+            ) {
+                return;
+            }
+
+            visited.add(key);
+            state.visited =
+                visited.size;
+
+            const cleared =
+                await this.expClearCurrentField(
+                    point
+                );
+
+            state.fights +=
+                this._int(
+                    cleared?.fights
+                );
+            state.singleFights +=
+                this._int(
+                    cleared?.singleFights
+                );
+            state.removed +=
+                this._int(
+                    cleared?.removed
+                );
+        }
+
         async runExpiarka() {
             this.pveModeStartGuard(
                 "exp"
@@ -7052,15 +7358,19 @@
                     this._int(map.y)
             };
 
-            const reachable =
-                this.questKillPatrolOrder(
+            const plan =
+                this.expSweepPlan(
                     map,
                     start.x,
                     start.y
                 );
 
             if (
-                reachable.length === 0
+                !plan ||
+                !Array.isArray(
+                    plan.order
+                ) ||
+                plan.order.length === 0
             ) {
                 throw new Error(
                     "Expiarka: brak osiągalnych pól."
@@ -7071,9 +7381,13 @@
                 new Set();
             const state = {
                 start,
+                orientation:
+                    plan.orientation,
+                reachable:
+                    plan.reachableCount,
                 visited: 0,
                 moves: 0,
-                revisits: 0,
+                solverBridges: 0,
                 fights: 0,
                 singleFights: 0,
                 removed: 0
@@ -7086,176 +7400,239 @@
             this.syncPveModeButtons();
 
             this.setQuickPanelStatus(
-                "Expiarka START • " +
-                start.locationName +
-                " " +
-                start.x +
+                "Expiarka START • pasy " +
+                plan.orientation +
+                " • skraj " +
+                plan.first.x +
                 "|" +
-                start.y +
+                plan.first.y +
                 " • pola " +
-                reachable.length +
+                plan.reachableCount +
                 "."
             );
 
             console.info(
-                "[SW Tool][PVE] Expiarka — start:",
+                "[SW Tool][PVE] Expiarka — plan sweep:",
                 {
-                    ...state,
-                    reachableFields:
-                        reachable.length
+                    start,
+                    orientation:
+                        plan.orientation,
+                    bounds:
+                        plan.bounds,
+                    first:
+                        plan.first,
+                    last:
+                        plan.last,
+                    reachable:
+                        plan.reachableCount,
+                    estimatedBreaks:
+                        plan.breaks,
+                    score:
+                        plan.score
                 }
             );
 
             let operationError = null;
 
             try {
-                while (
-                    this.expRunning
-                ) {
-                    if (
-                        this._int(
-                            this.mapSolver?.map
-                                ?.locationId
-                        ) !==
-                        start.locationId
-                    ) {
-                        throw new Error(
-                            "Expiarka: postać opuściła mapę patrolu."
-                        );
+                // Najpierw czyścimy pole, na którym użytkownik uruchomił
+                // Expiarkę. Potem idziemy solverem do skrajnego początku
+                // wężyka i kontynuujemy pasami.
+                await this.expVisitField(
+                    state,
+                    visited,
+                    {
+                        x:
+                            this._int(
+                                this.mapSolver?.map?.x
+                            ),
+                        y:
+                            this._int(
+                                this.mapSolver?.map?.y
+                            )
                     }
+                );
 
-                    const currentX =
-                        this._int(
-                            this.mapSolver?.map?.x
-                        );
-                    const currentY =
-                        this._int(
-                            this.mapSolver?.map?.y
-                        );
-                    const currentKey =
-                        currentX +
+                for (
+                    let index = 0;
+                    index <
+                        plan.order.length &&
+                    this.expRunning;
+                    index++
+                ) {
+                    const target =
+                        plan.order[index];
+                    const targetKey =
+                        target.x +
                         "_" +
-                        currentY;
+                        target.y;
 
                     if (
-                        !visited.has(
-                            currentKey
+                        visited.has(
+                            targetKey
                         )
                     ) {
-                        visited.add(
-                            currentKey
-                        );
-                        state.visited =
-                            visited.size;
+                        continue;
+                    }
 
-                        const cleared =
-                            await this.expClearCurrentField(
-                                {
-                                    x:
-                                        currentX,
-                                    y:
-                                        currentY
-                                }
+                    while (
+                        this.expRunning
+                    ) {
+                        if (
+                            this._int(
+                                this.mapSolver?.map
+                                    ?.locationId
+                            ) !==
+                            start.locationId
+                        ) {
+                            throw new Error(
+                                "Expiarka: postać opuściła mapę patrolu."
                             );
+                        }
 
-                        state.fights +=
-                            this._int(
-                                cleared?.fights
+                        const current = {
+                            x:
+                                this._int(
+                                    this.mapSolver?.map?.x
+                                ),
+                            y:
+                                this._int(
+                                    this.mapSolver?.map?.y
+                                )
+                        };
+
+                        if (
+                            current.x ===
+                                target.x &&
+                            current.y ===
+                                target.y
+                        ) {
+                            await this.expVisitField(
+                                state,
+                                visited,
+                                current
                             );
-                        state.singleFights +=
-                            this._int(
-                                cleared?.singleFights
+                            break;
+                        }
+
+                        const dx =
+                            Math.abs(
+                                target.x -
+                                current.x
                             );
-                        state.removed +=
-                            this._int(
-                                cleared?.removed
+                        const dy =
+                            Math.abs(
+                                target.y -
+                                current.y
                             );
+                        let next = null;
+
+                        if (
+                            Math.max(
+                                dx,
+                                dy
+                            ) === 1
+                        ) {
+                            // Normalny krok wzdłuż pasa.
+                            next =
+                                target;
+                        } else {
+                            // Przeszkoda/dziura w pasie. Solver uzupełnia tylko
+                            // brakujący fragment i zwraca najkrótszą trasę.
+                            const bridge =
+                                this.mapSolver
+                                    .findShortestPath(
+                                        map,
+                                        current,
+                                        target
+                                    );
+
+                            if (
+                                !bridge ||
+                                bridge.length === 0
+                            ) {
+                                console.warn(
+                                    "[SW Tool][PVE] Expiarka — brak mostu solvera do pola:",
+                                    {
+                                        current,
+                                        target,
+                                        index
+                                    }
+                                );
+                                break;
+                            }
+
+                            next =
+                                bridge[0];
+                            state.solverBridges++;
+                        }
+
+                        const moved =
+                            await this.mapSolver
+                                .navigateTo(
+                                    next.x,
+                                    next.y,
+                                    {
+                                        source:
+                                            "pve-exp-sweep",
+                                        allowBusy: true
+                                    }
+                                );
 
                         if (
                             !this.expRunning
                         ) {
                             break;
                         }
-                    }
 
-                    const path =
-                        this.questKillPathToNearestUnvisited(
-                            map,
-                            currentX,
-                            currentY,
-                            visited
-                        );
-
-                    if (
-                        !path ||
-                        path.length === 0
-                    ) {
-                        break;
-                    }
-
-                    const next =
-                        path[0];
-                    const nextKey =
-                        next.x +
-                        "_" +
-                        next.y;
-
-                    if (
-                        visited.has(
-                            nextKey
-                        )
-                    ) {
-                        state.revisits++;
-                    }
-
-                    state.moves++;
-
-                    if (
-                        state.moves === 1 ||
-                        state.moves % 10 === 0 ||
-                        state.visited ===
-                            reachable.length
-                    ) {
-                        this.setQuickPanelStatus(
-                            "Expiarka • pola " +
-                            state.visited +
-                            "/" +
-                            reachable.length +
-                            " • ruchy " +
-                            state.moves +
-                            " • walki " +
-                            (
-                                state.singleFights +
-                                state.fights
-                            ) +
-                            "."
-                        );
-                    }
-
-                    const moved =
-                        await this.mapSolver
-                            .navigateTo(
-                                next.x,
-                                next.y,
-                                {
-                                    source:
-                                        "pve-exp",
-                                    allowBusy: true
-                                }
+                        if (
+                            !moved?.ok
+                        ) {
+                            throw new Error(
+                                "Expiarka: nie udało się wykonać kroku sweep."
                             );
+                        }
 
-                    if (
-                        !this.expRunning
-                    ) {
-                        break;
-                    }
+                        state.moves++;
 
-                    if (
-                        !moved?.ok
-                    ) {
-                        throw new Error(
-                            "Expiarka: nie udało się przejść na kolejne pole."
+                        // Każde nowe pole napotkane również na mostku solvera
+                        // czyścimy od razu. Dzięki temu przejście wokół przeszkody
+                        // nie tworzy martwego fragmentu mapy do późniejszego powrotu.
+                        await this.expVisitField(
+                            state,
+                            visited,
+                            {
+                                x:
+                                    this._int(
+                                        this.mapSolver?.map?.x
+                                    ),
+                                y:
+                                    this._int(
+                                        this.mapSolver?.map?.y
+                                    )
+                            }
                         );
+
+                        if (
+                            state.moves === 1 ||
+                            state.moves % 12 === 0 ||
+                            state.visited ===
+                                plan.reachableCount
+                        ) {
+                            this.setQuickPanelStatus(
+                                "Expiarka • " +
+                                plan.orientation +
+                                " • pola " +
+                                state.visited +
+                                "/" +
+                                plan.reachableCount +
+                                " • ruchy " +
+                                state.moves +
+                                " • mosty " +
+                                state.solverBridges +
+                                "."
+                            );
+                        }
                     }
                 }
             } catch (error) {
@@ -7347,10 +7724,14 @@
                       "|" +
                       end.y +
                       "."
-                    : "Expiarka zakończona • pola " +
+                    : "Expiarka zakończona • " +
+                      plan.orientation +
+                      " • pola " +
                       state.visited +
                       "/" +
-                      reachable.length +
+                      plan.reachableCount +
+                      " • mosty " +
+                      state.solverBridges +
                       " • zwykłe " +
                       state.singleFights +
                       "x • multi " +
@@ -7365,6 +7746,18 @@
                 "[SW Tool][PVE] Expiarka — koniec:",
                 {
                     ...state,
+                    plan: {
+                        orientation:
+                            plan.orientation,
+                        bounds:
+                            plan.bounds,
+                        first:
+                            plan.first,
+                        last:
+                            plan.last,
+                        estimatedBreaks:
+                            plan.breaks
+                    },
                     stoppedByUser,
                     end
                 }
