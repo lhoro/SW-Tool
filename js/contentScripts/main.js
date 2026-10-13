@@ -120,6 +120,7 @@
             this.expRunning = false;
             this.expStopRequested = false;
             this.expButton = null;
+            this.pveActionPointsExhausted = false;
             this.hTrackedVersion = 0;
             this.acceleratedHPending = false;
             this.currentQuestMove = null;
@@ -5584,6 +5585,16 @@
                             5000
                         );
 
+                    this.assertPveActionPoints(
+                        response,
+                        "walka"
+                    );
+
+                    this.assertPveActionPoints(
+                        response,
+                        "walka"
+                    );
+
                     if (
                         this._int(response.e) !== 0
                     ) {
@@ -5595,6 +5606,16 @@
                             "."
                         );
                     }
+
+                    this.assertPveActionPoints(
+                        response,
+                        "walka"
+                    );
+
+                    this.assertPveActionPoints(
+                        response,
+                        "walka"
+                    );
 
                     if (
                         this._int(response.me) > 0
@@ -5984,6 +6005,7 @@
             const visited =
                 new Set();
 
+            this.pveActionPointsExhausted = false;
             this.questKillRunning = true;
             this.questKillState = state;
             this.startQuestKillDomObserver();
@@ -6028,7 +6050,8 @@
             try {
                 while (
                     state.count <
-                        state.max
+                        state.max &&
+                    !this.pveActionPointsExhausted
                 ) {
                     if (
                         this._int(
@@ -6156,10 +6179,23 @@
                 }
             } catch (error) {
                 operationError = error;
-                console.error(
-                    "[SW Tool][PVE] Quest Kille — błąd patrolu:",
-                    error
-                );
+
+                if (
+                    this.isPveNoActionPointsError(
+                        error
+                    )
+                ) {
+                    this.pveActionPointsExhausted =
+                        true;
+                    this.setQuickPanelStatus(
+                        "Quest Kille STOP — brak punktów akcji."
+                    );
+                } else {
+                    console.error(
+                        "[SW Tool][PVE] Quest Kille — błąd patrolu:",
+                        error
+                    );
+                }
             } finally {
                 try {
                     const currentLocation =
@@ -6177,12 +6213,18 @@
                         );
 
                     if (
-                        currentLocation !==
-                            start.locationId ||
-                        currentX !==
-                            start.x ||
-                        currentY !==
-                            start.y
+                        !this.pveActionPointsExhausted &&
+                        !this.isPveNoActionPointsError(
+                            operationError
+                        ) &&
+                        (
+                            currentLocation !==
+                                start.locationId ||
+                            currentX !==
+                                start.x ||
+                            currentY !==
+                                start.y
+                        )
                     ) {
                         this.setQuickPanelStatus(
                             "Quest Kille: wracam na pole startowe " +
@@ -6300,6 +6342,187 @@
                     state.count >=
                     state.max
             };
+        }
+
+        normalizePveErrorText(value) {
+            return String(value || "")
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .toLowerCase()
+                .replace(/\s+/g, " ")
+                .trim();
+        }
+
+        pveActionPointFailureDetails(response) {
+            const texts = [];
+            let zeroCounter = false;
+            const seen = new Set();
+            let scanned = 0;
+
+            const scan = (value, key = "", depth = 0) => {
+                if (
+                    value === null ||
+                    value === undefined ||
+                    depth > 6 ||
+                    scanned >= 180
+                ) {
+                    return;
+                }
+
+                if (typeof value === "string") {
+                    if (value.trim()) texts.push(value);
+                    return;
+                }
+
+                if (typeof value === "number") {
+                    const normalizedKey =
+                        String(key || "")
+                            .toLowerCase()
+                            .replace(/[^a-z_]/g, "");
+
+                    if (
+                        value <= 0 &&
+                        [
+                            "ap",
+                            "pa",
+                            "action_points",
+                            "actionpoints",
+                            "action_point",
+                            "actionpoint"
+                        ].includes(normalizedKey)
+                    ) {
+                        zeroCounter = true;
+                    }
+                    return;
+                }
+
+                if (
+                    typeof value !== "object" ||
+                    seen.has(value)
+                ) {
+                    return;
+                }
+
+                seen.add(value);
+                scanned++;
+
+                if (Array.isArray(value)) {
+                    for (let index = 0; index < value.length; index++) {
+                        scan(
+                            value[index],
+                            String(index),
+                            depth + 1
+                        );
+                    }
+                    return;
+                }
+
+                for (const [nestedKey, nestedValue] of Object.entries(value)) {
+                    scan(
+                        nestedValue,
+                        nestedKey,
+                        depth + 1
+                    );
+                }
+            };
+
+            scan(response);
+
+            const visibleMessage =
+                document.querySelector("#kom_con")?.textContent;
+
+            if (
+                visibleMessage &&
+                String(visibleMessage).trim()
+            ) {
+                texts.push(visibleMessage);
+            }
+
+            const text =
+                this.normalizePveErrorText(
+                    texts.join(" | ")
+                );
+
+            const exhausted =
+                /brak.{0,40}punkt.{0,20}akcji/.test(text) ||
+                /za malo.{0,40}punkt.{0,20}akcji/.test(text) ||
+                /niewystarczaj.{0,40}punkt.{0,20}akcji/.test(text) ||
+                /nie masz.{0,50}punkt.{0,20}akcji/.test(text) ||
+                /punkt.{0,20}akcji.{0,40}(brak|za malo|niewystarczaj)/.test(text) ||
+                /brak.{0,20}\bpa\b/.test(text) ||
+                /za malo.{0,20}\bpa\b/.test(text) ||
+                /not enough.{0,30}action points?/.test(text) ||
+                /insufficient.{0,30}action points?/.test(text) ||
+                (
+                    this._int(response?.e) !== 0 &&
+                    zeroCounter
+                );
+
+            return {
+                exhausted,
+                text,
+                zeroCounter
+            };
+        }
+
+        isPveActionPointFailure(response) {
+            return Boolean(
+                this.pveActionPointFailureDetails(
+                    response
+                ).exhausted
+            );
+        }
+
+        createPveNoActionPointsError(
+            context = "akcja",
+            response = null
+        ) {
+            const error =
+                new Error(
+                    "Brak punktów akcji — zatrzymuję PVE (" +
+                    String(context) +
+                    ")."
+                );
+
+            error.code =
+                "PVE_NO_ACTION_POINTS";
+            error.response =
+                response;
+            return error;
+        }
+
+        isPveNoActionPointsError(error) {
+            return Boolean(
+                error &&
+                (
+                    error.code ===
+                        "PVE_NO_ACTION_POINTS" ||
+                    String(
+                        error.message || ""
+                    ).includes(
+                        "Brak punktów akcji"
+                    )
+                )
+            );
+        }
+
+        assertPveActionPoints(
+            response,
+            context
+        ) {
+            if (
+                this.isPveActionPointFailure(
+                    response
+                )
+            ) {
+                this.pveActionPointsExhausted =
+                    true;
+
+                throw this.createPveNoActionPointsError(
+                    context,
+                    response
+                );
+            }
         }
 
         syncPveModeButtons() {
@@ -6548,6 +6771,7 @@
                 );
             }
 
+            this.pveActionPointsExhausted = false;
             this.respawnRunning = true;
             this.syncPveModeButtons();
 
@@ -6645,6 +6869,18 @@
             } catch (error) {
                 operationError =
                     error;
+
+                if (
+                    this.isPveNoActionPointsError(
+                        error
+                    )
+                ) {
+                    this.pveActionPointsExhausted =
+                        true;
+                    this.setQuickPanelStatus(
+                        "Respiarka STOP — brak punktów akcji."
+                    );
+                }
             } finally {
                 this.respawnRunning =
                     false;
@@ -6841,6 +7077,16 @@
                             5000
                         );
 
+                    this.assertPveActionPoints(
+                        response,
+                        "walka"
+                    );
+
+                    this.assertPveActionPoints(
+                        response,
+                        "walka"
+                    );
+
                     if (
                         this._int(
                             response.e
@@ -6850,6 +7096,16 @@
                             "Expiarka: serwer odrzucił multiwalkę."
                         );
                     }
+
+                    this.assertPveActionPoints(
+                        response,
+                        "walka"
+                    );
+
+                    this.assertPveActionPoints(
+                        response,
+                        "walka"
+                    );
 
                     if (
                         this._int(
@@ -7393,6 +7649,8 @@
                 removed: 0
             };
 
+            this.pveActionPointsExhausted =
+                false;
             this.expRunning =
                 true;
             this.expStopRequested =
@@ -7638,6 +7896,18 @@
             } catch (error) {
                 operationError =
                     error;
+
+                if (
+                    this.isPveNoActionPointsError(
+                        error
+                    )
+                ) {
+                    this.pveActionPointsExhausted =
+                        true;
+                    this.setQuickPanelStatus(
+                        "Expiarka STOP — brak punktów akcji."
+                    );
+                }
             }
 
             const stoppedByUser =
@@ -7645,7 +7915,8 @@
 
             if (
                 !stoppedByUser &&
-                !operationError
+                !operationError &&
+                !this.pveActionPointsExhausted
             ) {
                 try {
                     const currentLocation =
