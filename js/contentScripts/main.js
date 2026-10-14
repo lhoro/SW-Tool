@@ -11,11 +11,39 @@
         expKillChampions: false,
         expKillElites: false,
         expKillBosses: false,
+        debugLogs: false,
         preferTraining: true
     });
 
     let BOT = null;
     let pendingConfig = { ...DEFAULT_CONFIG };
+
+    window.SW_TOOL_DEBUG_LOGS = false;
+
+    const toolConsole = (
+        level,
+        ...args
+    ) => {
+        if (
+            window.SW_TOOL_DEBUG_LOGS !==
+                true
+        ) {
+            return;
+        }
+
+        const method =
+            globalThis.console?.[level];
+
+        if (
+            typeof method ===
+                "function"
+        ) {
+            method.apply(
+                globalThis.console,
+                args
+            );
+        }
+    };
 
     const normalizeConfig = (config) => {
         const source = config && typeof config === "object" ? config : {};
@@ -51,6 +79,9 @@
             expKillBosses: typeof source.expKillBosses === "boolean"
                 ? source.expKillBosses
                 : DEFAULT_CONFIG.expKillBosses,
+            debugLogs: typeof source.debugLogs === "boolean"
+                ? source.debugLogs
+                : DEFAULT_CONFIG.debugLogs,
             preferTraining: typeof source.preferTraining === "boolean"
                 ? source.preferTraining
                 : DEFAULT_CONFIG.preferTraining
@@ -172,7 +203,7 @@
                 ? cachedChars
                 : [];
 
-            console.log("[SW Tool][PAGE] Cache postaci:", this.chars);
+            toolConsole("log", "[SW Tool][PAGE] Cache postaci:", this.chars);
         }
 
         applyConfig(config) {
@@ -181,8 +212,12 @@
                 ...config
             });
 
+            window.SW_TOOL_DEBUG_LOGS =
+                this.config.debugLogs ===
+                true;
+
             setReportsHidden(this.config.hideReports);
-            console.log("[SW Tool][PAGE] Zastosowano konfigurację:", this.config);
+            toolConsole("log", "[SW Tool][PAGE] Zastosowano konfigurację:", this.config);
         }
 
         syncCharactersFromResponse(response) {
@@ -225,7 +260,7 @@
                 (char) => Number(char.id) === activeId
             );
 
-            console.info("[SW Tool][PAGE] RX lista postaci:", {
+            toolConsole("info", "[SW Tool][PAGE] RX lista postaci:", {
                 count: this.chars.length,
                 activeId
             });
@@ -240,7 +275,7 @@
             }
 
             if (reason) {
-                console.warn("[SW Tool][PAGE] Zmiana postaci przerwana:", reason);
+                toolConsole("warn", "[SW Tool][PAGE] Zmiana postaci przerwana:", reason);
             }
 
             this.characterSwitch = null;
@@ -248,19 +283,19 @@
 
         switchRelative(delta) {
             if (this.accountOperationRunning || this.quickActionRunning) {
-                console.info("[SW Tool][PAGE] Trwa inna operacja.");
+                toolConsole("info", "[SW Tool][PAGE] Trwa inna operacja.");
                 return;
             }
 
             if (this.dailyRewardClaimStage !== 0 || this.responseWaiter) {
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][PAGE] Trwa poprzednie zapytanie — zmiana postaci poczeka."
                 );
                 return;
             }
 
             if (this.characterSwitch) {
-                console.info("[SW Tool][PAGE] Zmiana postaci już trwa.");
+                toolConsole("info", "[SW Tool][PAGE] Zmiana postaci już trwa.");
                 return;
             }
 
@@ -272,12 +307,12 @@
             );
 
             if (sourceId <= 0) {
-                console.warn("[SW Tool][PAGE] Brak aktywnej postaci do zmiany.");
+                toolConsole("warn", "[SW Tool][PAGE] Brak aktywnej postaci do zmiany.");
                 return;
             }
 
             if (!Array.isArray(this.chars) || this.chars.length === 0) {
-                console.warn("[SW Tool][PAGE] Brak zapisanej listy postaci.");
+                toolConsole("warn", "[SW Tool][PAGE] Brak zapisanej listy postaci.");
                 return;
             }
 
@@ -286,7 +321,7 @@
             );
 
             if (sourceIndex < 0) {
-                console.warn(
+                toolConsole("warn", 
                     "[SW Tool][PAGE] Aktualnej postaci nie ma w zapisanej liście:",
                     sourceId
                 );
@@ -299,7 +334,7 @@
             const targetId = Number(this.chars[targetIndex]?.id || 0);
 
             if (targetId <= 0 || targetId === sourceId) {
-                console.warn("[SW Tool][PAGE] Brak innej postaci do przełączenia.");
+                toolConsole("warn", "[SW Tool][PAGE] Brak innej postaci do przełączenia.");
                 return;
             }
 
@@ -314,7 +349,7 @@
                 this.clearCharacterSwitch("timeout odpowiedzi serwera");
             }, 15000);
 
-            console.info("[SW Tool][PAGE] TX bezpośrednia zmiana postaci:", {
+            toolConsole("info", "[SW Tool][PAGE] TX bezpośrednia zmiana postaci:", {
                 a: 2,
                 char_id: targetId,
                 sourceId,
@@ -506,7 +541,7 @@
                     currentChar.data.icd_5 = used;
                 }
 
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][RONIN] Limit dzienny z serwera:",
                     {
                         charId: currentId,
@@ -522,7 +557,7 @@
                 this._int(response.instance) === 5
             ) {
                 this.roninFinishedAt = Date.now();
-                console.info("[SW Tool][RONIN] Instancja zakończona.", {
+                toolConsole("info", "[SW Tool][RONIN] Instancja zakończona.", {
                     done: response.done,
                     share: response.share
                 });
@@ -557,7 +592,7 @@
                         (char) => Number(char.id) === pending.targetId
                     );
 
-                    console.info("[SW Tool][PAGE] RX zmiana postaci potwierdzona:", {
+                    toolConsole("info", "[SW Tool][PAGE] RX zmiana postaci potwierdzona:", {
                         a: 2,
                         char_id: pending.targetId
                     });
@@ -598,7 +633,7 @@
                 locations: {}
             };
             storageSetItem("portalMap", empty);
-            console.info("[SW Tool][PORTALS] Rejestr portali wyczyszczony.");
+            toolConsole("info", "[SW Tool][PORTALS] Rejestr portali wyczyszczony.");
             return empty;
         }
 
@@ -725,7 +760,7 @@
                 0
             );
 
-            console.info("[SW Tool][PORTALS] Zapisano mapę:", {
+            toolConsole("info", "[SW Tool][PORTALS] Zapisano mapę:", {
                 locationId,
                 locationName: current.name,
                 portalsOnMap: current.portals.length,
@@ -835,7 +870,7 @@
                 this.roninQuestFromMapResponse(response);
 
             if (!found || found.qbId <= 0) {
-                console.warn(
+                toolConsole("warn", 
                     "[SW Tool][RONIN] Mapa instancji bez rozpoznanego qb_id.",
                     {
                         charId: this._int(
@@ -855,7 +890,7 @@
             this.roninQuestId = found.qbId;
             this.currentRoninQuestStep = null;
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][RONIN] Quest startowy z mapy:",
                 {
                     qbId: found.qbId,
@@ -891,7 +926,7 @@
                     this.roninQuestId =
                         recovered.qbId;
 
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][RONIN] Quest startowy odzyskany z cache mapy:",
                         {
                             qbId: recovered.qbId,
@@ -914,11 +949,11 @@
         }
 
         gameDebug() {
-            console.log("Game ID " + GAME.char_id);
-            console.log("Char ID " + this.currentCharacterId);
-            console.log("INDEX " + this.currentCharacterIndex);
-            console.log(this.chars);
-            console.log(GAME);
+            toolConsole("log", "Game ID " + GAME.char_id);
+            toolConsole("log", "Char ID " + this.currentCharacterId);
+            toolConsole("log", "INDEX " + this.currentCharacterIndex);
+            toolConsole("log", this.chars);
+            toolConsole("log", GAME);
         }
 
         updateID() {
@@ -937,7 +972,7 @@
                     (char) => Number(char.id) === gameCharacterId
                 );
 
-                console.info("[SW Tool][PAGE] Zmiana postaci:", {
+                toolConsole("info", "[SW Tool][PAGE] Zmiana postaci:", {
                     charId: this.currentCharacterId,
                     charIndex: this.currentCharacterIndex
                 });
@@ -1002,7 +1037,7 @@
                         throw new Error("Socket.IO nie jest połączone.");
                     }
 
-                    console.info("[SW Tool][PAGE] Daily reward TX:", {
+                    toolConsole("info", "[SW Tool][PAGE] Daily reward TX:", {
                         a: 26,
                         type: 0,
                         charId: characterId
@@ -1014,7 +1049,7 @@
                     });
                     this.armDailyRewardTimeout();
                 } catch (error) {
-                    console.error(
+                    toolConsole("error", 
                         "[SW Tool][PAGE] Nie udało się pobrać danych nagrody dziennej:",
                         error
                     );
@@ -1045,7 +1080,7 @@
 
             const error = this._int(response.e);
             if (error !== 0) {
-                console.error(
+                toolConsole("error", 
                     "[SW Tool][PAGE] Serwer odrzucił operację nagrody dziennej:",
                     { e: error, stage: this.dailyRewardClaimStage }
                 );
@@ -1055,7 +1090,7 @@
 
             if (this.dailyRewardClaimStage === 1) {
                 if (!Array.isArray(response.daily_data)) {
-                    console.error(
+                    toolConsole("error", 
                         "[SW Tool][PAGE] Serwer nie zwrócił daily_data dla nagrody dziennej."
                     );
                     this.resetDailyRewardClaim("brak daily_data");
@@ -1069,7 +1104,7 @@
                         throw new Error("Socket.IO nie jest połączone.");
                     }
 
-                    console.info("[SW Tool][PAGE] Daily reward TX:", {
+                    toolConsole("info", "[SW Tool][PAGE] Daily reward TX:", {
                         a: 26,
                         type: 1,
                         charId: characterId
@@ -1081,7 +1116,7 @@
                     });
                     this.armDailyRewardTimeout();
                 } catch (error) {
-                    console.error(
+                    toolConsole("error", 
                         "[SW Tool][PAGE] Nie udało się odebrać nagrody dziennej:",
                         error
                     );
@@ -1101,7 +1136,7 @@
             this.dailyRewardClaimTimeout = setTimeout(() => {
                 if (this.dailyRewardClaimStage === 0) return;
 
-                console.warn(
+                toolConsole("warn", 
                     "[SW Tool][PAGE] Timeout operacji nagrody dziennej:",
                     {
                         stage: this.dailyRewardClaimStage,
@@ -1130,7 +1165,7 @@
                 this.currentQuickOptionsFresh = true;
             }
 
-            console.info("[SW Tool][PAGE] Nagroda dzienna odebrana:", {
+            toolConsole("info", "[SW Tool][PAGE] Nagroda dzienna odebrana:", {
                 charId: characterId,
                 source
             });
@@ -1151,7 +1186,7 @@
             this.dailyRewardClaimCharacterId = 0;
 
             if (reason) {
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][PAGE] Reset odbioru nagrody dziennej:",
                     reason
                 );
@@ -1169,7 +1204,7 @@
             if (currentHour < 18 || currentHour >= 21) return;
 
             setTimeout(() => {
-                console.info("[SW Tool][PAGE] Legacy tournament registration start.");
+                toolConsole("info", "[SW Tool][PAGE] Legacy tournament registration start.");
                 const instMenu = document.getElementsByClassName("select_page");
                 const tournamentMenu = instMenu[22];
 
@@ -1603,7 +1638,7 @@
                 try {
                     callback();
                 } catch (error) {
-                    console.warn(
+                    toolConsole("warn", 
                         "[SW Tool][RONIN] Zaplanowana akcja nie powiodła się:",
                         error
                     );
@@ -1660,7 +1695,7 @@
                 this._int(this.mapSolver?.map?.locationId) === 193
             ) {
                 if (this.roninQuestId !== qbId) {
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][RONIN] Zmiana qb_id z q_step:",
                         {
                             from: this.roninQuestId,
@@ -1777,7 +1812,7 @@
                 })
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][QUEST] Wykonano jednoznaczną akcję.",
                 {
                     source,
@@ -1874,7 +1909,7 @@
             const pending = this.improvedXHPending;
             this.improvedXHPending = null;
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][X] Zwolniono oczekiwanie H.",
                 {
                     ...pending,
@@ -1999,7 +2034,7 @@
                     max
                 );
 
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][X] H jest już zaliczone — przechodzę do następnej akcji questa.",
                     {
                         id,
@@ -2068,7 +2103,7 @@
                 // W takim stanie NIE wysyłamy H i NIE klikamy starego przycisku
                 // z DOM. X trafia do gry, aby klient otworzył/odświeżył etap.
                 if (hQuest.ready !== true) {
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][X] H czeka na q_step aktywnego etapu — przepuszczam X do gry.",
                         {
                             id: hQuest.id,
@@ -2089,7 +2124,7 @@
                 // jest zamknięte, pierwsze X zostawiamy klientowi gry.
                 // Dopiero kolejne X, przy widocznym .quest_win, wysyła pełne H.
                 if (!this.improvedXQuestWindowOpen()) {
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][X] Quest H aktywny, ale okno questa jest zamknięte — pierwsze X otwiera okno.",
                         {
                             id: hQuest.id,
@@ -2183,7 +2218,7 @@
                         );
                     }
 
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][X] Quest H wysłany bez blokującego waitera.",
                         {
                             id: hQuest.id,
@@ -2207,7 +2242,7 @@
 
                     return true;
                 } catch (error) {
-                    console.error(
+                    toolConsole("error", 
                         "[SW Tool][X] Automatyczne H nie powiodło się:",
                         error
                     );
@@ -2236,7 +2271,7 @@
             const actions = this.improvedXQuestActions();
 
             if (actions.length > 1) {
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][X] Wiele opcji questa — wybór pozostawiony graczowi.",
                     { count: actions.length }
                 );
@@ -2288,7 +2323,7 @@
                 }
 
                 if (Boolean(want.is_met)) {
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][RONIN] Etap czasowy gotowy.",
                         {
                             type: this._int(want.type),
@@ -2397,7 +2432,7 @@
                     quick: 1
                 };
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][RONIN] Walka z mobami:",
                 {
                     mode: useMulti ? "multi" : "single",
@@ -2566,7 +2601,7 @@
                     wantType === 1 &&
                     !isMet
                 ) {
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][RONIN] Etap przeciwników gotowy.",
                         {
                             qbId: this._int(step.qb_id),
@@ -2735,7 +2770,7 @@
                 );
             }
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][RONIN] Etap przeciwników zakończony.",
                 {
                     questId,
@@ -2791,7 +2826,7 @@
                 wantType === 7 &&
                 !isMet
             ) {
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][RONIN] Akcja questa: walka socketowa.",
                     {
                         qbId: questId,
@@ -2848,7 +2883,7 @@
                 );
             }
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][RONIN] Akcja questa: Dalej socketowo.",
                 {
                     qbId: questId,
@@ -2945,7 +2980,7 @@
                 y <= 0
             ) {
                 this.currentQuestMove = null;
-                console.info("[SW Tool][QUEST] Cel ruchu wyczyszczony.", {
+                toolConsole("info", "[SW Tool][QUEST] Cel ruchu wyczyszczony.", {
                     qbId,
                     version: this.questMoveVersion
                 });
@@ -2966,7 +3001,7 @@
                 locationId === 193
             ) {
                 if (this.roninQuestId !== qbId) {
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][RONIN] Wykryto zmianę qb_id z quest_move:",
                         {
                             from: this.roninQuestId,
@@ -2979,7 +3014,7 @@
                 this.currentRoninQuestStep = null;
             }
 
-            console.info("[SW Tool][QUEST] Nowy cel ruchu:", {
+            toolConsole("info", "[SW Tool][QUEST] Nowy cel ruchu:", {
                 ...this.currentQuestMove
             });
         }
@@ -3023,7 +3058,7 @@
             const move = await this.waitForRoninQuestMove(4000);
 
             if (!move) {
-                console.warn(
+                toolConsole("warn", 
                     "[SW Tool][RONIN] Brak nowego quest_move — używam starej trasy.",
                     {
                         label,
@@ -3066,7 +3101,7 @@
                 "..."
             );
 
-            console.info("[SW Tool][RONIN] Solver do quest_move:", {
+            toolConsole("info", "[SW Tool][RONIN] Solver do quest_move:", {
                 label,
                 ...move
             });
@@ -3197,7 +3232,7 @@
 
                         this.acceleratedHPending = false;
 
-                        console.info(
+                        toolConsole("info", 
                             "[SW Tool][H] Stan z tracked:",
                             this.currentHTracked
                         );
@@ -3379,7 +3414,7 @@
                 cnt: amount
             };
 
-            console.info("[SW Tool][H] TX pełne H:", order);
+            toolConsole("info", "[SW Tool][H] TX pełne H:", order);
 
             if (waitForResponse) {
                 const expectedTotal = Math.min(
@@ -3505,7 +3540,7 @@
                 return false;
             }
 
-            console.info("[SW Tool][H] Przyśpieszone H socket:", {
+            toolConsole("info", "[SW Tool][H] Przyśpieszone H socket:", {
                 id: this.currentHQuest.id,
                 count: this.currentHQuest.count,
                 max: this.currentHQuest.max,
@@ -3580,7 +3615,7 @@
                 );
             }
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][RONIN] H zaliczone i krok odświeżony.",
                 {
                     id: quest.id,
@@ -3634,7 +3669,7 @@
                         (charLocation > 0 && charLocation !== 193)
                     )
                 ) {
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][RONIN] Powrót z instancji potwierdzony:",
                         {
                             mapLocation,
@@ -3656,7 +3691,7 @@
                 return true;
             }
 
-            console.warn(
+            toolConsole("warn", 
                 "[SW Tool][RONIN] Brak potwierdzenia powrotu z instancji — odświeżam postać.",
                 {
                     characterId,
@@ -3742,7 +3777,7 @@
                 this._int(ronin.daily_limit) || 2
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][RONIN] Definicja instancji:",
                 {
                     id: this._int(ronin.id),
@@ -3795,7 +3830,7 @@
                 return used;
             }
 
-            console.warn(
+            toolConsole("warn", 
                 "[SW Tool][RONIN] Brak push icd_5 — odświeżam postać z serwera.",
                 {
                     characterId,
@@ -3984,7 +4019,7 @@
                 );
             }
 
-            console.info("[SW Tool][RONIN] Wejście potwierdzone:", {
+            toolConsole("info", "[SW Tool][RONIN] Wejście potwierdzone:", {
                 instance: RONIN_INSTANCE_ID,
                 room: roomId,
                 location: RONIN_LOCATION_ID
@@ -4127,7 +4162,7 @@
 
                 const returned = await this.waitForRoninReturn();
                 if (!returned) {
-                    console.warn(
+                    toolConsole("warn", 
                         "[SW Tool][RONIN] Nie potwierdzono jeszcze powrotu z mapy instancji."
                     );
                 }
@@ -4303,7 +4338,7 @@
                             : String(error);
 
                     warnings.push(name + ": " + message);
-                    console.warn(
+                    toolConsole("warn", 
                         "[SW Tool][QUICK ALL] " +
                         name +
                         " nie powiodło się:",
@@ -4380,7 +4415,7 @@
                         ? error.message
                         : String(error);
 
-                console.error(
+                toolConsole("error", 
                     "[SW Tool][QUICK ALL] Ronin nie zakończył się poprawnie — zatrzymuję Quick ALL:",
                     error
                 );
@@ -4776,7 +4811,7 @@
                 " ✓"
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Quest Kille — progres z trackera klienta:",
                 {
                     before,
@@ -5140,7 +5175,7 @@
                     )
                 );
 
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][PVE] Quest Kille — progres:",
                     {
                         questId:
@@ -5499,7 +5534,7 @@
                 ) &&
                 field.multiFight.includes(0);
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Quest Kille — pole:",
                 {
                     x: point.x,
@@ -5647,7 +5682,7 @@
                     if (
                         this._int(response.me) > 0
                     ) {
-                        console.info(
+                        toolConsole("info", 
                             "[SW Tool][PVE] Quest Kille — zwykła walka zakończona kodem me:",
                             {
                                 x: point.x,
@@ -5713,7 +5748,7 @@
                     if (
                         this._int(response.me) > 0
                     ) {
-                        console.info(
+                        toolConsole("info", 
                             "[SW Tool][PVE] Quest Kille — koniec multi na polu:",
                             {
                                 x: point.x,
@@ -5768,7 +5803,7 @@
                         );
 
                     if (!progressed) {
-                        console.debug(
+                        toolConsole("debug", 
                             "[SW Tool][PVE] Quest Kille — walka usunęła moby, ale tracker nie zwiększył licznika.",
                             {
                                 action:
@@ -5854,7 +5889,7 @@
                     !wasMulti &&
                     multiAvailable
                 ) {
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][PVE] Quest Kille — multiwalka odblokowana:",
                         {
                             x: point.x,
@@ -6063,7 +6098,7 @@
                 "."
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Quest Kille — start oszczędnego patrolu:",
                 {
                     ...state,
@@ -6218,7 +6253,7 @@
                         "Quest Kille STOP — brak punktów akcji."
                     );
                 } else {
-                    console.error(
+                    toolConsole("error", 
                         "[SW Tool][PVE] Quest Kille — błąd patrolu:",
                         error
                     );
@@ -6274,7 +6309,7 @@
                             );
                     }
                 } catch (returnError) {
-                    console.error(
+                    toolConsole("error", 
                         "[SW Tool][PVE] Quest Kille — nie udało się wrócić na start:",
                         returnError
                     );
@@ -6379,7 +6414,7 @@
                 );
             }
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Quest Kille — koniec:",
                 state
             );
@@ -7226,7 +7261,7 @@
                 };
             }
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Respiarka — zrespione moby z a:602:",
                 {
                     x:
@@ -7314,7 +7349,7 @@
                         error !== 0 ||
                         me > 0
                     ) {
-                        console.warn(
+                        toolConsole("warn", 
                             "[SW Tool][PVE] Respiarka — serwer odrzucił znany cel z a:602:",
                             {
                                 x:
@@ -7365,7 +7400,7 @@
                             killed
                         );
 
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][PVE] Respiarka — socket kill:",
                         {
                             x:
@@ -7486,7 +7521,7 @@
                 );
             }
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Respiarka — pole:",
                 {
                     x:
@@ -7770,7 +7805,7 @@
                 )
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Respiarka — start:",
                 {
                     locationId:
@@ -8034,7 +8069,7 @@
                 );
             }
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Respiarka — stop:",
                 {
                     ...state,
@@ -8272,7 +8307,7 @@
                             killed;
                     }
 
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][PVE] Expiarka — advanced socket kill:",
                         {
                             x:
@@ -9517,7 +9552,7 @@
                 "."
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Expiarka — plan segmentowy:",
                 {
                     start,
@@ -10153,7 +10188,7 @@
                     : "success"
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][PVE] Expiarka — koniec:",
                 {
                     ...state,
@@ -10327,7 +10362,7 @@
                     "Nieznana szybka akcja: " + String(action)
                 );
             } catch (error) {
-                console.error(
+                toolConsole("error", 
                     "[SW Tool][QUICK] Akcja nie powiodła się:",
                     action,
                     error
@@ -10562,7 +10597,7 @@
                                 action
                             ).catch(
                                 (error) => {
-                                    console.warn(
+                                    toolConsole("warn", 
                                         "[SW Tool][QUICK] Nie można uruchomić akcji:",
                                         action,
                                         error
@@ -10618,7 +10653,7 @@
                     () => {
                         this.runQuestKills().catch(
                             (error) => {
-                                console.error(
+                                toolConsole("error", 
                                     "[SW Tool][PVE] Quest Kille nie powiodło się:",
                                     error
                                 );
@@ -10644,7 +10679,7 @@
                         this.toggleRespawner()
                             .catch(
                                 (error) => {
-                                    console.error(
+                                    toolConsole("error", 
                                         "[SW Tool][PVE] Respiarka nie powiodła się:",
                                         error
                                     );
@@ -10667,7 +10702,7 @@
                         this.toggleExpiarka()
                             .catch(
                                 (error) => {
-                                    console.error(
+                                    toolConsole("error", 
                                         "[SW Tool][PVE] Expiarka nie powiodła się:",
                                         error
                                     );
@@ -10823,7 +10858,7 @@
                             "PVP: Quick Atak — panel gotowy, mechanika będzie dodana w kolejnym kroku."
                         );
 
-                        console.info(
+                        toolConsole("info", 
                             "[SW Tool][PVP] Quick Atak — mechanika oczekuje na implementację."
                         );
                     }
@@ -10958,7 +10993,7 @@
             this.responseWaiter = null;
             clearTimeout(waiter.timeoutId);
 
-            console.info("[SW Tool][ACCOUNT] RX GR:", {
+            toolConsole("info", "[SW Tool][ACCOUNT] RX GR:", {
                 a: this._int(response.a),
                 type: response.type,
                 e: response.e
@@ -11034,7 +11069,7 @@
                             : {})
                     };
 
-                    console.info("[SW Tool][ACCOUNT] TX GA:", safeOrder);
+                    toolConsole("info", "[SW Tool][ACCOUNT] TX GA:", safeOrder);
 
                     if (!GAME.socket?.connected) {
                         throw new Error("Socket.IO nie jest połączone.");
@@ -11207,7 +11242,7 @@
                     response =
                         this.currentCharacterSnapshot;
 
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][ACCOUNT] a:2 potwierdzone stanem klienta po timeout.",
                         {
                             char_id: targetId,
@@ -11220,7 +11255,7 @@
                             ? error.message
                             : String(error);
 
-                    console.warn(
+                    toolConsole("warn", 
                         "[SW Tool][ACCOUNT] Zmiana postaci nie została potwierdzona — ponawiam synchronizację.",
                         {
                             char_id: targetId,
@@ -11290,7 +11325,7 @@
                 settleMs
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][ACCOUNT] Postać gotowa:",
                 {
                     char_id: targetId,
@@ -11361,7 +11396,7 @@
             }
 
             try {
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][ACCOUNT] Nagroda dzienna — odbieranie:",
                     {
                         character: characterName,
@@ -11440,7 +11475,7 @@
                     }
                 }, 400);
 
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][ACCOUNT] Nagroda dzienna odebrana:",
                     {
                         character: characterName,
@@ -11455,7 +11490,7 @@
                     throw error;
                 }
 
-                console.warn(
+                toolConsole("warn", 
                     "[SW Tool][ACCOUNT] Nagroda dzienna — " +
                     characterName + ":",
                     error
@@ -11610,7 +11645,7 @@
             try {
                 await this.switchCharacterForAccountAction(originalId);
             } catch (error) {
-                console.warn("[SW Tool][ACCOUNT] Przywrócenie postaci:", error);
+                toolConsole("warn", "[SW Tool][ACCOUNT] Przywrócenie postaci:", error);
             }
         }
 
@@ -11634,7 +11669,7 @@
                     const label = char.name || ("#" + id);
                     const now = Math.floor(Date.now() / 1000);
 
-                    console.info("[SW Tool][ACCOUNT] Turnieje " + (i + 1) + "/" + characters.length + ": " + label);
+                    toolConsole("info", "[SW Tool][ACCOUNT] Turnieje " + (i + 1) + "/" + characters.length + ": " + label);
 
                     if (Number(char.data?.tutSaveUntil || 0) > now) {
                         skipped++;
@@ -11681,14 +11716,14 @@
                         joined++;
                     } catch (error) {
                         failed++;
-                        console.warn("[SW Tool][ACCOUNT] Turnieje — " + label + ":", error);
+                        toolConsole("warn", "[SW Tool][ACCOUNT] Turnieje — " + label + ":", error);
                     }
                 }
             } finally {
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Turnieje zakończone:", {
+            toolConsole("info", "[SW Tool][ACCOUNT] Turnieje zakończone:", {
                 joined,
                 skipped,
                 failed,
@@ -11882,7 +11917,7 @@
                         }
 
                         status.textContent = "Weryfikacja zakończona.";
-                        console.info(
+                        toolConsole("info", 
                             "[SW Tool][ACCOUNT] Turnstile potwierdzony dla treningu."
                         );
 
@@ -11938,13 +11973,13 @@
             let captchaToken = null;
             const captchaRequired = this._enabled(trainingData.captcha);
 
-            console.info("[SW Tool][ACCOUNT] Sprawdzenie Turnstile:", {
+            toolConsole("info", "[SW Tool][ACCOUNT] Sprawdzenie Turnstile:", {
                 character: characterName,
                 required: captchaRequired
             });
 
             if (captchaRequired) {
-                console.info(
+                toolConsole("info", 
                     "[SW Tool][ACCOUNT] Trening wymaga Turnstile:",
                     characterName
                 );
@@ -12007,7 +12042,7 @@
                 for (let i = 0; i < characters.length; i++) {
                     const char = characters[i];
                     const label = char.name || ("#" + Number(char.id));
-                    console.info("[SW Tool][ACCOUNT] Treningi " + (i + 1) + "/" + characters.length + ": " + label);
+                    toolConsole("info", "[SW Tool][ACCOUNT] Treningi " + (i + 1) + "/" + characters.length + ": " + label);
 
                     try {
                         await this.switchCharacterForAccountAction(
@@ -12038,7 +12073,7 @@
                         }
 
                         failed++;
-                        console.warn("[SW Tool][ACCOUNT] Treningi — " + label + ":", error);
+                        toolConsole("warn", "[SW Tool][ACCOUNT] Treningi — " + label + ":", error);
                     } finally {
                         // Nie przechodzimy od razu do kolejnego a:5/a:2.
                         await this.sleep(200);
@@ -12048,7 +12083,7 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Treningi zakończone:", {
+            toolConsole("info", "[SW Tool][ACCOUNT] Treningi zakończone:", {
                 started,
                 skipped,
                 failed,
@@ -12123,7 +12158,7 @@
                     }
 
                     failed++;
-                    console.warn(
+                    toolConsole("warn", 
                         "[SW Tool][ACCOUNT] Arena PvP — atak " +
                         index + ":",
                         error
@@ -12148,7 +12183,7 @@
                 for (let i = 0; i < characters.length; i++) {
                     const char = characters[i];
                     const label = char.name || ("#" + Number(char.id));
-                    console.info("[SW Tool][ACCOUNT] Arena PvP " + (i + 1) + "/" + characters.length + ": " + label);
+                    toolConsole("info", "[SW Tool][ACCOUNT] Arena PvP " + (i + 1) + "/" + characters.length + ": " + label);
 
                     try {
                         await this.switchCharacterForAccountAction(
@@ -12182,7 +12217,7 @@
                         }
 
                         failed++;
-                        console.warn("[SW Tool][ACCOUNT] Arena PvP — " + label + ":", error);
+                        toolConsole("warn", "[SW Tool][ACCOUNT] Arena PvP — " + label + ":", error);
                     } finally {
                         // Zostawiamy 200 ms po zakończeniu pracy na postaci,
                         // zanim rozpocznie się kolejne a:5/a:2.
@@ -12193,7 +12228,7 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Arena PvP zakończona:", {
+            toolConsole("info", "[SW Tool][ACCOUNT] Arena PvP zakończona:", {
                 attacked,
                 skipped,
                 timedSkipped,
@@ -12245,7 +12280,7 @@
                 for (let i = 0; i < characters.length; i++) {
                     const char = characters[i];
                     const label = char.name || ("#" + Number(char.id));
-                    console.info("[SW Tool][ACCOUNT] Otchłań " + (i + 1) + "/" + characters.length + ": " + label);
+                    toolConsole("info", "[SW Tool][ACCOUNT] Otchłań " + (i + 1) + "/" + characters.length + ": " + label);
 
                     try {
                         await this.switchCharacterForAccountAction(
@@ -12271,7 +12306,7 @@
                         }
 
                         failed++;
-                        console.warn("[SW Tool][ACCOUNT] Otchłań — " + label + ":", error);
+                        toolConsole("warn", "[SW Tool][ACCOUNT] Otchłań — " + label + ":", error);
                     } finally {
                         // 200 ms przed kolejną zmianą postaci.
                         await this.sleep(200);
@@ -12281,7 +12316,7 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Otchłań zakończona:", {
+            toolConsole("info", "[SW Tool][ACCOUNT] Otchłań zakończona:", {
                 attacked,
                 cooldown,
                 failed,
@@ -12312,7 +12347,7 @@
                     const label =
                         char.name || ("#" + Number(char.id));
 
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][ACCOUNT] Misje " +
                         (i + 1) +
                         "/" +
@@ -12342,7 +12377,7 @@
                         if (this.activeTimedActionsCount() > 0) {
                             skipped++;
                             timedSkipped++;
-                            console.info(
+                            toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Misje — " +
                                 label +
                                 ": pominięto, trwa akcja czasowa."
@@ -12362,7 +12397,7 @@
                                 continued++;
                             }
 
-                            console.info(
+                            toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Misje — " +
                                 label +
                                 ": " +
@@ -12371,7 +12406,7 @@
                         } else {
                             skipped++;
 
-                            console.info(
+                            toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Misje — " +
                                 label +
                                 ": " +
@@ -12384,7 +12419,7 @@
                         }
 
                         failed++;
-                        console.warn(
+                        toolConsole("warn", 
                             "[SW Tool][ACCOUNT] Misje — " +
                             label +
                             ":",
@@ -12404,7 +12439,7 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Misje zakończone:", {
+            toolConsole("info", "[SW Tool][ACCOUNT] Misje zakończone:", {
                 completed,
                 started,
                 continued,
@@ -12442,7 +12477,7 @@
                     const label =
                         char.name || ("#" + id);
 
-                    console.info(
+                    toolConsole("info", 
                         "[SW Tool][ACCOUNT] Ronin " +
                         (i + 1) +
                         "/" +
@@ -12475,7 +12510,7 @@
                         if (level < requiredLevel) {
                             skipped++;
                             levelSkipped++;
-                            console.info(
+                            toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Ronin — " +
                                 label +
                                 ": pominięto, poziom " +
@@ -12491,7 +12526,7 @@
 
                         if (used >= dailyLimit) {
                             skipped++;
-                            console.info(
+                            toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Ronin — " +
                                 label +
                                 ": pominięto, limit " +
@@ -12520,7 +12555,7 @@
                                 "..."
                             );
 
-                            console.info(
+                            toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Ronin — " +
                                 label +
                                 ": start próby " +
@@ -12548,7 +12583,7 @@
                             // Nie rozpoczynamy kolejnej próby na starej mapie 193.
                             await this.ensureRoninReturned(id);
 
-                            console.info(
+                            toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Ronin — " +
                                 label +
                                 ": próba zakończona, limit " +
@@ -12564,7 +12599,7 @@
                         }
 
                         failed++;
-                        console.warn(
+                        toolConsole("warn", 
                             "[SW Tool][ACCOUNT] Ronin — " +
                             label +
                             ":",
@@ -12581,7 +12616,7 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            console.info("[SW Tool][ACCOUNT] Ronin zakończony:", {
+            toolConsole("info", "[SW Tool][ACCOUNT] Ronin zakończony:", {
                 completed,
                 skipped,
                 levelSkipped,
@@ -12604,7 +12639,7 @@
             let failed = 0;
             let dailyClaimed = 0;
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][ACCOUNT ALL] Start.",
                 {
                     characters: characters.length,
@@ -12670,7 +12705,7 @@
                         }
 
                         failed++;
-                        console.warn(
+                        toolConsole("warn", 
                             "[SW Tool][ACCOUNT ALL] " +
                             label +
                             ":",
@@ -12717,7 +12752,7 @@
                 failed > 0 ? "" : "success"
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][ACCOUNT ALL] Zakończone.",
                 {
                     completed,
@@ -12785,7 +12820,7 @@
             Promise.resolve()
                 .then(runner)
                 .catch((error) => {
-                    console.error("[SW Tool][ACCOUNT] Operacja nie powiodła się:", action, error);
+                    toolConsole("error", "[SW Tool][ACCOUNT] Operacja nie powiodła się:", action, error);
                 })
                 .finally(() => {
                     if (this.trainingCaptchaWaiter?.cancel) {
@@ -12845,7 +12880,7 @@
                     entries.slice(-300);
             }
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][SOCKET CAPTURE][" +
                 direction +
                 "]",
@@ -12922,7 +12957,7 @@
                 incomingHandler
             );
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][SOCKET CAPTURE] START — wykonaj ręcznie walkę z championem, elitą i bossem."
             );
 
@@ -12958,7 +12993,7 @@
             originalEmit = null;
             incomingHandler = null;
 
-            console.info(
+            toolConsole("info", 
                 "[SW Tool][SOCKET CAPTURE] STOP — wpisz SW_TOOL_SOCKET_CAPTURE.export()"
             );
 
@@ -13096,7 +13131,7 @@
                     BOT.improvedXHeld = true;
                     BOT.runImprovedXFromUserKey(event).catch(
                         (error) => {
-                            console.error(
+                            toolConsole("error", 
                                 "[SW Tool][X] Obsługa X nie powiodła się:",
                                 error
                             );
@@ -13143,12 +13178,12 @@
             }
         });
 
-        console.info("[SW Tool][PAGE] TOOL gotowy.");
+        toolConsole("info", "[SW Tool][PAGE] TOOL gotowy.");
         return BOT;
     };
 
     const toolReadyPromise = initTool().catch((error) => {
-        console.error("[SW Tool][PAGE] Inicjalizacja TOOL nie powiodła się.", error);
+        toolConsole("error", "[SW Tool][PAGE] Inicjalizacja TOOL nie powiodła się.", error);
         throw error;
     });
 
@@ -13269,7 +13304,7 @@
                 "Nieznana akcja bridge: " + String(data.action)
             );
         } catch (error) {
-            console.error("[SW Tool][PAGE]", error);
+            toolConsole("error", "[SW Tool][PAGE]", error);
 
             sendBridgeResponse(
                 data.requestId,
@@ -13280,7 +13315,7 @@
         }
     });
 
-    console.info("[SW Tool][PAGE] Bridge zarejestrowany.");
+    toolConsole("info", "[SW Tool][PAGE] Bridge zarejestrowany.");
 })();
 
 /* Zapisywanie całego konta na turnieje V2
