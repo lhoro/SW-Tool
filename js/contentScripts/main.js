@@ -4731,11 +4731,37 @@
             };
         }
 
-        questKillWantState(want, questId = 0) {
+        questKillWantState(
+            want,
+            questId = 0,
+            allowedTypes = [1]
+        ) {
             if (
                 !want ||
-                typeof want !== "object" ||
-                this._int(want.type) !== 1
+                typeof want !== "object"
+            ) {
+                return null;
+            }
+
+            const wantType =
+                this._int(want.type);
+            const normalizedTypes =
+                (
+                    Array.isArray(allowedTypes)
+                        ? allowedTypes
+                        : [allowedTypes]
+                )
+                    .map((value) =>
+                        this._int(value)
+                    )
+                    .filter((value) =>
+                        value > 0
+                    );
+
+            if (
+                !normalizedTypes.includes(
+                    wantType
+                )
             ) {
                 return null;
             }
@@ -4761,6 +4787,7 @@
 
             return {
                 questId: id,
+                wantType,
                 count,
                 max,
                 isMet:
@@ -5179,7 +5206,9 @@
                 const parsed =
                     this.questKillWantState(
                         want,
-                        fallbackQuestId
+                        fallbackQuestId,
+                        state.allowedWantTypes ||
+                            [1]
                     );
 
                 if (!parsed) {
@@ -5302,7 +5331,12 @@
 
                 // Czasem sam obiekt trackera jest już strukturą want.
                 if (
-                    this._int(value.type) === 1 &&
+                    (
+                        state.allowedWantTypes ||
+                        [1]
+                    ).includes(
+                        this._int(value.type)
+                    ) &&
                     (
                         value.count !== undefined ||
                         value.maxv !== undefined ||
@@ -5317,7 +5351,14 @@
 
                 applyTracker(
                     value.track,
-                    value.new_amount
+                    value.new_amount !==
+                        undefined
+                        ? value.new_amount
+                        : (
+                            action === 22
+                                ? value.amount
+                                : undefined
+                        )
                 );
                 applyTracker(
                     value.send_tracker,
@@ -6202,7 +6243,9 @@
         async runQuestKills({
             allowQuickAction = false,
             allowAccountOperation = false,
-            requireQuestWindow = true
+            requireQuestWindow = true,
+            allowedWantTypes = [1],
+            initialStep = null
         } = {}) {
             if (
                 this.questKillRunning ||
@@ -6236,7 +6279,10 @@
             }
 
             const step =
-                this.currentQuestStep;
+                initialStep &&
+                typeof initialStep === "object"
+                    ? initialStep
+                    : this.currentQuestStep;
 
             if (
                 !step ||
@@ -6247,15 +6293,33 @@
                 );
             }
 
+            const normalizedWantTypes =
+                (
+                    Array.isArray(
+                        allowedWantTypes
+                    )
+                        ? allowedWantTypes
+                        : [allowedWantTypes]
+                )
+                    .map((value) =>
+                        this._int(value)
+                    )
+                    .filter((value) =>
+                        value > 0
+                    );
+
             const parsed =
                 this.questKillWantState(
                     step.want,
-                    step.qb_id
+                    step.qb_id,
+                    normalizedWantTypes
                 );
 
             if (!parsed) {
                 throw new Error(
-                    "Quest Kille: aktywny etap nie jest wymaganiem zabijania mobów (want.type !== 1)."
+                    "Quest Kille: aktywny etap nie pasuje do obsługiwanych typów (" +
+                    normalizedWantTypes.join(",") +
+                    ")."
                 );
             }
 
@@ -6310,6 +6374,10 @@
                     this._int(
                         step.qb_id
                     ),
+                wantType:
+                    parsed.wantType,
+                allowedWantTypes:
+                    normalizedWantTypes,
                 targetId:
                     parsed.targetId,
                 targetName:
@@ -10486,100 +10554,239 @@
             return this.runExpiarka();
         }
 
-        normalizeLocationLabel(value) {
-            return String(value || "")
-                .normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, " ")
-                .trim();
+        async openTestDailyQuestStep(
+            questId
+        ) {
+            const id = this._int(questId);
+            if (id <= 0) {
+                throw new Error(
+                    "TEST: nieprawidłowe ID questa."
+                );
+            }
+
+            const response =
+                await this.sendAndWait(
+                    {
+                        a: 22,
+                        type: 1,
+                        id
+                    },
+                    [22, 999],
+                    (event) =>
+                        this._int(event.e) !== 0 ||
+                        (
+                            this._int(event.a) === 22 &&
+                            (
+                                this._int(
+                                    event?.q_step?.qb_id
+                                ) === id ||
+                                this._int(
+                                    event?.quest_end
+                                ) === id
+                            )
+                        ),
+                    10000
+                );
+
+            if (this._int(response.e) !== 0) {
+                throw new Error(
+                    "TEST: serwer odrzucił otwarcie questa."
+                );
+            }
+
+            return {
+                response,
+                step:
+                    response?.q_step &&
+                    typeof response.q_step ===
+                        "object"
+                        ? response.q_step
+                        : null,
+                ended:
+                    this._int(
+                        response?.quest_end
+                    ) === id
+            };
         }
 
-        findStartVillageLocation() {
-            const registry = this.getPortalMap();
-            const locations =
-                registry?.locations &&
-                typeof registry.locations === "object"
-                    ? Object.values(registry.locations)
-                    : [];
+        async advanceTestDailyQuest(
+            questId
+        ) {
+            const id = this._int(questId);
 
-            const candidates = [];
+            const response =
+                await this.sendAndWait(
+                    {
+                        a: 22,
+                        type: 2,
+                        button: 1,
+                        id
+                    },
+                    [22, 999],
+                    (event) =>
+                        this._int(event.e) !== 0 ||
+                        (
+                            this._int(event.a) ===
+                                22
+                        ),
+                    10000
+                );
 
-            for (const location of locations) {
-                const id = this._int(location?.id);
-                const name = String(location?.name || "").trim();
-                if (id <= 0 || !name) continue;
+            if (this._int(response.e) !== 0) {
+                throw new Error(
+                    "TEST: serwer odrzucił przejście questa."
+                );
+            }
 
-                const normalized =
-                    this.normalizeLocationLabel(name);
-                let score = 0;
+            return response;
+        }
+
+        async prepareTestZodiacQuest(
+            questId
+        ) {
+            const id = this._int(questId);
+
+            for (
+                let transition = 0;
+                transition < 4;
+                transition++
+            ) {
+                const opened =
+                    await this.openTestDailyQuestStep(
+                        id
+                    );
+
+                if (opened.ended) {
+                    return {
+                        done: true,
+                        step: null
+                    };
+                }
+
+                const step = opened.step;
+                const want = step?.want;
 
                 if (
-                    normalized.includes("wioska startowa") ||
-                    normalized.includes("starting village")
+                    want &&
+                    typeof want === "object"
                 ) {
-                    score = 100;
-                } else if (
-                    normalized.includes("startowa") ||
-                    normalized.includes("starter village")
-                ) {
-                    score = 80;
-                } else if (
-                    normalized.includes("wioska")
-                ) {
-                    score = 30;
-                } else if (
-                    normalized.includes("village")
-                ) {
-                    score = 20;
+                    const type =
+                        this._int(want.type);
+                    const isMet =
+                        Boolean(want.is_met) ||
+                        (
+                            this._int(want.maxv) >
+                                0 &&
+                            this._int(want.count) >=
+                                this._int(
+                                    want.maxv
+                                )
+                        );
+
+                    if (type === 5) {
+                        return {
+                            done: false,
+                            step,
+                            itemReady: isMet
+                        };
+                    }
+
+                    if (!isMet) {
+                        throw new Error(
+                            "TEST: Moc Zodiaku ma nieoczekiwany niezakończony warunek type " +
+                            type +
+                            "."
+                        );
+                    }
                 }
 
-                if (score > 0) {
-                    candidates.push({
-                        id,
-                        name,
-                        score
-                    });
+                const advanced =
+                    await this.advanceTestDailyQuest(
+                        id
+                    );
+
+                if (
+                    this._int(
+                        advanced?.quest_end
+                    ) === id
+                ) {
+                    return {
+                        done: true,
+                        step: null
+                    };
                 }
+
+                await this.sleep(120);
             }
 
-            candidates.sort(
-                (a, b) =>
-                    b.score - a.score ||
-                    a.id - b.id
+            throw new Error(
+                "TEST: nie udało się doprowadzić Moc Zodiaku do etapu zdobycia kryształu."
             );
+        }
 
-            if (candidates.length === 0) {
-                throw new Error(
-                    "TEST: solver nie zna Wioski Startowej w rejestrze portali."
-                );
-            }
+        async finishTestZodiacQuest(
+            questId
+        ) {
+            const id = this._int(questId);
 
-            const best = candidates[0];
-            const sameScore = candidates.filter(
-                (candidate) =>
-                    candidate.score === best.score
-            );
-
-            if (
-                best.score < 80 &&
-                sameScore.length > 1
+            for (
+                let transition = 0;
+                transition < 4;
+                transition++
             ) {
-                throw new Error(
-                    "TEST: znaleziono kilka możliwych wiosek (" +
-                    sameScore
-                        .map(
-                            (candidate) =>
-                                candidate.name +
-                                " #" +
-                                candidate.id
-                        )
-                        .join(", ") +
-                    "). Potrzebne dokładniejsze rozpoznanie."
-                );
+                const opened =
+                    await this.openTestDailyQuestStep(
+                        id
+                    );
+
+                if (opened.ended) {
+                    return true;
+                }
+
+                const want =
+                    opened.step?.want;
+
+                if (
+                    want &&
+                    typeof want === "object" &&
+                    !Boolean(want.is_met) &&
+                    !(
+                        this._int(want.maxv) > 0 &&
+                        this._int(want.count) >=
+                            this._int(want.maxv)
+                    )
+                ) {
+                    throw new Error(
+                        "TEST: nie mogę oddać Moc Zodiaku — warunek questa nadal nie jest zaliczony (" +
+                        this._int(want.count) +
+                        "/" +
+                        Math.max(
+                            this._int(want.maxv),
+                            this._int(want.amount)
+                        ) +
+                        ")."
+                    );
+                }
+
+                const advanced =
+                    await this.advanceTestDailyQuest(
+                        id
+                    );
+
+                if (
+                    this._int(
+                        advanced?.quest_end
+                    ) === id
+                ) {
+                    return true;
+                }
+
+                await this.sleep(120);
             }
 
-            return best;
+            throw new Error(
+                "TEST: Moc Zodiaku nie zwróciło quest_end po oddaniu."
+            );
         }
 
         async runTestDailyMissions() {
@@ -10605,6 +10812,12 @@
                 );
             }
 
+            const HIDDEN_VILLAGE = 2;
+            const WESTERN_AREA = 11;
+            const ZODIAC_QUEST = 1359249;
+            const QUEST_X = 13;
+            const QUEST_Y = 4;
+
             this.quickActionRunning = true;
             this.setQuickPanelBusy(true);
 
@@ -10616,66 +10829,146 @@
                     await this.mapSolver.refreshMap();
                 }
 
-                const village =
-                    this.findStartVillageLocation();
+                this.setQuickPanelStatus(
+                    "TEST: Moc Zodiaku — idę do Ukrytej Wioski 13|4..."
+                );
 
-                const currentLocationId =
-                    this._int(
-                        this.mapSolver?.map?.locationId
+                await this.mapSolver.navigateToLocation(
+                    HIDDEN_VILLAGE,
+                    QUEST_X,
+                    QUEST_Y,
+                    {
+                        source:
+                            "test-zodiac-start"
+                    }
+                );
+
+                this.setQuickPanelStatus(
+                    "TEST: Moc Zodiaku — sprawdzam/przyjmuję quest..."
+                );
+
+                const prepared =
+                    await this.prepareTestZodiacQuest(
+                        ZODIAC_QUEST
                     );
 
-                if (
-                    currentLocationId !==
-                    village.id
-                ) {
+                if (prepared.done) {
                     this.setQuickPanelStatus(
-                        "TEST: idę do Wioski Startowej — " +
-                        village.name +
-                        " (#" +
-                        village.id +
-                        ")..."
+                        "TEST: Moc Zodiaku jest już zakończone.",
+                        "success"
+                    );
+                    return {
+                        status: "already-done"
+                    };
+                }
+
+                if (!prepared.itemReady) {
+                    this.setQuickPanelStatus(
+                        "TEST: Moc Zodiaku — idę na Teren Zachodni..."
                     );
 
                     await this.mapSolver.navigateToLocation(
-                        village.id,
-                        0,
-                        0,
+                        WESTERN_AREA,
+                        18,
+                        8,
                         {
                             source:
-                                "test-daily-village",
-                            locationOnly: true
+                                "test-zodiac-west"
                         }
+                    );
+
+                    // Dokładnie ten sam oszczędny patrol i sposób walki co
+                    // Quest Kille, ale trackerem celu jest quest item type:5.
+                    const farm =
+                        await this.runQuestKills({
+                            allowQuickAction: true,
+                            requireQuestWindow: false,
+                            allowedWantTypes: [5],
+                            initialStep:
+                                prepared.step
+                        });
+
+                    if (!farm?.done) {
+                        throw new Error(
+                            "TEST: nie zdobyto Nienasyconego Kryształu podczas patrolu Terenu Zachodniego."
+                        );
+                    }
+
+                    toolConsole(
+                        "info",
+                        "[SW Tool][TEST] Moc Zodiaku — kryształ potwierdzony trackerem.",
+                        {
+                            questId:
+                                ZODIAC_QUEST,
+                            count:
+                                this._int(
+                                    farm.count
+                                ),
+                            max:
+                                this._int(
+                                    farm.max
+                                ),
+                            wantType:
+                                this._int(
+                                    farm.wantType
+                                )
+                        }
+                    );
+                } else {
+                    this.setQuickPanelStatus(
+                        "TEST: Nienasycony Kryształ jest już zdobyty — wracam do oddania."
                     );
                 }
 
                 this.setQuickPanelStatus(
-                    "TEST: Wioska Startowa osiągnięta — " +
-                    village.name +
-                    " (#" +
-                    village.id +
-                    ").",
+                    "TEST: Moc Zodiaku — wracam do Ukrytej Wioski 13|4..."
+                );
+
+                await this.mapSolver.navigateToLocation(
+                    HIDDEN_VILLAGE,
+                    QUEST_X,
+                    QUEST_Y,
+                    {
+                        source:
+                            "test-zodiac-return"
+                    }
+                );
+
+                await this.finishTestZodiacQuest(
+                    ZODIAC_QUEST
+                );
+
+                this.setQuickPanelStatus(
+                    "TEST: Moc Zodiaku zakończone ✓",
                     "success"
                 );
 
                 toolConsole(
                     "info",
-                    "[SW Tool][TEST] Gotowy do rozbudowy misji dziennych.",
+                    "[SW Tool][TEST] Moc Zodiaku zakończone.",
                     {
-                        village,
-                        position: {
-                            x: this._int(
+                        questId:
+                            ZODIAC_QUEST,
+                        locationId:
+                            this._int(
+                                this.mapSolver?.map
+                                    ?.locationId
+                            ),
+                        x:
+                            this._int(
                                 this.mapSolver?.map?.x
                             ),
-                            y: this._int(
+                        y:
+                            this._int(
                                 this.mapSolver?.map?.y
                             )
-                        }
                     }
                 );
 
                 return {
-                    status: "ready",
-                    village
+                    status: "done",
+                    questId:
+                        ZODIAC_QUEST
                 };
             } finally {
                 this.quickActionRunning = false;
