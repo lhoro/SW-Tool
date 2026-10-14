@@ -1,6 +1,19 @@
 const SW_TOOL_CHANNEL = "SW_TOOL_BRIDGE_V1";
 const BRIDGE_TIMEOUT = 5000;
 
+let debugLogsEnabled = false;
+
+function toolConsole(level, ...args) {
+  if (!debugLogsEnabled) {
+    return;
+  }
+
+  const method = globalThis.console?.[level];
+  if (typeof method === "function") {
+    method.apply(globalThis.console, args);
+  }
+}
+
 const hostname = window.location.hostname.toLowerCase();
 const isGameServerHost =
   hostname.endsWith(".shinobiworld.pl") &&
@@ -47,7 +60,7 @@ async function injectPageScripts() {
         throw error;
       }
 
-      console.warn(
+      toolConsole("warn", 
         "[SW Tool][CONTENT] Opcjonalny moduł nie został wstrzyknięty:",
         entry.path,
         error
@@ -144,7 +157,7 @@ function readLegacyConfig() {
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === "object" ? parsed : null;
   } catch (error) {
-    console.warn("[SW Tool][CONTENT] Nie udało się odczytać starej konfiguracji.", error);
+    toolConsole("warn", "[SW Tool][CONTENT] Nie udało się odczytać starej konfiguracji.", error);
     return null;
   }
 }
@@ -160,6 +173,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     await pageReady;
 
     if (msg.command === "config.apply") {
+      debugLogsEnabled = msg.config?.debugLogs === true;
+
       if (!isGameServerHost) {
         return {
           ok: true,
@@ -224,7 +239,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   })()
     .then(sendResponse)
     .catch((error) => {
-      console.error("[SW Tool][CONTENT]", error);
+      toolConsole("error", "[SW Tool][CONTENT]", error);
       sendResponse({
         ok: false,
         error: error instanceof Error ? error.message : String(error)
@@ -244,6 +259,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
 
     let config = response.config;
+    debugLogsEnabled = config?.debugLogs === true;
 
     if (!response.persisted) {
       const legacyConfig = readLegacyConfig();
@@ -256,7 +272,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
 
         config = migration.config;
-        console.info(
+        debugLogsEnabled = config?.debugLogs === true;
+        toolConsole("info", 
           "[SW Tool] Przeniesiono konfigurację z localStorage do chrome.storage.local."
         );
       }
@@ -264,10 +281,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (isGameServerHost) {
       await bridgeRequest("config.apply", { config });
-      console.info("[SW Tool] Bridge gotowy.");
+      toolConsole("info", "[SW Tool] Bridge gotowy.");
     }
 
   } catch (error) {
-    console.error("[SW Tool][CONTENT] Inicjalizacja nie powiodła się.", error);
+    toolConsole("error", "[SW Tool][CONTENT] Inicjalizacja nie powiodła się.", error);
   }
 })();
