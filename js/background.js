@@ -16,6 +16,25 @@ const DEFAULT_CONFIG = Object.freeze({
 const ACCOUNT_LIMIT = 5;
 const GAME_URL = /^https:\/\/([^.]+\.)?shinobiworld\.pl\//i;
 
+let debugLogsEnabled = false;
+
+function toolConsole(level, ...args) {
+  if (!debugLogsEnabled) {
+    return;
+  }
+
+  const method = globalThis.console?.[level];
+  if (typeof method === "function") {
+    method.apply(globalThis.console, args);
+  }
+}
+
+chrome.storage.local.get("config")
+  .then((stored) => {
+    debugLogsEnabled = normalizeConfig(stored?.config).debugLogs === true;
+  })
+  .catch(() => {});
+
 function normalizeConfig(config) {
   const source = config && typeof config === "object" ? config : {};
   const normalized = {};
@@ -45,14 +64,18 @@ function normalizeAccounts(accounts) {
 
 async function getStoredConfig() {
   const stored = await chrome.storage.local.get("config");
+  const config = normalizeConfig(stored.config);
+  debugLogsEnabled = config.debugLogs === true;
+
   return {
-    config: normalizeConfig(stored.config),
+    config,
     persisted: Boolean(stored.config && typeof stored.config === "object")
   };
 }
 
 async function setStoredConfig(config) {
   const normalized = normalizeConfig(config);
+  debugLogsEnabled = normalized.debugLogs === true;
   await chrome.storage.local.set({ config: normalized });
   return normalized;
 }
@@ -127,7 +150,7 @@ function isTrustedAuthUrl(value) {
 }
 
 async function switchAccountViaApi(account, tabId) {
-  console.info("[SW Tool][AUTH] Wylogowanie konta przez API.");
+  toolConsole("info", "[SW Tool][AUTH] Wylogowanie konta przez API.");
 
   const logout = await authPost({ c: 5 });
 
@@ -135,7 +158,7 @@ async function switchAccountViaApi(account, tabId) {
     throw new Error("Serwer nie potwierdził wylogowania.");
   }
 
-  console.info("[SW Tool][AUTH] Logowanie wybranego profilu przez API.");
+  toolConsole("info", "[SW Tool][AUTH] Logowanie wybranego profilu przez API.");
 
   const login = await authPost({
     c: 4,
@@ -156,7 +179,7 @@ async function switchAccountViaApi(account, tabId) {
     throw new Error("Serwer nie zwrócił prawidłowego PID.");
   }
 
-  console.info("[SW Tool][AUTH] Wybór serwera 1 przez API.");
+  toolConsole("info", "[SW Tool][AUTH] Wybór serwera 1 przez API.");
 
   const server = await authPost({
     c: 8,
@@ -186,7 +209,7 @@ async function switchAccountViaApi(account, tabId) {
     throw new Error("Serwer zwrócił adres inny niż S1.");
   }
 
-  console.info("[SW Tool][AUTH] Przejście na S1. Oczekiwanie na listę postaci.");
+  toolConsole("info", "[SW Tool][AUTH] Przejście na S1. Oczekiwanie na listę postaci.");
 
   await chrome.tabs.update(tabId, { url: authUrl });
 
@@ -342,7 +365,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   handleMessage(msg, sender)
     .then(sendResponse)
     .catch((error) => {
-      console.error("[SW Tool][BG]", error);
+      toolConsole("error", "[SW Tool][BG]", error);
       sendResponse({
         ok: false,
         error: error instanceof Error ? error.message : String(error)
