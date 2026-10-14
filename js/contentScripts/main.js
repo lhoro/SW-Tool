@@ -10578,10 +10578,46 @@
             }
 
             // Dla nieprzyjętego questa a:22/type:1 nie musi w ogóle
-            // odpowiedzieć. Najpierw zachowujemy się jak klient gry:
-            // X na polu questa otwiera/przyjmuje jego stan.
+            // odpowiedzieć. Najpierw czekamy, aż klient faktycznie dostanie
+            // a:602 dla bieżącego pola; navigateTo kończy się już po a:4
+            // i wcześniejsze X mogło trafić zanim pole questa było gotowe.
+            const currentX =
+                this._int(this.mapSolver?.map?.x);
+            const currentY =
+                this._int(this.mapSolver?.map?.y);
+
+            const field =
+                await this.waitForQuestKillField(
+                    currentX,
+                    currentY,
+                    1800
+                );
+
+            if (!field) {
+                throw new Error(
+                    "TEST: brak a:602 dla pola questa " +
+                    currentX +
+                    "|" +
+                    currentY +
+                    "."
+                );
+            }
+
+            // Mały settle po a:602 pozwala klientowi zbudować interakcję
+            // pola/NPC zanim wyślemy syntetyczne X.
+            await this.sleep(180);
+
             this.currentQuestStep = null;
             this.roninPressKey("x");
+
+            toolConsole(
+                "info",
+                "[SW Tool][TEST] Moc Zodiaku — X po gotowym a:602.",
+                {
+                    x: currentX,
+                    y: currentY
+                }
+            );
 
             const startedAt = Date.now();
             let clickedAction = false;
@@ -10637,7 +10673,7 @@
             }
 
             throw new Error(
-                "TEST: po X na 13|4 klient nie zsynchronizował questa Moc Zodiaku."
+                "TEST: pole 13|4 było gotowe (a:602), ale X nie otworzył/synchronizował Moc Zodiaku."
             );
         }
 
