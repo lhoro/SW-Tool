@@ -6769,8 +6769,42 @@
         respawnNormalMobCount(
             field
         ) {
-            // a:602 -> mobs.suma jest liczbą normalnych mobów na polu.
-            // mobs.mobs opisuje typy/gatunki mobów, a nie ich liczebność.
+            const entries =
+                Array.isArray(
+                    field?.mobs?.entries
+                )
+                    ? field.mobs.entries
+                    : [];
+
+            const normalEntry =
+                entries[0];
+
+            if (
+                normalEntry &&
+                typeof normalEntry ===
+                    "object" &&
+                Array.isArray(
+                    normalEntry.ranks
+                )
+            ) {
+                return {
+                    count:
+                        Math.max(
+                            0,
+                            this._int(
+                                normalEntry.ranks[0]
+                            )
+                        ),
+                    source:
+                        "mobs[0].ranks[0]",
+                    raw:
+                        normalEntry
+                };
+            }
+
+            // Fallback dla starszej/niepełnej odpowiedzi a:602.
+            // mobs.suma może obejmować także wyższe rangi, dlatego
+            // używamy go wyłącznie gdy ranks[0] nie istnieje.
             return {
                 count:
                     Math.max(
@@ -6780,9 +6814,9 @@
                         )
                     ),
                 source:
-                    "mobs.suma",
+                    "mobs.suma-fallback",
                 raw:
-                    field?.mobs?.entries
+                    normalEntry
             };
         }
 
