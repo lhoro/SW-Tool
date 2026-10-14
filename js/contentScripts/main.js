@@ -2359,186 +2359,94 @@
 
         async waitForRoninTimedQuestReady(
             initialStep = null,
-            timeoutMs = 45000
+            timeoutMs = 37000
         ) {
             const startedAt = Date.now();
+            const oldRoninWaitMs = 31000;
+            const retryWindowMs = Math.max(
+                3000,
+                timeoutMs - oldRoninWaitMs
+            );
+
             let step =
                 initialStep ||
                 await this.openRoninQuestStep();
-            let afterDeadlineRetries = 0;
-            let deadlineMs = 0;
 
-            const resolveReadyAt = (
-                want
-            ) => {
-                const raw =
-                    this._int(
-                        want?.count
-                    );
+            const initialWant = step?.want;
+            if (
+                !initialWant ||
+                typeof initialWant !== "object" ||
+                this._int(initialWant.type) !== 6 ||
+                Boolean(initialWant.is_met)
+            ) {
+                return step;
+            }
 
-                if (raw <= 0) {
-                    return 0;
+            // Stary, działający Ronin czekał stałe ~31 s i dopiero wtedy
+            // wykonywał ponowne X. Nie wydłużamy już tego etapu do 45+ s
+            // na podstawie niejednoznacznego want.count.
+            this.setQuickPanelStatus(
+                "Ronin: etap czasowy — czekam 31 s..."
+            );
+
+            toolConsole(
+                "info",
+                "[SW Tool][RONIN] Czekajka start.",
+                {
+                    waitMs: oldRoninWaitMs,
+                    serverCount: this._int(initialWant.count),
+                    serverAmount: this._int(initialWant.amount)
                 }
+            );
 
-                // Serwer występował z timestampem UNIX zarówno
-                // w sekundach, jak i milisekundach. Rozpoznajemy format
-                // po skali zamiast bezwarunkowo mnożyć przez 1000.
-                if (raw >= 100000000000) {
-                    return raw;
+            await this.sleep(oldRoninWaitMs);
+
+            step = await this.refreshRoninQuestClientState(
+                "etap czasowy po 31 s",
+                {
+                    settleMs: 300,
+                    pressX: true
                 }
+            );
 
-                if (raw >= 1000000000) {
-                    return raw * 1000;
-                }
+            const retryStartedAt = Date.now();
+            let retries = 0;
 
-                return 0;
-            };
-
-            while (true) {
-                const want =
-                    step?.want;
+            while (
+                Date.now() - retryStartedAt <
+                retryWindowMs
+            ) {
+                const want = step?.want;
 
                 if (
                     !want ||
                     typeof want !== "object" ||
-                    this._int(
-                        want.type
-                    ) !== 6
-                ) {
-                    return step;
-                }
-
-                if (
-                    Boolean(
-                        want.is_met
-                    )
+                    this._int(want.type) !== 6 ||
+                    Boolean(want.is_met)
                 ) {
                     toolConsole(
                         "info",
                         "[SW Tool][RONIN] Etap czasowy gotowy.",
                         {
-                            type:
-                                this._int(
-                                    want.type
-                                ),
-                            amount:
-                                this._int(
-                                    want.amount
-                                ),
-                            count:
-                                this._int(
-                                    want.count
-                                ),
-                            deadlineMs,
-                            refreshesAfterDeadline:
-                                afterDeadlineRetries
+                            elapsedMs:
+                                Date.now() - startedAt,
+                            retries,
+                            type: this._int(want?.type),
+                            isMet: Boolean(want?.is_met)
                         }
                     );
                     return step;
                 }
 
-                const now =
-                    Date.now();
-                const readyAt =
-                    resolveReadyAt(
-                        want
-                    );
-
-                if (
-                    readyAt > 0
-                ) {
-                    deadlineMs =
-                        Math.max(
-                            deadlineMs,
-                            readyAt
-                        );
-                }
-
-                // Jeżeli serwer podał realny deadline, pozwalamy mu wyznaczyć
-                // długość czekajki. Dodajemy zapas na opóźnienie zegara/socketu.
-                const hardDeadline =
-                    deadlineMs > 0
-                        ? Math.max(
-                            startedAt +
-                                timeoutMs,
-                            deadlineMs +
-                                10000
-                        )
-                        : startedAt +
-                            timeoutMs;
-
-                if (
-                    now >=
-                    hardDeadline
-                ) {
-                    break;
-                }
-
-                if (
-                    deadlineMs >
-                    now
-                ) {
-                    await this.sleep(
-                        Math.min(
-                            deadlineMs -
-                                now +
-                                150,
-                            hardDeadline -
-                                now
-                        )
-                    );
-                } else {
-                    // Po deadline pierwsze odświeżenie wykonujemy tak jak
-                    // stary Ronin: ponowne X przebudowuje klientowy quest,
-                    // a dopiero potem pobieramy świeży q_step socketowo.
-                    // Kolejne retry nie naciskają już X, żeby przypadkiem
-                    // nie wykonać akcji na świeżo otwartym oknie.
-                    if (
-                        afterDeadlineRetries >
-                        0
-                    ) {
-                        await this.sleep(
-                            Math.min(
-                                500,
-                                hardDeadline -
-                                    now
-                            )
-                        );
-                    }
-
-                    step =
-                        afterDeadlineRetries === 0
-                            ? await this.refreshRoninQuestClientState(
-                                "etap czasowy po deadline",
-                                {
-                                    settleMs: 300,
-                                    pressX: true
-                                }
-                            )
-                            : await this.openRoninQuestStep();
-
-                    afterDeadlineRetries++;
-                    continue;
-                }
-
-                // Doszliśmy do deadline po dłuższym sleepie. Pierwszy
-                // refresh musi zsynchronizować również klientowe okno.
-                step =
-                    afterDeadlineRetries === 0
-                        ? await this.refreshRoninQuestClientState(
-                            "etap czasowy po oczekiwaniu",
-                            {
-                                settleMs: 300,
-                                pressX: true
-                            }
-                        )
-                        : await this.openRoninQuestStep();
-
-                afterDeadlineRetries++;
+                await this.sleep(500);
+                step = await this.openRoninQuestStep();
+                retries++;
             }
 
             throw new Error(
-                "Ronin: etap czasowy questa nie został zaliczony w czasie."
+                "Ronin: etap czasowy nie został zaliczony po 31 s + " +
+                Math.ceil(retryWindowMs / 1000) +
+                " s synchronizacji."
             );
         }
 
@@ -2678,6 +2586,73 @@
             };
         }
 
+        async syncRoninMobQuestState(
+            state,
+            reason = "mob-fight"
+        ) {
+            const step = await this.openRoninQuestStep();
+            const want = step?.want;
+            const wantType = this._int(want?.type);
+
+            // Zmiana typu kroku oznacza, że serwer faktycznie zakończył
+            // etap przeciwników i przeszedł dalej.
+            if (
+                !want ||
+                typeof want !== "object" ||
+                wantType !== 1
+            ) {
+                state.serverDone = true;
+
+                toolConsole(
+                    "info",
+                    "[SW Tool][RONIN] Serwer zakończył etap przeciwników.",
+                    {
+                        reason,
+                        nextWantType: wantType,
+                        qbId: this._int(step?.qb_id)
+                    }
+                );
+
+                return step;
+            }
+
+            const serverCount = Math.max(
+                0,
+                this._int(want.count)
+            );
+            const serverMax = Math.max(
+                1,
+                this._int(want.maxv),
+                this._int(want.amount)
+            );
+
+            state.count = serverCount;
+            state.max = serverMax;
+            state.serverDone = Boolean(want.is_met);
+
+            this.setQuickPanelStatus(
+                "Ronin: przeciwnicy " +
+                state.count +
+                "/" +
+                state.max +
+                (state.serverDone ? " ✓" : "") +
+                "..."
+            );
+
+            toolConsole(
+                "info",
+                "[SW Tool][RONIN] Potwierdzenie killi z q_step.",
+                {
+                    reason,
+                    count: state.count,
+                    max: state.max,
+                    isMet: state.serverDone
+                }
+            );
+
+            return step;
+        }
+
         async roninClearMobField(state) {
             const field = this.mapSolver?.field;
             const map = this.mapSolver?.map;
@@ -2697,21 +2672,19 @@
             );
 
             while (
-                state.count < state.max &&
+                !state.serverDone &&
                 mobsLeft > 0
             ) {
                 const multiAvailable =
                     Array.isArray(field.multiFight) &&
                     field.multiFight.includes(0);
 
-                // Jeżeli multiwalka jest dostępna, używamy jej zawsze,
-                // nawet gdy zabije więcej mobów niż zostało do celu questa.
-                // Ogranicza to liczbę requestów do serwera.
                 const useMulti = multiAvailable;
+                const beforeCount = state.count;
 
                 const result = await this.roninMobFightOnce({
                     questId: state.questId,
-                    beforeCount: state.count,
+                    beforeCount,
                     useMulti
                 });
 
@@ -2720,25 +2693,31 @@
                     break;
                 }
 
-                state.count = Math.min(
-                    state.max,
-                    this._int(result.count)
+                // Wynik trackera traktujemy wyłącznie jako informację
+                // pomocniczą. Źródłem prawdy jest świeży q_step poniżej.
+                const trackerCount = this._int(result.count);
+                const gained = Math.max(
+                    1,
+                    this._int(result.gained)
                 );
 
                 mobsLeft = Math.max(
                     0,
-                    mobsLeft - Math.max(1, this._int(result.gained))
+                    mobsLeft - gained
                 );
-
                 field.mobs.count = mobsLeft;
 
-                this.setQuickPanelStatus(
-                    "Ronin: przeciwnicy " +
-                    state.count +
-                    "/" +
-                    state.max +
-                    "..."
+                await this.syncRoninMobQuestState(
+                    state,
+                    "po walce " +
+                    beforeCount +
+                    " -> tracker " +
+                    trackerCount
                 );
+
+                if (state.serverDone) {
+                    break;
+                }
             }
 
             return state;
@@ -2840,7 +2819,7 @@
 
         async roninMobCombat() {
             const questId = this._int(this.roninQuestId);
-            const step = this.currentRoninQuestStep;
+            const step = await this.openRoninQuestStep();
             const want = step?.want;
 
             if (
@@ -2870,15 +2849,16 @@
                 questId,
                 count: Math.max(0, this._int(want.count)),
                 max: Math.max(
+                    1,
                     this._int(want.maxv),
                     this._int(want.amount)
-                )
+                ),
+                serverDone: Boolean(want.is_met)
             };
 
             if (
                 origin.x <= 0 ||
-                origin.y <= 0 ||
-                state.max <= 0
+                origin.y <= 0
             ) {
                 throw new Error(
                     "Ronin: nieprawidłowy stan etapu przeciwników."
@@ -2911,7 +2891,7 @@
 
             for (const targets of sweeps) {
                 for (const target of targets) {
-                    if (state.count >= state.max) {
+                    if (state.serverDone) {
                         break;
                     }
 
@@ -2927,18 +2907,26 @@
                     await this.roninClearMobField(state);
                 }
 
-                if (state.count >= state.max) {
+                if (state.serverDone) {
                     break;
                 }
             }
 
-            if (state.count < state.max) {
+            // Ostateczna weryfikacja serwerowa. Lokalny tracker nigdy nie
+            // kończy już etapu samodzielnie.
+            const refreshed =
+                await this.syncRoninMobQuestState(
+                    state,
+                    "koniec patrolu"
+                );
+
+            if (!state.serverDone) {
                 throw new Error(
-                    "Ronin: zabrakło przeciwników na trasie (" +
+                    "Ronin: etap mobów nadal niezaliczony na serwerze (" +
                     state.count +
                     "/" +
                     state.max +
-                    ")."
+                    "). Nie wysyłam Dalej."
                 );
             }
 
@@ -2956,22 +2944,9 @@
                 );
             }
 
-            const refreshed = await this.openRoninQuestStep();
-            const refreshedWant = refreshed?.want;
-
-            if (
-                refreshedWant &&
-                typeof refreshedWant === "object" &&
-                this._int(refreshedWant.type) === 1 &&
-                !Boolean(refreshedWant.is_met)
-            ) {
-                throw new Error(
-                    "Ronin: licznik przeciwników osiągnął cel, ale quest nie został zaliczony."
-                );
-            }
-
-            toolConsole("info", 
-                "[SW Tool][RONIN] Etap przeciwników zakończony.",
+            toolConsole(
+                "info",
+                "[SW Tool][RONIN] Etap przeciwników zakończony serwerowo.",
                 {
                     questId,
                     count: state.count,
