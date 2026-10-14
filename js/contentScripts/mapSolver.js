@@ -652,8 +652,19 @@
             const targetLocationId = this._int(locationId);
             const targetX = this._int(x);
             const targetY = this._int(y);
+            const locationOnly =
+                options?.locationOnly === true;
 
-            if (targetLocationId <= 0 || targetX <= 0 || targetY <= 0) {
+            if (
+                targetLocationId <= 0 ||
+                (
+                    !locationOnly &&
+                    (
+                        targetX <= 0 ||
+                        targetY <= 0
+                    )
+                )
+            ) {
                 throw new Error("Nieprawidłowy cel nawigacji.");
             }
 
@@ -796,6 +807,15 @@
 
             if (this._int(this.map?.locationId) !== targetLocationId) {
                 throw new Error("Nie udało się dotrzeć na mapę celu.");
+            }
+
+            if (locationOnly) {
+                return {
+                    ok: true,
+                    locationId: targetLocationId,
+                    x: this._int(this.map?.x),
+                    y: this._int(this.map?.y)
+                };
             }
 
             return this.navigateTo(targetX, targetY, {
