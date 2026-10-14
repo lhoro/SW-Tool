@@ -7114,7 +7114,7 @@
         }
 
         waitForRespawnAdvancedFight(
-            timeoutMs = 3500
+            timeoutMs = 450
         ) {
             if (
                 this.responseWaiter
@@ -7215,7 +7215,7 @@
 
             for (
                 let attempt = 0;
-                attempt < 8 &&
+                attempt < 3 &&
                 this.respawnRunning;
                 attempt++
             ) {
@@ -12421,6 +12421,207 @@
         }
     }
 
+    const createSocketCapture = () => {
+        let active = false;
+        let originalEmit = null;
+        let incomingHandler = null;
+        let entries = [];
+
+        const cloneSafe = (value) => {
+            try {
+                return JSON.parse(
+                    JSON.stringify(value)
+                );
+            } catch {
+                return value;
+            }
+        };
+
+        const push = (
+            direction,
+            event,
+            payload
+        ) => {
+            if (!active) {
+                return;
+            }
+
+            const entry = {
+                ts:
+                    Date.now(),
+                direction,
+                event:
+                    String(event || ""),
+                payload:
+                    cloneSafe(payload)
+            };
+
+            entries.push(entry);
+
+            if (entries.length > 300) {
+                entries =
+                    entries.slice(-300);
+            }
+
+            console.info(
+                "[SW Tool][SOCKET CAPTURE][" +
+                direction +
+                "]",
+                event,
+                entry.payload
+            );
+        };
+
+        const start = () => {
+            if (active) {
+                return {
+                    active: true,
+                    entries:
+                        entries.length
+                };
+            }
+
+            const socket =
+                window.GAME?.socket;
+
+            if (!socket) {
+                throw new Error(
+                    "Socket GAME nie jest gotowy."
+                );
+            }
+
+            active = true;
+            entries = [];
+
+            originalEmit =
+                socket.emit;
+
+            socket.emit = function (
+                event,
+                ...args
+            ) {
+                if (
+                    active &&
+                    (
+                        event === "ga" ||
+                        event === "gr"
+                    )
+                ) {
+                    push(
+                        "TX",
+                        event,
+                        args.length <= 1
+                            ? args[0]
+                            : args
+                    );
+                }
+
+                return originalEmit.apply(
+                    this,
+                    [
+                        event,
+                        ...args
+                    ]
+                );
+            };
+
+            incomingHandler = (
+                response
+            ) => {
+                push(
+                    "RX",
+                    "gr",
+                    response
+                );
+            };
+
+            socket.on(
+                "gr",
+                incomingHandler
+            );
+
+            console.info(
+                "[SW Tool][SOCKET CAPTURE] START — wykonaj ręcznie walkę z championem, elitą i bossem."
+            );
+
+            return {
+                active: true,
+                entries: 0
+            };
+        };
+
+        const stop = () => {
+            const socket =
+                window.GAME?.socket;
+
+            if (
+                socket &&
+                originalEmit
+            ) {
+                socket.emit =
+                    originalEmit;
+            }
+
+            if (
+                socket &&
+                incomingHandler
+            ) {
+                socket.off(
+                    "gr",
+                    incomingHandler
+                );
+            }
+
+            active = false;
+            originalEmit = null;
+            incomingHandler = null;
+
+            console.info(
+                "[SW Tool][SOCKET CAPTURE] STOP — wpisz SW_TOOL_SOCKET_CAPTURE.export()"
+            );
+
+            return {
+                active: false,
+                entries:
+                    entries.length
+            };
+        };
+
+        const clear = () => {
+            entries = [];
+            return true;
+        };
+
+        const get = () =>
+            entries.map(
+                (entry) => ({
+                    ...entry
+                })
+            );
+
+        const exportData = () =>
+            JSON.stringify(
+                entries,
+                null,
+                2
+            );
+
+        return {
+            start,
+            stop,
+            clear,
+            get,
+            export:
+                exportData,
+            state:
+                () => ({
+                    active,
+                    entries:
+                        entries.length
+                })
+        };
+    };
+
     const initTool = async () => {
         await waitForGame();
 
@@ -12431,6 +12632,13 @@
         BOT.getLocalData();
         BOT.updateID();
         BOT.mountQuickPanel();
+
+        if (
+            !window.SW_TOOL_SOCKET_CAPTURE
+        ) {
+            window.SW_TOOL_SOCKET_CAPTURE =
+                createSocketCapture();
+        }
 
         // Pomocniczy dostęp z DevTools do jednego, zbiorczego rejestru portali.
         // SW_TOOL_PORTALS.get()    -> obiekt
