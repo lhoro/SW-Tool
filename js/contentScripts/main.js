@@ -122,6 +122,7 @@
             this.respawnRunning = false;
             this.respawnButton = null;
             this.respawnLimitInput = null;
+            this.respawnFieldWaiter = null;
             this.expRunning = false;
             this.expStopRequested = false;
             this.expButton = null;
@@ -332,6 +333,15 @@
 
             const action = Number(response.a);
             const error = Number(response.e || 0);
+
+            if (
+                action === 602 &&
+                error === 0
+            ) {
+                this.routeRespawnFieldWaiter(
+                    response
+                );
+            }
 
             if (action === 1 && error === 0 && Array.isArray(response.chars)) {
                 this.syncCharactersFromResponse(response);
@@ -6766,6 +6776,172 @@
             return null;
         }
 
+        routeRespawnFieldWaiter(
+            response
+        ) {
+            const waiter =
+                this.respawnFieldWaiter;
+
+            if (!waiter) {
+                return;
+            }
+
+            if (
+                this._int(
+                    response?.a
+                ) !== 602 ||
+                this._int(
+                    response?.e
+                ) !== 0 ||
+                this._int(
+                    response?.x
+                ) !== waiter.x ||
+                this._int(
+                    response?.y
+                ) !== waiter.y
+            ) {
+                return;
+            }
+
+            this.respawnFieldWaiter =
+                null;
+            clearTimeout(
+                waiter.timeoutId
+            );
+
+            waiter.resolve(
+                this.mapSolver?.field ||
+                null
+            );
+        }
+
+        armRespawnFieldWaiter(
+            x,
+            y,
+            timeoutMs = 1500
+        ) {
+            if (
+                this.respawnFieldWaiter
+            ) {
+                clearTimeout(
+                    this.respawnFieldWaiter
+                        .timeoutId
+                );
+                this.respawnFieldWaiter
+                    .reject(
+                        new Error(
+                            "Respiarka: poprzednie oczekiwanie na a:602 zostało zastąpione."
+                        )
+                    );
+                this.respawnFieldWaiter =
+                    null;
+            }
+
+            const targetX =
+                this._int(x);
+            const targetY =
+                this._int(y);
+
+            let waiter = null;
+
+            const promise =
+                new Promise(
+                    (
+                        resolve,
+                        reject
+                    ) => {
+                        waiter = {
+                            x:
+                                targetX,
+                            y:
+                                targetY,
+                            resolve,
+                            reject,
+                            timeoutId:
+                                null
+                        };
+
+                        waiter.timeoutId =
+                            setTimeout(
+                                () => {
+                                    if (
+                                        this.respawnFieldWaiter ===
+                                        waiter
+                                    ) {
+                                        this.respawnFieldWaiter =
+                                            null;
+                                    }
+
+                                    reject(
+                                        new Error(
+                                            "Respiarka: timeout oczekiwania na a:602 dla pola " +
+                                            targetX +
+                                            "|" +
+                                            targetY +
+                                            "."
+                                        )
+                                    );
+                                },
+                                timeoutMs
+                            );
+
+                        this.respawnFieldWaiter =
+                            waiter;
+                    }
+                );
+
+            return {
+                promise,
+                cancel:
+                    () => {
+                        if (
+                            this.respawnFieldWaiter !==
+                            waiter
+                        ) {
+                            return;
+                        }
+
+                        clearTimeout(
+                            waiter.timeoutId
+                        );
+                        this.respawnFieldWaiter =
+                            null;
+                        waiter.reject(
+                            new Error(
+                                "Respiarka: anulowano oczekiwanie na a:602."
+                            )
+                        );
+                    }
+            };
+        }
+
+        currentRespawnField(
+            point
+        ) {
+            const field =
+                this.mapSolver?.field;
+
+            if (
+                field &&
+                this._int(
+                    field.x
+                ) ===
+                    this._int(
+                        point.x
+                    ) &&
+                this._int(
+                    field.y
+                ) ===
+                    this._int(
+                        point.y
+                    )
+            ) {
+                return field;
+            }
+
+            return null;
+        }
+
         respawnNormalMobCount(
             field
         ) {
@@ -7217,11 +7393,6 @@
                         break;
                     }
 
-                    // Minimalny yield — nie czekamy na DOM ani nie sondujemy
-                    // nieistniejących rang.
-                    await this.sleep(
-                        10
-                    );
                 }
 
                 if (
@@ -7242,7 +7413,8 @@
 
         async respawnMaintainField(
             state,
-            point
+            point,
+            field = null
         ) {
             if (
                 !this.respawnRunning
@@ -7250,11 +7422,10 @@
                 return;
             }
 
-            let field =
-                await this.waitForQuestKillField(
-                    point.x,
-                    point.y,
-                    180
+            field =
+                field ||
+                this.currentRespawnField(
+                    point
                 );
 
             if (!field) {
@@ -7276,30 +7447,6 @@
                     !this.respawnRunning
                 ) {
                     return;
-                }
-
-                await this.sleep(25);
-
-                const refreshed =
-                    this.mapSolver?.field;
-
-                if (
-                    refreshed &&
-                    this._int(
-                        refreshed.x
-                    ) ===
-                        this._int(
-                            point.x
-                        ) &&
-                    this._int(
-                        refreshed.y
-                    ) ===
-                        this._int(
-                            point.y
-                        )
-                ) {
-                    field =
-                        refreshed;
                 }
             }
 
@@ -7492,6 +7639,23 @@
             this.respawnRunning = false;
 
             if (
+                this.respawnFieldWaiter
+            ) {
+                const waiter =
+                    this.respawnFieldWaiter;
+                this.respawnFieldWaiter =
+                    null;
+                clearTimeout(
+                    waiter.timeoutId
+                );
+                waiter.reject(
+                    new Error(
+                        "Respiarka STOP"
+                    )
+                );
+            }
+
+            if (
                 this.mapSolver?.active &&
                 String(
                     this.mapSolver.source || ""
@@ -7617,7 +7781,10 @@
                 // wyczyszczone po osiągnięciu progu.
                 await this.respawnMaintainField(
                     state,
-                    pair.start
+                    pair.start,
+                    this.currentRespawnField(
+                        pair.start
+                    )
                 );
 
                 while (
@@ -7650,31 +7817,58 @@
                             ? pair.neighbor
                             : pair.start;
 
-                    const result =
-                        await this.mapSolver
-                            .navigateTo(
-                                target.x,
-                                target.y,
-                                {
-                                    source:
-                                        "pve-respawn",
-                                    allowBusy: true
-                                }
-                            );
+                    const fieldWait =
+                        this.armRespawnFieldWaiter(
+                            target.x,
+                            target.y
+                        );
+
+                    let result = null;
+
+                    try {
+                        result =
+                            await this.mapSolver
+                                .navigateTo(
+                                    target.x,
+                                    target.y,
+                                    {
+                                        source:
+                                            "pve-respawn",
+                                        allowBusy: true
+                                    }
+                                );
+                    } catch (error) {
+                        fieldWait.cancel();
+                        fieldWait.promise.catch(
+                            () => {}
+                        );
+                        throw error;
+                    }
 
                     if (
                         !this.respawnRunning
                     ) {
+                        fieldWait.cancel();
+                        fieldWait.promise.catch(
+                            () => {}
+                        );
                         break;
                     }
 
                     if (
                         !result?.ok
                     ) {
+                        fieldWait.cancel();
+                        fieldWait.promise.catch(
+                            () => {}
+                        );
                         throw new Error(
                             "Respiarka: nie udało się wykonać ruchu."
                         );
                     }
+
+                    const targetField =
+                        await fieldWait.promise;
 
                     state.moves++;
                     state.paSpent++;
@@ -7695,7 +7889,8 @@
 
                     await this.respawnMaintainField(
                         state,
-                        target
+                        target,
+                        targetField
                     );
 
                     if (
@@ -7749,6 +7944,18 @@
             } finally {
                 this.respawnRunning =
                     false;
+
+                if (
+                    this.respawnFieldWaiter
+                ) {
+                    clearTimeout(
+                        this.respawnFieldWaiter
+                            .timeoutId
+                    );
+                    this.respawnFieldWaiter =
+                        null;
+                }
+
                 this.syncPveModeButtons();
             }
 
