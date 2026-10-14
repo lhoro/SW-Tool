@@ -6762,6 +6762,413 @@
             return null;
         }
 
+        respawnNormalMobCount(
+            field
+        ) {
+            const entries =
+                Array.isArray(
+                    field?.mobs?.entries
+                )
+                    ? field.mobs.entries
+                    : [];
+
+            const first =
+                entries[0];
+
+            const readCount = (
+                value,
+                depth = 0
+            ) => {
+                if (
+                    value === null ||
+                    value === undefined ||
+                    depth > 3
+                ) {
+                    return null;
+                }
+
+                if (
+                    typeof value === "number" ||
+                    typeof value === "string"
+                ) {
+                    const parsed =
+                        this._int(value);
+                    return parsed >= 0
+                        ? parsed
+                        : null;
+                }
+
+                if (
+                    Array.isArray(value)
+                ) {
+                    // Najpierw szukamy jawnego obiektu/licznika, a nie ID moba.
+                    for (
+                        const nested of
+                        value
+                    ) {
+                        if (
+                            nested &&
+                            typeof nested ===
+                                "object"
+                        ) {
+                            const count =
+                                readCount(
+                                    nested,
+                                    depth + 1
+                                );
+
+                            if (
+                                count !== null
+                            ) {
+                                return count;
+                            }
+                        }
+                    }
+
+                    return null;
+                }
+
+                if (
+                    typeof value !== "object"
+                ) {
+                    return null;
+                }
+
+                for (
+                    const key of
+                    [
+                        "count",
+                        "amount",
+                        "num",
+                        "qty",
+                        "cnt",
+                        "suma"
+                    ]
+                ) {
+                    if (
+                        value[key] !==
+                            undefined
+                    ) {
+                        const count =
+                            this._int(
+                                value[key]
+                            );
+
+                        if (
+                            count >= 0
+                        ) {
+                            return count;
+                        }
+                    }
+                }
+
+                return null;
+            };
+
+            const slotCount =
+                readCount(first);
+
+            if (
+                slotCount !== null
+            ) {
+                return {
+                    count:
+                        Math.max(
+                            0,
+                            slotCount
+                        ),
+                    source:
+                        "slot-0",
+                    raw:
+                        first
+                };
+            }
+
+            // Fallback tylko po to, by funkcja nadal działała na serwerach,
+            // które nie rozbijają mobs.mobs na liczniki slotów. Logujemy to
+            // jawnie, bo suma może zawierać championy/elity/bossy.
+            return {
+                count:
+                    Math.max(
+                        0,
+                        this._int(
+                            field?.mobs?.count
+                        )
+                    ),
+                source:
+                    "total-fallback",
+                raw:
+                    first
+            };
+        }
+
+        async respawnFight(
+            multi,
+            point
+        ) {
+            const response =
+                multi
+                    ? await this.sendAndWait(
+                        {
+                            a: 13,
+                            mob_num: 0,
+                            fo: [
+                                1,
+                                1,
+                                1,
+                                1,
+                                1
+                            ]
+                        },
+                        [7, 999],
+                        (event) =>
+                            this._int(
+                                event.e
+                            ) !== 0 ||
+                            (
+                                this._int(
+                                    event.a
+                                ) === 7 &&
+                                (
+                                    this._int(
+                                        event.mm
+                                    ) === 1 ||
+                                    this._int(
+                                        event.me
+                                    ) > 0 ||
+                                    event.result !==
+                                        undefined ||
+                                    event.remove_mob !==
+                                        undefined
+                                )
+                            ),
+                        5000
+                    )
+                    : await this.sendAndWait(
+                        {
+                            a: 7,
+                            mob_num: 0,
+                            rank: 0,
+                            quick: 1
+                        },
+                        [7, 999],
+                        (event) =>
+                            this._int(
+                                event.e
+                            ) !== 0 ||
+                            (
+                                this._int(
+                                    event.a
+                                ) === 7 &&
+                                (
+                                    this._int(
+                                        event.me
+                                    ) > 0 ||
+                                    event.result !==
+                                        undefined ||
+                                    event.remove_mob !==
+                                        undefined
+                                )
+                            ),
+                        5000
+                    );
+
+            this.assertPveActionPoints(
+                response,
+                "walka Respiarki"
+            );
+
+            if (
+                this._int(
+                    response.e
+                ) !== 0
+            ) {
+                throw new Error(
+                    "Respiarka: serwer odrzucił " +
+                    (
+                        multi
+                            ? "multiwalkę"
+                            : "zwykłą walkę"
+                    ) +
+                    " na polu " +
+                    point.x +
+                    "|" +
+                    point.y +
+                    "."
+                );
+            }
+
+            return response;
+        }
+
+        async respawnMaintainField(
+            state,
+            point
+        ) {
+            if (
+                !this.respawnRunning
+            ) {
+                return;
+            }
+
+            const field =
+                await this.waitForQuestKillField(
+                    point.x,
+                    point.y,
+                    180
+                );
+
+            if (!field) {
+                return;
+            }
+
+            const key =
+                point.x +
+                "_" +
+                point.y;
+            const mobInfo =
+                this.respawnNormalMobCount(
+                    field
+                );
+            const multiAvailable =
+                Array.isArray(
+                    field.multiFight
+                ) &&
+                field.multiFight.includes(
+                    0
+                );
+
+            if (
+                multiAvailable
+            ) {
+                state.multiUnlocked.add(
+                    key
+                );
+            }
+
+            console.info(
+                "[SW Tool][PVE] Respiarka — pole:",
+                {
+                    x:
+                        point.x,
+                    y:
+                        point.y,
+                    normalMobs:
+                        mobInfo.count,
+                    source:
+                        mobInfo.source,
+                    totalMobs:
+                        this._int(
+                            field.mobs?.count
+                        ),
+                    multiAvailable,
+                    unlocked:
+                        state.multiUnlocked.has(
+                            key
+                        ),
+                    paSpent:
+                        state.paSpent,
+                    paLimit:
+                        state.paLimit,
+                    rawSlot0:
+                        mobInfo.raw
+                }
+            );
+
+            if (
+                mobInfo.source ===
+                    "total-fallback" &&
+                !state.warnedFallback
+            ) {
+                state.warnedFallback =
+                    true;
+
+                console.warn(
+                    "[SW Tool][PVE] Respiarka — brak jednoznacznego licznika normalnych mobów w slot 0; używam mobs.suma jako fallback."
+                );
+            }
+
+            const canSpend =
+                () =>
+                    state.paLimit ===
+                        0 ||
+                    state.paSpent <
+                        state.paLimit;
+
+            // Na każdym z dwóch pól najpierw odblokowujemy multi.
+            // Robimy maksymalnie jedną zwykłą walkę na wizytę, żeby nie stać
+            // w miejscu i nie blokować samego respienia.
+            if (
+                !multiAvailable &&
+                mobInfo.count > 0
+            ) {
+                if (!canSpend()) {
+                    state.limitReached =
+                        true;
+                    this.respawnRunning =
+                        false;
+                    return;
+                }
+
+                await this.respawnFight(
+                    false,
+                    point
+                );
+
+                state.paSpent++;
+                state.singleFights++;
+
+                if (
+                    state.paLimit > 0 &&
+                    state.paSpent >=
+                        state.paLimit
+                ) {
+                    state.limitReached =
+                        true;
+                    this.respawnRunning =
+                        false;
+                }
+
+                return;
+            }
+
+            // Po odblokowaniu multi pozwalamy mobom się nazbierać.
+            // Gdy normalny slot osiągnie próg, wykonujemy jedną multiwalkę
+            // i wracamy do oscylowania między polami.
+            if (
+                multiAvailable &&
+                mobInfo.count >=
+                    state.multiThreshold
+            ) {
+                if (!canSpend()) {
+                    state.limitReached =
+                        true;
+                    this.respawnRunning =
+                        false;
+                    return;
+                }
+
+                await this.respawnFight(
+                    true,
+                    point
+                );
+
+                state.paSpent++;
+                state.multiFights++;
+
+                if (
+                    state.paLimit > 0 &&
+                    state.paSpent >=
+                        state.paLimit
+                ) {
+                    state.limitReached =
+                        true;
+                    this.respawnRunning =
+                        false;
+                }
+            }
+        }
+
         stopRespawner() {
             if (!this.respawnRunning) {
                 return;
@@ -6828,11 +7235,25 @@
                 );
             }
 
-            this.pveActionPointsExhausted = false;
-            this.respawnRunning = true;
+            const state = {
+                paLimit,
+                paSpent: 0,
+                moves: 0,
+                singleFights: 0,
+                multiFights: 0,
+                multiThreshold: 10,
+                multiUnlocked:
+                    new Set(),
+                warnedFallback: false,
+                limitReached: false
+            };
+
+            this.pveActionPointsExhausted =
+                false;
+            this.respawnRunning =
+                true;
             this.syncPveModeButtons();
 
-            let moves = 0;
             let toNeighbor = true;
             let operationError = null;
 
@@ -6847,6 +7268,7 @@
                 pair.neighbor.x +
                 "|" +
                 pair.neighbor.y +
+                " • multi od 10 normalnych" +
                 (
                     paLimit > 0
                         ? " • limit " +
@@ -6861,11 +7283,21 @@
                 {
                     locationId:
                         startLocationId,
-                    pair
+                    pair,
+                    multiThreshold:
+                        state.multiThreshold,
+                    paLimit
                 }
             );
 
             try {
+                // Pole startowe też musi odblokować multi / zostać
+                // wyczyszczone po osiągnięciu progu.
+                await this.respawnMaintainField(
+                    state,
+                    pair.start
+                );
+
                 while (
                     this.respawnRunning
                 ) {
@@ -6879,6 +7311,16 @@
                         throw new Error(
                             "Respiarka: postać opuściła mapę startową."
                         );
+                    }
+
+                    if (
+                        state.paLimit > 0 &&
+                        state.paSpent >=
+                            state.paLimit
+                    ) {
+                        state.limitReached =
+                            true;
+                        break;
                     }
 
                     const target =
@@ -6912,36 +7354,54 @@
                         );
                     }
 
-                    moves++;
+                    state.moves++;
+                    state.paSpent++;
                     toNeighbor =
                         !toNeighbor;
 
                     if (
-                        paLimit > 0 &&
-                        moves >= paLimit
+                        state.paLimit > 0 &&
+                        state.paSpent >=
+                            state.paLimit
                     ) {
+                        state.limitReached =
+                            true;
                         this.respawnRunning =
                             false;
+                        break;
+                    }
 
-                        this.setQuickPanelStatus(
-                            "Respiarka STOP — wykorzystano limit " +
-                            paLimit +
-                            " PA."
-                        );
+                    await this.respawnMaintainField(
+                        state,
+                        target
+                    );
 
+                    if (
+                        !this.respawnRunning
+                    ) {
                         break;
                     }
 
                     if (
-                        moves === 1 ||
-                        moves % 20 === 0
+                        state.moves === 1 ||
+                        state.moves % 20 === 0
                     ) {
                         this.setQuickPanelStatus(
-                            "Respiarka • ruchy " +
-                            moves +
-                            " • " +
-                            pair.label +
-                            "."
+                            "Respiarka • PA " +
+                            state.paSpent +
+                            (
+                                state.paLimit > 0
+                                    ? "/" +
+                                      state.paLimit
+                                    : ""
+                            ) +
+                            " • ruchy " +
+                            state.moves +
+                            " • zwykłe " +
+                            state.singleFights +
+                            "x • multi " +
+                            state.multiFights +
+                            "x."
                         );
                     }
                 }
@@ -6973,7 +7433,11 @@
                 )
             ) {
                 return {
-                    moves,
+                    ...state,
+                    multiUnlocked:
+                        [
+                            ...state.multiUnlocked
+                        ],
                     stopped: true,
                     reason:
                         "no-action-points",
@@ -6994,10 +7458,38 @@
                 throw operationError;
             }
 
+            const reason =
+                state.limitReached
+                    ? "pa-limit"
+                    : "manual";
+
+            if (
+                state.limitReached
+            ) {
+                this.setQuickPanelStatus(
+                    "Respiarka STOP — wykorzystano " +
+                    state.paSpent +
+                    "/" +
+                    state.paLimit +
+                    " PA • ruchy " +
+                    state.moves +
+                    " • zwykłe " +
+                    state.singleFights +
+                    "x • multi " +
+                    state.multiFights +
+                    "x."
+                );
+            }
+
             console.info(
                 "[SW Tool][PVE] Respiarka — stop:",
                 {
-                    moves,
+                    ...state,
+                    multiUnlocked:
+                        [
+                            ...state.multiUnlocked
+                        ],
+                    reason,
                     x:
                         this._int(
                             this.mapSolver?.map?.x
@@ -7010,14 +7502,13 @@
             );
 
             return {
-                moves,
-                paLimit,
+                ...state,
+                multiUnlocked:
+                    [
+                        ...state.multiUnlocked
+                    ],
                 stopped: true,
-                reason:
-                    paLimit > 0 &&
-                    moves >= paLimit
-                        ? "pa-limit"
-                        : "manual"
+                reason
             };
         }
 
