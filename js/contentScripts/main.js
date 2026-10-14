@@ -7648,10 +7648,8 @@
                 clearTimeout(
                     waiter.timeoutId
                 );
-                waiter.reject(
-                    new Error(
-                        "Respiarka STOP"
-                    )
+                waiter.resolve(
+                    null
                 );
             }
 
@@ -7869,6 +7867,12 @@
 
                     const targetField =
                         await fieldWait.promise;
+
+                    if (
+                        !this.respawnRunning
+                    ) {
+                        break;
+                    }
 
                     state.moves++;
                     state.paSpent++;
