@@ -193,6 +193,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return { ok: true, data };
     }
 
+    if (
+      msg.command === "debug.socketCapture.start" ||
+      msg.command === "debug.socketCapture.stop" ||
+      msg.command === "debug.socketCapture.state" ||
+      msg.command === "debug.socketCapture.export"
+    ) {
+      if (!isGameServerHost) {
+        throw new Error("Logger socketów wymaga otwartej strony serwera gry.");
+      }
+
+      const action = msg.command.replace(
+        "debug.",
+        ""
+      );
+      const data = await bridgeRequest(action);
+      return { ok: true, data };
+    }
+
     if (msg.command === "debug.portalMap.clear") {
       if (!isGameServerHost) {
         throw new Error("Czyszczenie portali wymaga otwartej strony serwera gry.");
