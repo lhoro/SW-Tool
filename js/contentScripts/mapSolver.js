@@ -1,5 +1,31 @@
 (() => {
     const LOG = "[SW Tool][PATH]";
+
+    const toolConsole = (
+        level,
+        ...args
+    ) => {
+        if (
+            window.SW_TOOL_DEBUG_LOGS !==
+                true
+        ) {
+            return;
+        }
+
+        const method =
+            globalThis.console?.[level];
+
+        if (
+            typeof method ===
+                "function"
+        ) {
+            method.apply(
+                globalThis.console,
+                args
+            );
+        }
+    };
+
     const LOGICAL_VIEWPORT = 520;
     const TILE_SIZE = 40;
     const STEP_DELAY_MS = 100;
@@ -140,7 +166,7 @@
                 this.stop("odświeżenie mapy podczas aktywnej trasy");
             }
 
-            console.info(LOG, "Mapa gotowa dla solvera:", {
+            toolConsole("info", LOG, "Mapa gotowa dla solvera:", {
                 locationId: this.map.locationId,
                 locationName: this.map.locationName,
                 maxX,
@@ -228,7 +254,7 @@
             this.source = "";
 
             if (wasActive && reason) {
-                console.info(LOG, "Trasa zatrzymana:", reason);
+                toolConsole("info", LOG, "Trasa zatrzymana:", reason);
             }
         }
 
@@ -277,7 +303,7 @@
             this.target = { x: targetX, y: targetY };
             this.source = source;
 
-            console.info(LOG, "Start trasy:", {
+            toolConsole("info", LOG, "Start trasy:", {
                 locationId: map.locationId,
                 from: { x: map.x, y: map.y },
                 to: this.target,
@@ -385,7 +411,7 @@
                         map.x !== expectedX ||
                         map.y !== expectedY
                     ) {
-                        console.info(LOG, "Pozycja różni się od planu, przeliczam trasę:", {
+                        toolConsole("info", LOG, "Pozycja różni się od planu, przeliczam trasę:", {
                             expected: { x: expectedX, y: expectedY },
                             actual: { x: map.x, y: map.y }
                         });
@@ -414,7 +440,7 @@
                     map.x === targetX &&
                     map.y === targetY
                 ) {
-                    console.info(LOG, "Cel osiągnięty:", {
+                    toolConsole("info", LOG, "Cel osiągnięty:", {
                         locationId: map.locationId,
                         x: targetX,
                         y: targetY,
@@ -440,7 +466,7 @@
                     this.path = [];
                 }
 
-                console.warn(LOG, "Błąd trasy:", error);
+                toolConsole("warn", LOG, "Błąd trasy:", error);
                 throw error;
             }
         }
@@ -747,7 +773,7 @@
                     // własne a:3 jako fallback. Dzięki temu nie ścigamy się
                     // z requestem mapy wysyłanym przez klienta po teleporcie.
                     if (!mapReady) {
-                        console.info(
+                        toolConsole("info", 
                             LOG,
                             "Brak automatycznego a:3 po portalu — fallback refreshMap()."
                         );
@@ -1016,7 +1042,7 @@
             const cell = this.map?.cells.get(this._key(point.x, point.y));
             if (!cell || !cell.movable) return;
 
-            console.info(LOG, "Klik mapy:", {
+            toolConsole("info", LOG, "Klik mapy:", {
                 locationId: this.map?.locationId || 0,
                 x: point.x,
                 y: point.y,
@@ -1026,7 +1052,7 @@
             this.navigateTo(point.x, point.y, {
                 source: "map-click"
             }).catch((error) => {
-                console.warn(LOG, "Kliknięcie nie uruchomiło trasy:", error);
+                toolConsole("warn", LOG, "Kliknięcie nie uruchomiło trasy:", error);
             });
         }
 
