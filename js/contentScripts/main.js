@@ -6250,7 +6250,8 @@
             requireQuestWindow = true,
             allowedWantTypes = [1],
             initialStep = null,
-            repeatUntilDone = false
+            repeatUntilDone = false,
+            repeatDelayMs = 350
         } = {}) {
             if (
                 this.questKillRunning ||
@@ -6538,15 +6539,28 @@
                             state.rounds++;
                             visited.clear();
 
+                            const respawnWaitMs =
+                                Math.max(
+                                    0,
+                                    this._int(
+                                        repeatDelayMs
+                                    )
+                                );
+
                             this.setQuickPanelStatus(
-                                "Quest Kille: brak celu jeszcze niezaliczony — zaczynam obieg " +
+                                "Quest Kille: brak dropu — czekam " +
+                                Math.ceil(
+                                    respawnWaitMs /
+                                    60000
+                                ) +
+                                " min na resp mobów przed obiegiem " +
                                 state.rounds +
                                 "."
                             );
 
                             toolConsole(
                                 "info",
-                                "[SW Tool][PVE] Quest Kille — nowy obieg mapy, czekam na progres serwera.",
+                                "[SW Tool][PVE] Quest Kille — czekam na resp przed kolejnym obiegiem.",
                                 {
                                     questId:
                                         state.questId,
@@ -6555,11 +6569,23 @@
                                     max:
                                         state.max,
                                     round:
-                                        state.rounds
+                                        state.rounds,
+                                    respawnWaitMs
                                 }
                             );
 
-                            await this.sleep(350);
+                            if (respawnWaitMs > 0) {
+                                await this.sleep(
+                                    respawnWaitMs
+                                );
+                            }
+
+                            this.setQuickPanelStatus(
+                                "Quest Kille: respawn wait zakończony — zaczynam obieg " +
+                                state.rounds +
+                                "."
+                            );
+
                             continue;
                         }
 
@@ -11352,15 +11378,23 @@
                     "TEST: Moc Zodiaku — otwieram quest przez X..."
                 );
 
-                // Nie próbujemy już potwierdzać startu przez q_step, track[]
-                // mapy ani DOM dziennika. X ma tylko uruchomić quest klientem.
+                // Nie próbujemy potwierdzać startu przez q_step, track[]
+                // mapy ani DOM dziennika. Odtwarzamy dokładnie interakcję gracza:
+                // pierwsze X otwiera okno questa, drugie X go akceptuje.
                 this.testZodiacQuestStep = null;
                 this.testZodiacTrackVersion++;
+
                 this.roninPressKey("x");
-                await this.sleep(250);
+                this.setQuickPanelStatus(
+                    "TEST: Moc Zodiaku — okno questa otwarte, akceptuję..."
+                );
+                await this.sleep(300);
+
+                this.roninPressKey("x");
+                await this.sleep(300);
 
                 this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku — idę na Teren Zachodni i biję do dropu..."
+                    "TEST: Moc Zodiaku — zaakceptowane, idę na Teren Zachodni i biję do dropu..."
                 );
 
                 await this.mapSolver.navigateToLocation(
@@ -11407,7 +11441,9 @@
                         allowedWantTypes: [5],
                         initialStep:
                             zodiacStep,
-                        repeatUntilDone: true
+                        repeatUntilDone: true,
+                        repeatDelayMs:
+                            3 * 60 * 1000
                     });
 
                 if (!farm?.done) {
