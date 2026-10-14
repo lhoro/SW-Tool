@@ -9,6 +9,7 @@ const DEFAULT_CONFIG = Object.freeze({
   expKillChampions: false,
   expKillElites: false,
   expKillBosses: false,
+  debugLogs: false,
   preferTraining: true
 });
 
@@ -53,6 +54,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const socketCaptureStats = document.getElementById("socketCaptureStats");
   const socketCaptureToggleBtn = document.getElementById("socketCaptureToggleBtn");
   const exportSocketCaptureBtn = document.getElementById("exportSocketCaptureBtn");
+  const debugLogsToggleBtn = document.getElementById("debugLogsToggleBtn");
   const debugStatus = document.getElementById("debugStatus");
 
   let saveQueue = Promise.resolve();
@@ -89,6 +91,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     expKillBosses: typeof config?.expKillBosses === "boolean"
       ? config.expKillBosses
       : DEFAULT_CONFIG.expKillBosses,
+    debugLogs: typeof config?.debugLogs === "boolean"
+      ? config.debugLogs
+      : DEFAULT_CONFIG.debugLogs,
     preferTraining: typeof config?.preferTraining === "boolean"
       ? config.preferTraining
       : DEFAULT_CONFIG.preferTraining
@@ -173,6 +178,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     expKillChampions.checked = normalized.expKillChampions;
     expKillElites.checked = normalized.expKillElites;
     expKillBosses.checked = normalized.expKillBosses;
+    debugLogsToggleBtn.dataset.active = normalized.debugLogs ? "1" : "0";
+    debugLogsToggleBtn.textContent = normalized.debugLogs
+      ? "Logi SW Tool: ON"
+      : "Logi SW Tool: OFF";
     preferTraining.checked = normalized.preferTraining;
     preferTrainingLabel.textContent = normalized.preferTraining
       ? "Preferuj Trening"
@@ -191,6 +200,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       expKillChampions: expKillChampions.checked,
       expKillElites: expKillElites.checked,
       expKillBosses: expKillBosses.checked,
+      debugLogs: debugLogsToggleBtn.dataset.active === "1",
       preferTraining: preferTraining.checked
     };
   }
@@ -532,6 +542,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   expKillChampions.addEventListener("change", saveConfig);
   expKillElites.addEventListener("change", saveConfig);
   expKillBosses.addEventListener("change", saveConfig);
+  debugLogsToggleBtn.addEventListener("click", async () => {
+    const enabled = debugLogsToggleBtn.dataset.active === "1";
+    debugLogsToggleBtn.dataset.active = enabled ? "0" : "1";
+    debugLogsToggleBtn.textContent = enabled
+      ? "Logi SW Tool: OFF"
+      : "Logi SW Tool: ON";
+    await saveConfig();
+  });
   preferTraining.addEventListener("change", () => {
     preferTrainingLabel.textContent = preferTraining.checked
       ? "Preferuj Trening"
