@@ -4276,12 +4276,36 @@
             await this.navigateToRoninQuestMove(null, "6");
             await this.openRoninQuestStep();
 
-            // Etap przed mobami nie ma już sztywnej sekwencji Fight -> Next.
-            // prepareRoninMobCombat rozpoznaje aktualny q_step: type 7 wykona
-            // walkę questową, dialog przejdzie dalej, a type 1 uruchomi moby.
+            // Doprowadzamy questa do want.type === 1, a samo zabijanie
+            // przekazujemy dokładnie temu samemu mechanizmowi, którego używa
+            // przycisk "Quest Kille". Nie utrzymujemy drugiego patrolu Ronina.
             await this.prepareRoninMobCombat();
 
-            await this.roninMobCombat();
+            const killResult = await this.runQuestKills({
+                allowQuickAction: true,
+                requireQuestWindow: false
+            });
+
+            if (!killResult?.done) {
+                throw new Error(
+                    "Ronin: Quest Kille nie ukończyło etapu przeciwników (" +
+                    this._int(killResult?.count) +
+                    "/" +
+                    this._int(killResult?.max) +
+                    ")."
+                );
+            }
+
+            // Stary Ronin po zakończeniu bicia mobów ponownie naciskał X.
+            // Robimy to dopiero po pełnym zakończeniu Quest Kille, żeby
+            // odświeżyć okno/krok przed przejściem dialogu dalej.
+            await this.refreshRoninQuestClientState(
+                "po Quest Kille",
+                {
+                    settleMs: 300,
+                    pressX: true
+                }
+            );
             await this.roninQuestNext();
 
             await this.navigateToRoninQuestMove(null, "7");
@@ -6138,12 +6162,18 @@
             };
         }
 
-        async runQuestKills() {
+        async runQuestKills({
+            allowQuickAction = false,
+            requireQuestWindow = true
+        } = {}) {
             if (
                 this.questKillRunning ||
                 this.respawnRunning ||
                 this.expRunning ||
-                this.quickActionRunning ||
+                (
+                    this.quickActionRunning &&
+                    !allowQuickAction
+                ) ||
                 this.accountOperationRunning ||
                 this.dailyRewardClaimStage !== 0 ||
                 this.characterSwitch ||
@@ -6156,6 +6186,7 @@
             }
 
             if (
+                requireQuestWindow &&
                 !this.improvedXQuestWindowOpen()
             ) {
                 throw new Error(
