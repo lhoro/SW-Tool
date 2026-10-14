@@ -15,6 +15,19 @@ const DEFAULT_CONFIG = Object.freeze({
 
 const ACCOUNT_LIMIT = 5;
 
+let debugLogsEnabled = false;
+
+function toolConsole(level, ...args) {
+  if (!debugLogsEnabled) {
+    return;
+  }
+
+  const method = globalThis.console?.[level];
+  if (typeof method === "function") {
+    method.apply(globalThis.console, args);
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   const mainView = document.getElementById("mainView");
   const settingsView = document.getElementById("settingsView");
@@ -178,6 +191,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     expKillChampions.checked = normalized.expKillChampions;
     expKillElites.checked = normalized.expKillElites;
     expKillBosses.checked = normalized.expKillBosses;
+    debugLogsEnabled = normalized.debugLogs === true;
     debugLogsToggleBtn.dataset.active = normalized.debugLogs ? "1" : "0";
     debugLogsToggleBtn.textContent = normalized.debugLogs
       ? "Logi SW Tool: ON"
@@ -273,7 +287,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       renderSocketCaptureState(data);
     } catch (error) {
       socketCaptureStats.textContent = "Logger niedostępny.";
-      console.warn("[SW Tool][POPUP] Nie udało się odczytać stanu loggera socketów.", error);
+      toolConsole("warn", "[SW Tool][POPUP] Nie udało się odczytać stanu loggera socketów.", error);
     }
   }
 
@@ -322,7 +336,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             "success"
           );
         } catch (error) {
-          console.error("[SW Tool][POPUP] Przełączenie konta nie powiodło się.", error);
+          toolConsole("error", "[SW Tool][POPUP] Przełączenie konta nie powiodło się.", error);
           setStatus(mainStatus, error.message, "error");
         } finally {
           button.classList.remove("loading");
@@ -389,7 +403,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         updateWindow(data.config);
       })
       .catch((error) => {
-        console.error("[SW Tool][POPUP] Nie udało się zapisać konfiguracji.", error);
+        toolConsole("error", "[SW Tool][POPUP] Nie udało się zapisać konfiguracji.", error);
       });
 
     return saveQueue;
@@ -435,7 +449,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         "success"
       );
     } catch (error) {
-      console.error("[SW Tool][POPUP] Eksport portali nie powiódł się.", error);
+      toolConsole("error", "[SW Tool][POPUP] Eksport portali nie powiódł się.", error);
       setStatus(debugStatus, error.message, "error");
     } finally {
       exportPortalsBtn.disabled = false;
@@ -456,7 +470,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       setStatus(debugStatus, "Rejestr portali wyczyszczony.", "success");
     } catch (error) {
-      console.error("[SW Tool][POPUP] Czyszczenie portali nie powiodło się.", error);
+      toolConsole("error", "[SW Tool][POPUP] Czyszczenie portali nie powiodło się.", error);
       setStatus(debugStatus, error.message, "error");
     } finally {
       clearPortalsBtn.disabled = false;
@@ -491,7 +505,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         "success"
       );
     } catch (error) {
-      console.error("[SW Tool][POPUP] Logger socketów:", error);
+      toolConsole("error", "[SW Tool][POPUP] Logger socketów:", error);
       setStatus(debugStatus, error.message, "error");
     } finally {
       socketCaptureToggleBtn.disabled = false;
@@ -525,7 +539,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         "success"
       );
     } catch (error) {
-      console.error("[SW Tool][POPUP] Eksport logu socketów nie powiódł się.", error);
+      toolConsole("error", "[SW Tool][POPUP] Eksport logu socketów nie powiódł się.", error);
       setStatus(debugStatus, error.message, "error");
     } finally {
       exportSocketCaptureBtn.disabled = false;
@@ -544,6 +558,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   expKillBosses.addEventListener("change", saveConfig);
   debugLogsToggleBtn.addEventListener("click", async () => {
     const enabled = debugLogsToggleBtn.dataset.active === "1";
+    debugLogsEnabled = !enabled;
     debugLogsToggleBtn.dataset.active = enabled ? "0" : "1";
     debugLogsToggleBtn.textContent = enabled
       ? "Logi SW Tool: OFF"
@@ -562,7 +577,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       const data = await sendCommand("config.reset");
       updateWindow(data.config);
     } catch (error) {
-      console.error("[SW Tool][POPUP] Reset konfiguracji nie powiódł się.", error);
+      toolConsole("error", "[SW Tool][POPUP] Reset konfiguracji nie powiódł się.", error);
     }
   });
 
@@ -641,7 +656,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           "success"
         );
       } catch (error) {
-        console.error(
+        toolConsole("error", 
           "[SW Tool][POPUP] Operacja konta nie powiodła się:",
           action,
           error
@@ -666,7 +681,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       setStatus(accountStatus, "Konta zapisane.", "success");
     } catch (error) {
-      console.error("[SW Tool][POPUP] Nie udało się zapisać kont.", error);
+      toolConsole("error", "[SW Tool][POPUP] Nie udało się zapisać kont.", error);
       setStatus(accountStatus, error.message, "error");
     }
   });
@@ -692,7 +707,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     showTab("general");
     updateAccountActionAvailability();
   } catch (error) {
-    console.error("[SW Tool][POPUP] Inicjalizacja popupu nie powiodła się.", error);
+    toolConsole("error", "[SW Tool][POPUP] Inicjalizacja popupu nie powiodła się.", error);
 
     updateWindow(DEFAULT_CONFIG);
     accountsState = normalizeAccounts([]);
