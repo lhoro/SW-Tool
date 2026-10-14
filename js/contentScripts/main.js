@@ -4283,6 +4283,7 @@
 
             const killResult = await this.runQuestKills({
                 allowQuickAction: true,
+                allowAccountOperation: true,
                 requireQuestWindow: false
             });
 
@@ -6164,6 +6165,7 @@
 
         async runQuestKills({
             allowQuickAction = false,
+            allowAccountOperation = false,
             requireQuestWindow = true
         } = {}) {
             if (
@@ -6174,7 +6176,10 @@
                     this.quickActionRunning &&
                     !allowQuickAction
                 ) ||
-                this.accountOperationRunning ||
+                (
+                    this.accountOperationRunning &&
+                    !allowAccountOperation
+                ) ||
                 this.dailyRewardClaimStage !== 0 ||
                 this.characterSwitch ||
                 this.responseWaiter ||
