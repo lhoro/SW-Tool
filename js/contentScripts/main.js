@@ -7,6 +7,7 @@
         mapClickMovement: true,
         acceleratedH: false,
         improvedX: false,
+        killRespawnedMobs: false,
         preferTraining: true
     });
 
@@ -35,6 +36,9 @@
             improvedX: typeof source.improvedX === "boolean"
                 ? source.improvedX
                 : DEFAULT_CONFIG.improvedX,
+            killRespawnedMobs: typeof source.killRespawnedMobs === "boolean"
+                ? source.killRespawnedMobs
+                : DEFAULT_CONFIG.killRespawnedMobs,
             preferTraining: typeof source.preferTraining === "boolean"
                 ? source.preferTraining
                 : DEFAULT_CONFIG.preferTraining
