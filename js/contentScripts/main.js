@@ -10620,6 +10620,281 @@
             return this.runExpiarka();
         }
 
+        pressClientKeyAndWaitForSocket(
+            key,
+            {
+                label = "akcja klienta",
+                timeoutMs = 10000
+            } = {}
+        ) {
+            const socket =
+                GAME.socket;
+
+            if (!socket?.connected) {
+                return Promise.reject(
+                    new Error(
+                        "Socket.IO nie jest połączone."
+                    )
+                );
+            }
+
+            return new Promise(
+                (resolve, reject) => {
+                    const originalEmit =
+                        socket.emit;
+                    let txOrder = null;
+                    let settled = false;
+
+                    const cleanup = () => {
+                        if (
+                            socket.emit ===
+                            wrappedEmit
+                        ) {
+                            socket.emit =
+                                originalEmit;
+                        }
+
+                        socket.off(
+                            "gr",
+                            onResponse
+                        );
+                        clearTimeout(
+                            timeoutId
+                        );
+                    };
+
+                    const fail = (
+                        message
+                    ) => {
+                        if (settled) return;
+                        settled = true;
+                        cleanup();
+                        reject(
+                            new Error(message)
+                        );
+                    };
+
+                    const succeed = (
+                        response
+                    ) => {
+                        if (settled) return;
+                        settled = true;
+                        cleanup();
+
+                        toolConsole(
+                            "info",
+                            "[SW Tool][TEST] Akcja klienta potwierdzona socketem.",
+                            {
+                                label,
+                                tx: txOrder,
+                                rx: {
+                                    a:
+                                        this._int(
+                                            response?.a
+                                        ),
+                                    e:
+                                        this._int(
+                                            response?.e
+                                        ),
+                                    type:
+                                        response?.type,
+                                    questEnd:
+                                        this._int(
+                                            response?.quest_end
+                                        ),
+                                    qStepId:
+                                        this._int(
+                                            response
+                                                ?.q_step
+                                                ?.qb_id
+                                        )
+                                }
+                            }
+                        );
+
+                        resolve({
+                            order:
+                                txOrder,
+                            response
+                        });
+                    };
+
+                    const responseMatches =
+                        (response) => {
+                            if (
+                                !txOrder ||
+                                !response ||
+                                typeof response !==
+                                    "object"
+                            ) {
+                                return false;
+                            }
+
+                            const action =
+                                this._int(
+                                    response.a
+                                );
+
+                            if (
+                                action === 999 &&
+                                this._int(
+                                    response.e
+                                ) !== 0
+                            ) {
+                                return true;
+                            }
+
+                            return (
+                                action ===
+                                this._int(
+                                    txOrder.a
+                                )
+                            );
+                        };
+
+                    const onResponse =
+                        (response) => {
+                            if (
+                                !responseMatches(
+                                    response
+                                )
+                            ) {
+                                return;
+                            }
+
+                            if (
+                                this._int(
+                                    response.e
+                                ) !== 0
+                            ) {
+                                fail(
+                                    "TEST: serwer odrzucił " +
+                                    label +
+                                    " (a=" +
+                                    this._int(
+                                        txOrder?.a
+                                    ) +
+                                    ", type=" +
+                                    String(
+                                        txOrder?.type ??
+                                        "-"
+                                    ) +
+                                    ", e=" +
+                                    this._int(
+                                        response.e
+                                    ) +
+                                    ")."
+                                );
+                                return;
+                            }
+
+                            succeed(response);
+                        };
+
+                    const wrappedEmit =
+                        function (
+                            event,
+                            ...args
+                        ) {
+                            if (
+                                !txOrder &&
+                                event === "ga"
+                            ) {
+                                const candidate =
+                                    args.length <= 1
+                                        ? args[0]
+                                        : args;
+
+                                if (
+                                    candidate &&
+                                    typeof candidate ===
+                                        "object" &&
+                                    !Array.isArray(
+                                        candidate
+                                    ) &&
+                                    Number(
+                                        candidate.a
+                                    ) > 0
+                                ) {
+                                    txOrder = {
+                                        ...candidate
+                                    };
+
+                                    toolConsole(
+                                        "info",
+                                        "[SW Tool][TEST] TX z klientowego X.",
+                                        {
+                                            label,
+                                            order:
+                                                txOrder
+                                        }
+                                    );
+                                }
+                            }
+
+                            return originalEmit.apply(
+                                this,
+                                [
+                                    event,
+                                    ...args
+                                ]
+                            );
+                        };
+
+                    socket.emit =
+                        wrappedEmit;
+                    socket.on(
+                        "gr",
+                        onResponse
+                    );
+
+                    const timeoutId =
+                        setTimeout(
+                            () => {
+                                if (
+                                    !txOrder
+                                ) {
+                                    fail(
+                                        "TEST: " +
+                                        label +
+                                        " nie wygenerowało żadnego TX ga."
+                                    );
+                                    return;
+                                }
+
+                                fail(
+                                    "TEST: timeout RX po " +
+                                    label +
+                                    " (TX a=" +
+                                    this._int(
+                                        txOrder.a
+                                    ) +
+                                    ", type=" +
+                                    String(
+                                        txOrder.type ??
+                                        "-"
+                                    ) +
+                                    ")."
+                                );
+                            },
+                            timeoutMs
+                        );
+
+                    try {
+                        this.roninPressKey(
+                            key
+                        );
+                    } catch (error) {
+                        fail(
+                            error instanceof Error
+                                ? error.message
+                                : String(error)
+                        );
+                    }
+                }
+            );
+        }
+
         testZodiacDomQuestStep() {
             const roots =
                 this.questKillDomRoots();
@@ -11384,17 +11659,28 @@
                 this.testZodiacQuestStep = null;
                 this.testZodiacTrackVersion++;
 
-                this.roninPressKey("x");
-                this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku — okno questa otwarte, akceptuję..."
+                await this.pressClientKeyAndWaitForSocket(
+                    "x",
+                    {
+                        label:
+                            "X otwierające Moc Zodiaku"
+                    }
                 );
-                await this.sleep(300);
-
-                this.roninPressKey("x");
-                await this.sleep(300);
 
                 this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku — zaakceptowane, idę na Teren Zachodni i biję do dropu..."
+                    "TEST: Moc Zodiaku — okno otwarte, akceptuję quest..."
+                );
+
+                await this.pressClientKeyAndWaitForSocket(
+                    "x",
+                    {
+                        label:
+                            "X akceptujące Moc Zodiaku"
+                    }
+                );
+
+                this.setQuickPanelStatus(
+                    "TEST: Moc Zodiaku — zaakceptowane przez serwer, idę na Teren Zachodni i biję do dropu..."
                 );
 
                 await this.mapSolver.navigateToLocation(
