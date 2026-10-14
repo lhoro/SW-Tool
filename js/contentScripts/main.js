@@ -7003,6 +7003,389 @@
             return response;
         }
 
+        respawnAdvancedMobControl() {
+            const controls =
+                [
+                    ...document.querySelectorAll(
+                        ".map_bicon"
+                    )
+                ];
+
+            const isUsable = (
+                element
+            ) => {
+                if (
+                    !(element instanceof Element) ||
+                    !element.isConnected ||
+                    element.hasAttribute(
+                        "disabled"
+                    ) ||
+                    element.classList.contains(
+                        "initial_hide_forced"
+                    )
+                ) {
+                    return false;
+                }
+
+                const style =
+                    getComputedStyle(
+                        element
+                    );
+
+                return (
+                    style.display !== "none" &&
+                    style.visibility !== "hidden" &&
+                    style.pointerEvents !== "none"
+                );
+            };
+
+            const describe = (
+                element
+            ) =>
+                [
+                    element.textContent,
+                    element.getAttribute(
+                        "title"
+                    ),
+                    element.getAttribute(
+                        "aria-label"
+                    ),
+                    element.getAttribute(
+                        "data-title"
+                    ),
+                    element.getAttribute(
+                        "data-name"
+                    ),
+                    element.getAttribute(
+                        "data-rank"
+                    ),
+                    element.getAttribute(
+                        "data-type"
+                    ),
+                    element.getAttribute(
+                        "data-option"
+                    ),
+                    element.className
+                ]
+                    .filter(Boolean)
+                    .join(" ")
+                    .toLowerCase();
+
+            const semantic =
+                controls.find(
+                    (element) =>
+                        isUsable(element) &&
+                        /champ|chemp|elite|elita|boss|biju/.test(
+                            describe(
+                                element
+                            )
+                        )
+                );
+
+            if (semantic) {
+                return {
+                    element:
+                        semantic,
+                    source:
+                        "semantic"
+                };
+            }
+
+            // Stary bot używał dokładnie map_bicon[5] do grupowego
+            // ataku championów / elit / bossów. Zostawiamy ten układ
+            // jako fallback dla klienta, który nie opisuje ikon atrybutami.
+            const fallback =
+                controls[5];
+
+            if (
+                isUsable(
+                    fallback
+                )
+            ) {
+                return {
+                    element:
+                        fallback,
+                    source:
+                        "oldbot-index-5"
+                };
+            }
+
+            return null;
+        }
+
+        waitForRespawnAdvancedFight(
+            timeoutMs = 3500
+        ) {
+            if (
+                this.responseWaiter
+            ) {
+                return Promise.reject(
+                    new Error(
+                        "Respiarka: trwa już oczekiwanie na odpowiedź serwera."
+                    )
+                );
+            }
+
+            const actions =
+                new Set(
+                    [7, 999]
+                );
+
+            return new Promise(
+                (
+                    resolve,
+                    reject
+                ) => {
+                    const waiter = {
+                        actions,
+                        predicate:
+                            (event) =>
+                                this._int(
+                                    event.e
+                                ) !== 0 ||
+                                (
+                                    this._int(
+                                        event.a
+                                    ) === 7 &&
+                                    (
+                                        this._int(
+                                            event.me
+                                        ) > 0 ||
+                                        event.result !==
+                                            undefined ||
+                                        event.remove_mob !==
+                                            undefined ||
+                                        this._int(
+                                            event.mm
+                                        ) === 1
+                                    )
+                                ),
+                        resolve,
+                        reject,
+                        timeoutId:
+                            null
+                    };
+
+                    waiter.timeoutId =
+                        setTimeout(
+                            () => {
+                                if (
+                                    this.responseWaiter ===
+                                    waiter
+                                ) {
+                                    this.responseWaiter =
+                                        null;
+                                }
+
+                                reject(
+                                    new Error(
+                                        "Respiarka: timeout walki zrespionego moba."
+                                    )
+                                );
+                            },
+                            timeoutMs
+                        );
+
+                    this.responseWaiter =
+                        waiter;
+                }
+            );
+        }
+
+        async respawnKillAdvancedMobs(
+            state,
+            point
+        ) {
+            if (
+                this.config
+                    ?.killRespawnedMobs !==
+                    true ||
+                !this.respawnRunning
+            ) {
+                return {
+                    fights: 0,
+                    removed: 0,
+                    paSpent: 0
+                };
+            }
+
+            let fights = 0;
+            let removed = 0;
+            let paSpent = 0;
+
+            for (
+                let attempt = 0;
+                attempt < 8 &&
+                this.respawnRunning;
+                attempt++
+            ) {
+                const target =
+                    this.respawnAdvancedMobControl();
+
+                if (!target) {
+                    break;
+                }
+
+                if (
+                    state.paLimit > 0 &&
+                    state.paSpent >=
+                        state.paLimit
+                ) {
+                    state.limitReached =
+                        true;
+                    this.respawnRunning =
+                        false;
+                    break;
+                }
+
+                const previousElement =
+                    target.element;
+                const responsePromise =
+                    this.waitForRespawnAdvancedFight();
+
+                previousElement.dispatchEvent(
+                    new MouseEvent(
+                        "click",
+                        {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        }
+                    )
+                );
+
+                let response = null;
+
+                try {
+                    response =
+                        await responsePromise;
+                } catch (error) {
+                    console.warn(
+                        "[SW Tool][PVE] Respiarka — brak potwierdzenia walki zrespionego moba:",
+                        {
+                            x:
+                                point.x,
+                            y:
+                                point.y,
+                            source:
+                                target.source,
+                            error
+                        }
+                    );
+                    break;
+                }
+
+                this.assertPveActionPoints(
+                    response,
+                    "walka ze zrespionym mobem"
+                );
+
+                if (
+                    this._int(
+                        response.e
+                    ) !== 0
+                ) {
+                    console.warn(
+                        "[SW Tool][PVE] Respiarka — atak zrespionego moba odrzucony:",
+                        {
+                            x:
+                                point.x,
+                            y:
+                                point.y,
+                            source:
+                                target.source,
+                            e:
+                                this._int(
+                                    response.e
+                                )
+                        }
+                    );
+                    break;
+                }
+
+                const killed =
+                    this.questKillRemovedCount(
+                        response
+                    );
+                const fightCost =
+                    this._int(
+                        response.mm
+                    ) === 1
+                        ? Math.max(
+                            1,
+                            killed
+                        )
+                        : 1;
+
+                state.paSpent +=
+                    fightCost;
+                state.advancedFights++;
+                state.advancedPaSpent +=
+                    fightCost;
+                state.advancedRemoved +=
+                    killed;
+
+                fights++;
+                paSpent +=
+                    fightCost;
+                removed +=
+                    killed;
+
+                console.info(
+                    "[SW Tool][PVE] Respiarka — zabity zrespiony mob:",
+                    {
+                        x:
+                            point.x,
+                        y:
+                            point.y,
+                        source:
+                            target.source,
+                        removed:
+                            killed,
+                        cost:
+                            fightCost,
+                        paSpent:
+                            state.paSpent,
+                        paLimit:
+                            state.paLimit
+                    }
+                );
+
+                if (
+                    state.paLimit > 0 &&
+                    state.paSpent >=
+                        state.paLimit
+                ) {
+                    state.limitReached =
+                        true;
+                    this.respawnRunning =
+                        false;
+                    break;
+                }
+
+                await this.sleep(
+                    45
+                );
+
+                const nextTarget =
+                    this.respawnAdvancedMobControl();
+
+                if (
+                    killed <= 0 &&
+                    nextTarget?.element ===
+                        previousElement
+                ) {
+                    break;
+                }
+            }
+
+            return {
+                fights,
+                removed,
+                paSpent
+            };
+        }
+
         async respawnMaintainField(
             state,
             point
@@ -7013,7 +7396,7 @@
                 return;
             }
 
-            const field =
+            let field =
                 await this.waitForQuestKillField(
                     point.x,
                     point.y,
@@ -7022,6 +7405,47 @@
 
             if (!field) {
                 return;
+            }
+
+            if (
+                this.config
+                    ?.killRespawnedMobs ===
+                    true
+            ) {
+                await this.respawnKillAdvancedMobs(
+                    state,
+                    point
+                );
+
+                if (
+                    !this.respawnRunning
+                ) {
+                    return;
+                }
+
+                await this.sleep(25);
+
+                const refreshed =
+                    this.mapSolver?.field;
+
+                if (
+                    refreshed &&
+                    this._int(
+                        refreshed.x
+                    ) ===
+                        this._int(
+                            point.x
+                        ) &&
+                    this._int(
+                        refreshed.y
+                    ) ===
+                        this._int(
+                            point.y
+                        )
+                ) {
+                    field =
+                        refreshed;
+                }
             }
 
             const key =
@@ -7291,6 +7715,9 @@
                 singleFights: 0,
                 multiFights: 0,
                 multiPaSpent: 0,
+                advancedFights: 0,
+                advancedRemoved: 0,
+                advancedPaSpent: 0,
                 multiThreshold: 10,
                 multiUnlocked:
                     new Set(),
@@ -7336,6 +7763,10 @@
                     pair,
                     multiThreshold:
                         state.multiThreshold,
+                    killRespawnedMobs:
+                        this.config
+                            ?.killRespawnedMobs ===
+                            true,
                     paLimit
                 }
             );
@@ -7453,7 +7884,9 @@
                             state.multiFights +
                             "x (" +
                             state.multiPaSpent +
-                            " PA)."
+                            " PA) • zrespione " +
+                            state.advancedFights +
+                            "x."
                         );
                     }
                 }
@@ -7531,7 +7964,9 @@
                     state.multiFights +
                     "x (" +
                     state.multiPaSpent +
-                    " PA)."
+                    " PA) • zrespione " +
+                    state.advancedFights +
+                    "x."
                 );
             }
 
