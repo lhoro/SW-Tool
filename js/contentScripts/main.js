@@ -10558,6 +10558,202 @@
             return this.runExpiarka();
         }
 
+        testZodiacDomQuestStep() {
+            const roots =
+                this.questKillDomRoots();
+
+            for (const root of roots) {
+                const text =
+                    String(
+                        root?.textContent || ""
+                    )
+                        .replace(/\s+/g, " ")
+                        .trim();
+
+                const normalized =
+                    text
+                        .normalize("NFD")
+                        .replace(
+                            /[\u0300-\u036f]/g,
+                            ""
+                        )
+                        .toLowerCase();
+
+                if (
+                    !normalized.includes(
+                        "moc zodiaku"
+                    ) ||
+                    !normalized.includes(
+                        "nienasycony krysztal"
+                    ) ||
+                    !normalized.includes(
+                        "obcy ninja"
+                    )
+                ) {
+                    continue;
+                }
+
+                let count = 0;
+                let max = 1;
+
+                const elements = [
+                    root,
+                    ...root.querySelectorAll("*")
+                ];
+
+                for (const element of elements) {
+                    if (
+                        !(element instanceof Element)
+                    ) {
+                        continue;
+                    }
+
+                    const elementText =
+                        String(
+                            element.textContent || ""
+                        )
+                            .replace(/\s+/g, " ")
+                            .trim()
+                            .normalize("NFD")
+                            .replace(
+                                /[\u0300-\u036f]/g,
+                                ""
+                            )
+                            .toLowerCase();
+
+                    if (
+                        !elementText.includes(
+                            "nienasycony krysztal"
+                        ) &&
+                        !elementText.includes(
+                            "obcy ninja"
+                        )
+                    ) {
+                        continue;
+                    }
+
+                    const attrCount =
+                        element.getAttribute(
+                            "data-count"
+                        );
+                    const attrMax =
+                        element.getAttribute(
+                            "data-max"
+                        );
+
+                    if (
+                        attrCount !== null &&
+                        attrMax !== null
+                    ) {
+                        count = Math.max(
+                            count,
+                            this._int(
+                                attrCount
+                            )
+                        );
+                        max = Math.max(
+                            max,
+                            this._int(
+                                attrMax
+                            )
+                        );
+                    }
+
+                    const match =
+                        String(
+                            element.textContent || ""
+                        ).match(
+                            /(\d+)\s*(?:\/|z)\s*(\d+)/i
+                        );
+
+                    if (match) {
+                        count = Math.max(
+                            count,
+                            this._int(
+                                match[1]
+                            )
+                        );
+                        max = Math.max(
+                            max,
+                            this._int(
+                                match[2]
+                            )
+                        );
+                    }
+                }
+
+                max = Math.max(1, max);
+                count = Math.min(
+                    max,
+                    Math.max(0, count)
+                );
+
+                return {
+                    qb_id: 1359249,
+                    header: "Moc Zodiaku",
+                    source:
+                        "quest-journal-dom",
+                    want: {
+                        qbid: 1359249,
+                        type: 5,
+                        id: 31,
+                        amount: max,
+                        is_met:
+                            count >= max,
+                        tl: 0,
+                        name:
+                            "Nienasycony Kryształ",
+                        name2:
+                            "Obcy Ninja",
+                        count,
+                        maxv: max,
+                        trackable: 1
+                    }
+                };
+            }
+
+            return null;
+        }
+
+        async waitForTestZodiacDomTracker(
+            timeoutMs = 1800
+        ) {
+            const startedAt = Date.now();
+
+            while (
+                Date.now() - startedAt <
+                timeoutMs
+            ) {
+                const step =
+                    this.testZodiacDomQuestStep();
+
+                if (step) {
+                    toolConsole(
+                        "info",
+                        "[SW Tool][TEST] Moc Zodiaku — aktywny quest potwierdzony z dziennika.",
+                        {
+                            count:
+                                this._int(
+                                    step.want?.count
+                                ),
+                            max:
+                                this._int(
+                                    step.want?.maxv
+                                ),
+                            source:
+                                step.source
+                        }
+                    );
+
+                    return step;
+                }
+
+                await this.sleep(40);
+            }
+
+            return null;
+        }
+
         handleTestZodiacQuestResponse(response) {
             if (
                 !response ||
@@ -11127,10 +11323,23 @@
                 this.testZodiacQuestStep = null;
                 this.testZodiacTrackVersion++;
                 this.roninPressKey("x");
-                await this.sleep(250);
+
+                // Dziennik klienta jest tutaj najlepszym potwierdzeniem,
+                // że quest został faktycznie aktywowany. Ten quest nie musi
+                // zwracać q_step ani pojawić się w każdym ręcznie pobranym a:3.
+                const journalStep =
+                    await this.waitForTestZodiacDomTracker(
+                        1800
+                    );
+
+                if (!journalStep) {
+                    throw new Error(
+                        "TEST: po X na 13|4 dziennik nie pokazuje aktywnego Moc Zodiaku."
+                    );
+                }
 
                 this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku — idę na Teren Zachodni..."
+                    "TEST: Moc Zodiaku 0/1 aktywne — idę na Teren Zachodni..."
                 );
 
                 await this.mapSolver.navigateToLocation(
@@ -11143,18 +11352,22 @@
                     }
                 );
 
-                // Wymuszamy świeże a:3, bo właśnie ono w eksporcie zawiera
-                // track[] z Moc Zodiaku / type:5 / Nienasycony Kryształ 0/1.
-                await this.mapSolver.refreshMap();
+                // Jeśli mapa przyniosła track[] — korzystamy z niego.
+                // Jeżeli nie, nadal mamy zweryfikowany stan 0/1 z dziennika.
+                const socketStep =
+                    await this.waitForTestZodiacTracker(
+                        ZODIAC_QUEST,
+                        350
+                    );
 
                 const zodiacStep =
-                    await this.waitForTestZodiacTracker(
-                        ZODIAC_QUEST
-                    );
+                    socketStep ||
+                    this.testZodiacDomQuestStep() ||
+                    journalStep;
 
                 if (!zodiacStep) {
                     throw new Error(
-                        "TEST: na Terenie Zachodnim brak aktywnego trackera Moc Zodiaku po X na 13|4."
+                        "TEST: utracono stan Moc Zodiaku przed rozpoczęciem farmienia."
                     );
                 }
 
