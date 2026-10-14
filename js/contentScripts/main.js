@@ -9996,7 +9996,13 @@
                     this.pveActionPointsExhausted =
                         true;
                     this.setQuickPanelStatus(
-                        "Expiarka STOP — brak punktów akcji."
+                        "Expiarka STOP — brak punktów akcji • zabito C:" +
+                        state.championsKilled +
+                        " E:" +
+                        state.elitesKilled +
+                        " B:" +
+                        state.bossesKilled +
+                        "."
                     );
                 }
             }
@@ -10110,6 +10116,12 @@
                       end.x +
                       "|" +
                       end.y +
+                      " • zabito C:" +
+                      state.championsKilled +
+                      " E:" +
+                      state.elitesKilled +
+                      " B:" +
+                      state.bossesKilled +
                       "."
                     : "Expiarka zakończona • " +
                       plan.orientation +
