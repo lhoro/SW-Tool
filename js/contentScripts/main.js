@@ -6769,126 +6769,8 @@
         respawnNormalMobCount(
             field
         ) {
-            const entries =
-                Array.isArray(
-                    field?.mobs?.entries
-                )
-                    ? field.mobs.entries
-                    : [];
-
-            const first =
-                entries[0];
-
-            const readCount = (
-                value,
-                depth = 0
-            ) => {
-                if (
-                    value === null ||
-                    value === undefined ||
-                    depth > 3
-                ) {
-                    return null;
-                }
-
-                if (
-                    typeof value === "number" ||
-                    typeof value === "string"
-                ) {
-                    // Prymityw w mobs.mobs może być ID/typem moba.
-                    // Bez nazwanego pola nie traktujemy go jako licznik.
-                    return null;
-                }
-
-                if (
-                    Array.isArray(value)
-                ) {
-                    // Najpierw szukamy jawnego obiektu/licznika, a nie ID moba.
-                    for (
-                        const nested of
-                        value
-                    ) {
-                        if (
-                            nested &&
-                            typeof nested ===
-                                "object"
-                        ) {
-                            const count =
-                                readCount(
-                                    nested,
-                                    depth + 1
-                                );
-
-                            if (
-                                count !== null
-                            ) {
-                                return count;
-                            }
-                        }
-                    }
-
-                    return null;
-                }
-
-                if (
-                    typeof value !== "object"
-                ) {
-                    return null;
-                }
-
-                for (
-                    const key of
-                    [
-                        "count",
-                        "amount",
-                        "num",
-                        "qty",
-                        "cnt",
-                        "suma"
-                    ]
-                ) {
-                    if (
-                        value[key] !==
-                            undefined
-                    ) {
-                        const count =
-                            this._int(
-                                value[key]
-                            );
-
-                        if (
-                            count >= 0
-                        ) {
-                            return count;
-                        }
-                    }
-                }
-
-                return null;
-            };
-
-            const slotCount =
-                readCount(first);
-
-            if (
-                slotCount !== null
-            ) {
-                return {
-                    count:
-                        Math.max(
-                            0,
-                            slotCount
-                        ),
-                    source:
-                        "slot-0",
-                    raw:
-                        first
-                };
-            }
-
-            // Fallback tylko po to, by funkcja nadal działała na serwerach,
-            // które nie rozbijają mobs.mobs na liczniki slotów. Logujemy to
-            // jawnie, bo suma może zawierać championy/elity/bossy.
+            // a:602 -> mobs.suma jest liczbą normalnych mobów na polu.
+            // mobs.mobs opisuje typy/gatunki mobów, a nie ich liczebność.
             return {
                 count:
                     Math.max(
@@ -6898,9 +6780,9 @@
                         )
                     ),
                 source:
-                    "total-fallback",
+                    "mobs.suma",
                 raw:
-                    first
+                    field?.mobs?.entries
             };
         }
 
@@ -7328,19 +7210,6 @@
                 }
             );
 
-            if (
-                mobInfo.source ===
-                    "total-fallback" &&
-                !state.warnedFallback
-            ) {
-                state.warnedFallback =
-                    true;
-
-                console.warn(
-                    "[SW Tool][PVE] Respiarka — brak jednoznacznego licznika normalnych mobów w slot 0; używam mobs.suma jako fallback."
-                );
-            }
-
             const canSpend =
                 (cost = 1) =>
                     state.paLimit ===
@@ -7548,7 +7417,6 @@
                 multiThreshold: 10,
                 multiUnlocked:
                     new Set(),
-                warnedFallback: false,
                 limitReached: false
             };
 
@@ -12623,6 +12491,59 @@
                     config: pendingConfig,
                     gameReady: Boolean(BOT)
                 });
+                return;
+            }
+
+            if (
+                data.action === "socketCapture.start" ||
+                data.action === "socketCapture.stop" ||
+                data.action === "socketCapture.state" ||
+                data.action === "socketCapture.export"
+            ) {
+                await toolReadyPromise;
+
+                const capture =
+                    window.SW_TOOL_SOCKET_CAPTURE;
+
+                if (!capture) {
+                    throw new Error(
+                        "Logger socketów nie jest dostępny."
+                    );
+                }
+
+                let payload = null;
+
+                if (
+                    data.action ===
+                    "socketCapture.start"
+                ) {
+                    payload =
+                        capture.start();
+                } else if (
+                    data.action ===
+                    "socketCapture.stop"
+                ) {
+                    payload =
+                        capture.stop();
+                } else if (
+                    data.action ===
+                    "socketCapture.export"
+                ) {
+                    payload = {
+                        ...capture.state(),
+                        entries:
+                            capture.get()
+                    };
+                } else {
+                    payload =
+                        capture.state();
+                }
+
+                sendBridgeResponse(
+                    data.requestId,
+                    true,
+                    payload
+                );
                 return;
             }
 
