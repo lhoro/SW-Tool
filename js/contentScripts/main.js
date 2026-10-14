@@ -2793,6 +2793,28 @@
                     return step;
                 }
 
+                // W zależności od aktualnego stanu serwera przed etapem
+                // mobów może jeszcze wystąpić walka questowa type:7.
+                // Nie zakładamy już jej na sztywno w runRoninRoute().
+                if (
+                    want &&
+                    typeof want === "object" &&
+                    wantType === 7 &&
+                    !isMet
+                ) {
+                    toolConsole(
+                        "info",
+                        "[SW Tool][RONIN] Przed mobami wykryto walkę questową — wykonuję dynamicznie.",
+                        {
+                            qbId: this._int(step.qb_id),
+                            transitions: i
+                        }
+                    );
+
+                    await this.roninQuestFight();
+                    continue;
+                }
+
                 if (
                     want &&
                     typeof want === "object" &&
@@ -4283,7 +4305,10 @@
 
             await this.navigateToRoninQuestMove(null, "6");
             await this.openRoninQuestStep();
-            await this.roninQuestFight();
+
+            // Etap przed mobami nie ma już sztywnej sekwencji Fight -> Next.
+            // prepareRoninMobCombat rozpoznaje aktualny q_step: type 7 wykona
+            // walkę questową, dialog przejdzie dalej, a type 1 uruchomi moby.
             await this.prepareRoninMobCombat();
 
             await this.roninMobCombat();
