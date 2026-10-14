@@ -8235,6 +8235,9 @@
                 target,
                 bridge = false
             ) => {
+                let bridgeCounted =
+                    false;
+
                 while (
                     this.expRunning
                 ) {
@@ -8273,8 +8276,13 @@
                         return false;
                     }
 
-                    if (bridge) {
+                    if (
+                        bridge &&
+                        !bridgeCounted
+                    ) {
                         state.solverBridges++;
+                        bridgeCounted =
+                            true;
                     }
 
                     if (
@@ -8360,8 +8368,6 @@
 
                         currentSegment =
                             fallback.segment;
-                        state.solverBridges++;
-
                         if (
                             !await moveTo(
                                 this.expSegmentEndpoint(
@@ -8536,8 +8542,6 @@
                             currentSegment;
                         currentSegment =
                             fallback.segment;
-                        state.solverBridges++;
-
                         if (
                             !await moveTo(
                                 this.expSegmentEndpoint(
