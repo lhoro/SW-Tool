@@ -6,6 +6,9 @@ const DEFAULT_CONFIG = Object.freeze({
   acceleratedH: false,
   improvedX: false,
   killRespawnedMobs: false,
+  expKillChampions: false,
+  expKillElites: false,
+  expKillBosses: false,
   preferTraining: true
 });
 
@@ -25,6 +28,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const acceleratedH = document.getElementById("acceleratedH");
   const improvedX = document.getElementById("improvedX");
   const killRespawnedMobs = document.getElementById("killRespawnedMobs");
+  const expKillChampions = document.getElementById("expKillChampions");
+  const expKillElites = document.getElementById("expKillElites");
+  const expKillBosses = document.getElementById("expKillBosses");
   const preferTraining = document.getElementById("preferTraining");
   const preferTrainingLabel = document.getElementById("preferTrainingLabel");
   const resetBtn = document.getElementById("resetBtn");
@@ -74,6 +80,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     killRespawnedMobs: typeof config?.killRespawnedMobs === "boolean"
       ? config.killRespawnedMobs
       : DEFAULT_CONFIG.killRespawnedMobs,
+    expKillChampions: typeof config?.expKillChampions === "boolean"
+      ? config.expKillChampions
+      : DEFAULT_CONFIG.expKillChampions,
+    expKillElites: typeof config?.expKillElites === "boolean"
+      ? config.expKillElites
+      : DEFAULT_CONFIG.expKillElites,
+    expKillBosses: typeof config?.expKillBosses === "boolean"
+      ? config.expKillBosses
+      : DEFAULT_CONFIG.expKillBosses,
     preferTraining: typeof config?.preferTraining === "boolean"
       ? config.preferTraining
       : DEFAULT_CONFIG.preferTraining
@@ -155,6 +170,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     acceleratedH.checked = normalized.acceleratedH;
     improvedX.checked = normalized.improvedX;
     killRespawnedMobs.checked = normalized.killRespawnedMobs;
+    expKillChampions.checked = normalized.expKillChampions;
+    expKillElites.checked = normalized.expKillElites;
+    expKillBosses.checked = normalized.expKillBosses;
     preferTraining.checked = normalized.preferTraining;
     preferTrainingLabel.textContent = normalized.preferTraining
       ? "Preferuj Trening"
@@ -170,6 +188,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       acceleratedH: acceleratedH.checked,
       improvedX: improvedX.checked,
       killRespawnedMobs: killRespawnedMobs.checked,
+      expKillChampions: expKillChampions.checked,
+      expKillElites: expKillElites.checked,
+      expKillBosses: expKillBosses.checked,
       preferTraining: preferTraining.checked
     };
   }
@@ -508,6 +529,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   acceleratedH.addEventListener("change", saveConfig);
   improvedX.addEventListener("change", saveConfig);
   killRespawnedMobs.addEventListener("change", saveConfig);
+  expKillChampions.addEventListener("change", saveConfig);
+  expKillElites.addEventListener("change", saveConfig);
+  expKillBosses.addEventListener("change", saveConfig);
   preferTraining.addEventListener("change", () => {
     preferTrainingLabel.textContent = preferTraining.checked
       ? "Preferuj Trening"
