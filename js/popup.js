@@ -5,6 +5,7 @@ const DEFAULT_CONFIG = Object.freeze({
   mapClickMovement: true,
   acceleratedH: false,
   improvedX: false,
+  killRespawnedMobs: false,
   preferTraining: true
 });
 
@@ -23,6 +24,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const mapClickMovement = document.getElementById("mapClickMovement");
   const acceleratedH = document.getElementById("acceleratedH");
   const improvedX = document.getElementById("improvedX");
+  const killRespawnedMobs = document.getElementById("killRespawnedMobs");
   const preferTraining = document.getElementById("preferTraining");
   const preferTrainingLabel = document.getElementById("preferTrainingLabel");
   const resetBtn = document.getElementById("resetBtn");
@@ -66,6 +68,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     improvedX: typeof config?.improvedX === "boolean"
       ? config.improvedX
       : DEFAULT_CONFIG.improvedX,
+    killRespawnedMobs: typeof config?.killRespawnedMobs === "boolean"
+      ? config.killRespawnedMobs
+      : DEFAULT_CONFIG.killRespawnedMobs,
     preferTraining: typeof config?.preferTraining === "boolean"
       ? config.preferTraining
       : DEFAULT_CONFIG.preferTraining
@@ -145,6 +150,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     mapClickMovement.checked = normalized.mapClickMovement;
     acceleratedH.checked = normalized.acceleratedH;
     improvedX.checked = normalized.improvedX;
+    killRespawnedMobs.checked = normalized.killRespawnedMobs;
     preferTraining.checked = normalized.preferTraining;
     preferTrainingLabel.textContent = normalized.preferTraining
       ? "Preferuj Trening"
@@ -159,6 +165,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       mapClickMovement: mapClickMovement.checked,
       acceleratedH: acceleratedH.checked,
       improvedX: improvedX.checked,
+      killRespawnedMobs: killRespawnedMobs.checked,
       preferTraining: preferTraining.checked
     };
   }
@@ -400,6 +407,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   mapClickMovement.addEventListener("change", saveConfig);
   acceleratedH.addEventListener("change", saveConfig);
   improvedX.addEventListener("change", saveConfig);
+  killRespawnedMobs.addEventListener("change", saveConfig);
   preferTraining.addEventListener("change", () => {
     preferTrainingLabel.textContent = preferTraining.checked
       ? "Preferuj Trening"
