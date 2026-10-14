@@ -5,6 +5,7 @@ const DEFAULT_CONFIG = Object.freeze({
   mapClickMovement: true,
   acceleratedH: false,
   improvedX: false,
+  killRespawnedMobs: false,
   preferTraining: true
 });
 
