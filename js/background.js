@@ -279,7 +279,11 @@ async function handleMessage(msg, sender) {
     }
 
     case "debug.portalMap.get":
-    case "debug.portalMap.clear": {
+    case "debug.portalMap.clear":
+    case "debug.socketCapture.start":
+    case "debug.socketCapture.stop":
+    case "debug.socketCapture.state":
+    case "debug.socketCapture.export": {
       const response = await sendToActiveGameTab({
         source: "background",
         command: msg.command
