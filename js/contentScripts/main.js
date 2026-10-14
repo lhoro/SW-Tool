@@ -117,10 +117,16 @@
             this.questKillDomObserver = null;
             this.respawnRunning = false;
             this.respawnButton = null;
+            this.respawnLimitInput = null;
             this.expRunning = false;
             this.expStopRequested = false;
             this.expButton = null;
             this.pveActionPointsExhausted = false;
+            this.autoPvpRunning = false;
+            this.autoPvpButton = null;
+            this.autoPvpTimer = null;
+            this.autoPvpRunId = 0;
+            this.autoPvpLastFieldKey = "";
             this.hTrackedVersion = 0;
             this.acceleratedHPending = false;
             this.currentQuestMove = null;
@@ -327,6 +333,15 @@
 
             const action = Number(response.a);
             const error = Number(response.e || 0);
+
+            if (
+                action === 4 &&
+                error === 0
+            ) {
+                this.handleAutoPvpMovement(
+                    response
+                );
+            }
 
             if (action === 1 && error === 0 && Array.isArray(response.chars)) {
                 this.syncCharactersFromResponse(response);
@@ -6792,6 +6807,24 @@
                 "respawn"
             );
 
+            const rawLimit =
+                this._int(
+                    this.respawnLimitInput
+                        ?.value
+                );
+            const paLimit =
+                Math.max(
+                    0,
+                    rawLimit
+                );
+
+            if (
+                this.respawnLimitInput
+            ) {
+                this.respawnLimitInput.value =
+                    String(paLimit);
+            }
+
             const map =
                 this.mapSolver?.map;
             const startLocationId =
@@ -6826,7 +6859,13 @@
                 pair.neighbor.x +
                 "|" +
                 pair.neighbor.y +
-                "."
+                (
+                    paLimit > 0
+                        ? " • limit " +
+                          paLimit +
+                          " PA."
+                        : " • bez limitu PA."
+                )
             );
 
             console.info(
@@ -6888,6 +6927,20 @@
                     moves++;
                     toNeighbor =
                         !toNeighbor;
+
+                    if (
+                        paLimit > 0 &&
+                        moves >= paLimit
+                    ) {
+                        this.respawnRunning =
+                            false;
+                        this.setQuickPanelStatus(
+                            "Respiarka STOP — wykorzystano limit " +
+                            paLimit +
+                            " PA."
+                        );
+                        break;
+                    }
 
                     if (
                         moves === 1 ||
@@ -6968,7 +7021,13 @@
 
             return {
                 moves,
-                stopped: true
+                paLimit,
+                stopped: true,
+                reason:
+                    paLimit > 0 &&
+                    moves >= paLimit
+                        ? "pa-limit"
+                        : "manual"
             };
         }
 
@@ -8777,6 +8836,335 @@
             return this.runExpiarka();
         }
 
+        pvpAttackControls() {
+            const controls = [];
+
+            for (
+                const row of
+                document.querySelectorAll(
+                    ".right_btns"
+                )
+            ) {
+                if (
+                    !(row instanceof Element)
+                ) {
+                    continue;
+                }
+
+                const control =
+                    row.lastElementChild;
+
+                if (
+                    !(control instanceof Element) ||
+                    control.classList.contains(
+                        "initial_hide_forced"
+                    ) ||
+                    control.hasAttribute(
+                        "disabled"
+                    )
+                ) {
+                    continue;
+                }
+
+                const style =
+                    getComputedStyle(
+                        control
+                    );
+
+                if (
+                    style.display === "none" ||
+                    style.visibility === "hidden" ||
+                    style.pointerEvents === "none"
+                ) {
+                    continue;
+                }
+
+                controls.push(
+                    control
+                );
+            }
+
+            return controls;
+        }
+
+        async attackPlayersOnCurrentField(
+            options = {}
+        ) {
+            const source =
+                String(
+                    options.source ||
+                    "quick"
+                );
+            const runId =
+                this._int(
+                    options.runId
+                );
+            const controls =
+                this.pvpAttackControls();
+
+            let attacked = 0;
+            let skipped = 0;
+
+            for (
+                const control of controls
+            ) {
+                if (
+                    source === "auto" &&
+                    (
+                        !this.autoPvpRunning ||
+                        runId !==
+                            this.autoPvpRunId
+                    )
+                ) {
+                    break;
+                }
+
+                if (
+                    !control.isConnected ||
+                    control.classList.contains(
+                        "initial_hide_forced"
+                    )
+                ) {
+                    skipped++;
+                    continue;
+                }
+
+                control.dispatchEvent(
+                    new MouseEvent(
+                        "click",
+                        {
+                            bubbles: true,
+                            cancelable: true,
+                            view: window
+                        }
+                    )
+                );
+
+                attacked++;
+
+                // OldBot używał 100 ms. 70 ms wystarcza, żeby klient
+                // przetworzył kliknięcie i nie nakładał kilku walk naraz.
+                await this.sleep(70);
+            }
+
+            console.info(
+                "[SW Tool][PVP] Atak graczy na polu:",
+                {
+                    source,
+                    attacked,
+                    skipped,
+                    x:
+                        this._int(
+                            this.mapSolver?.map?.x
+                        ),
+                    y:
+                        this._int(
+                            this.mapSolver?.map?.y
+                        )
+                }
+            );
+
+            return {
+                attacked,
+                skipped
+            };
+        }
+
+        async runQuickPvpAttack() {
+            const result =
+                await this.attackPlayersOnCurrentField(
+                    {
+                        source:
+                            "quick"
+                    }
+                );
+
+            this.setQuickPanelStatus(
+                "PVP Quick Atak: zaatakowano " +
+                result.attacked +
+                (
+                    result.skipped > 0
+                        ? ", pominięto " +
+                          result.skipped
+                        : ""
+                ) +
+                ".",
+                result.attacked > 0
+                    ? "success"
+                    : ""
+            );
+
+            return result;
+        }
+
+        stopAutoPvpAttack() {
+            if (
+                !this.autoPvpRunning
+            ) {
+                return;
+            }
+
+            this.autoPvpRunning =
+                false;
+            this.autoPvpRunId++;
+            this.autoPvpLastFieldKey =
+                "";
+
+            if (
+                this.autoPvpTimer
+            ) {
+                clearTimeout(
+                    this.autoPvpTimer
+                );
+                this.autoPvpTimer =
+                    null;
+            }
+
+            if (
+                this.autoPvpButton
+            ) {
+                this.autoPvpButton.textContent =
+                    "Auto Atak";
+            }
+
+            this.setQuickPanelStatus(
+                "PVP Auto Atak STOP."
+            );
+        }
+
+        scheduleAutoPvpAttack(
+            reason = "ruch"
+        ) {
+            if (
+                !this.autoPvpRunning
+            ) {
+                return;
+            }
+
+            const x =
+                this._int(
+                    this.mapSolver?.map?.x
+                );
+            const y =
+                this._int(
+                    this.mapSolver?.map?.y
+                );
+
+            if (
+                x <= 0 ||
+                y <= 0
+            ) {
+                return;
+            }
+
+            const fieldKey =
+                x +
+                "_" +
+                y;
+
+            if (
+                reason === "ruch" &&
+                fieldKey ===
+                    this.autoPvpLastFieldKey
+            ) {
+                return;
+            }
+
+            this.autoPvpLastFieldKey =
+                fieldKey;
+            const runId =
+                ++this.autoPvpRunId;
+
+            if (
+                this.autoPvpTimer
+            ) {
+                clearTimeout(
+                    this.autoPvpTimer
+                );
+            }
+
+            // Lista graczy jest przebudowywana przez klienta chwilę po a=4.
+            this.autoPvpTimer =
+                setTimeout(
+                    () => {
+                        this.autoPvpTimer =
+                            null;
+
+                        if (
+                            !this.autoPvpRunning ||
+                            runId !==
+                                this.autoPvpRunId
+                        ) {
+                            return;
+                        }
+
+                        this.attackPlayersOnCurrentField(
+                            {
+                                source:
+                                    "auto",
+                                runId
+                            }
+                        ).catch(
+                            (error) => {
+                                console.warn(
+                                    "[SW Tool][PVP] Auto Atak:",
+                                    error
+                                );
+                            }
+                        );
+                    },
+                    90
+                );
+        }
+
+        handleAutoPvpMovement(
+            response
+        ) {
+            if (
+                !this.autoPvpRunning ||
+                this._int(
+                    response?.e
+                ) !== 0
+            ) {
+                return;
+            }
+
+            this.scheduleAutoPvpAttack(
+                "ruch"
+            );
+        }
+
+        toggleAutoPvpAttack() {
+            if (
+                this.autoPvpRunning
+            ) {
+                this.stopAutoPvpAttack();
+                return;
+            }
+
+            this.autoPvpRunning =
+                true;
+            this.autoPvpLastFieldKey =
+                "";
+
+            if (
+                this.autoPvpButton
+            ) {
+                this.autoPvpButton.textContent =
+                    "Auto Atak STOP";
+            }
+
+            this.setQuickPanelStatus(
+                "PVP Auto Atak START."
+            );
+
+            // Po włączeniu czyścimy również aktualne pole; kolejne ataki
+            // będą uruchamiane po każdej zmianie współrzędnych.
+            this.scheduleAutoPvpAttack(
+                "start"
+            );
+        }
+
         async runQuickAction(action) {
             if (
                 this.quickActionRunning ||
@@ -9277,9 +9665,95 @@
             this.expButton =
                 expButton;
 
+            const respawnRow =
+                document.createElement(
+                    "div"
+                );
+            Object.assign(
+                respawnRow.style,
+                {
+                    display:
+                        "grid",
+                    gridTemplateColumns:
+                        "1fr 58px",
+                    gap:
+                        "5px",
+                    alignItems:
+                        "stretch"
+                }
+            );
+
+            const respawnLimitInput =
+                document.createElement(
+                    "input"
+                );
+            respawnLimitInput.type =
+                "number";
+            respawnLimitInput.min =
+                "0";
+            respawnLimitInput.step =
+                "1";
+            respawnLimitInput.value =
+                "0";
+            respawnLimitInput.title =
+                "Limit PA dla Respiarki (0 = bez limitu)";
+            respawnLimitInput.setAttribute(
+                "aria-label",
+                "Limit PA Respiarki"
+            );
+
+            Object.assign(
+                respawnLimitInput.style,
+                {
+                    width:
+                        "100%",
+                    boxSizing:
+                        "border-box",
+                    padding:
+                        "6px 4px",
+                    border:
+                        "1px solid #c29e51",
+                    borderRadius:
+                        "5px",
+                    background:
+                        "#17142a",
+                    color:
+                        "#fff",
+                    fontSize:
+                        "11px",
+                    textAlign:
+                        "center",
+                    fontFamily:
+                        "Verdana, sans-serif"
+                }
+            );
+
+            respawnLimitInput.addEventListener(
+                "change",
+                () => {
+                    const value =
+                        Math.max(
+                            0,
+                            this._int(
+                                respawnLimitInput.value
+                            )
+                        );
+                    respawnLimitInput.value =
+                        String(value);
+                }
+            );
+
+            this.respawnLimitInput =
+                respawnLimitInput;
+
+            respawnRow.append(
+                respawnButton,
+                respawnLimitInput
+            );
+
             pveBody.append(
                 questKillsButton,
-                respawnButton,
+                respawnRow,
                 expButton
             );
 
@@ -9319,18 +9793,41 @@
                 makeActionButton(
                     "Quick Atak",
                     () => {
-                        this.setQuickPanelStatus(
-                            "PVP: Quick Atak — panel gotowy, mechanika będzie dodana w kolejnym kroku."
-                        );
+                        this.runQuickPvpAttack()
+                            .catch(
+                                (error) => {
+                                    console.error(
+                                        "[SW Tool][PVP] Quick Atak:",
+                                        error
+                                    );
 
-                        console.info(
-                            "[SW Tool][PVP] Quick Atak — mechanika oczekuje na implementację."
-                        );
+                                    this.setQuickPanelStatus(
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(
+                                                error
+                                            ),
+                                        "error"
+                                    );
+                                }
+                            );
                     }
                 );
 
-            pvpBody.appendChild(
-                quickAttackButton
+            const autoAttackButton =
+                makeActionButton(
+                    "Auto Atak",
+                    () => {
+                        this.toggleAutoPvpAttack();
+                    }
+                );
+
+            this.autoPvpButton =
+                autoAttackButton;
+
+            pvpBody.append(
+                quickAttackButton,
+                autoAttackButton
             );
 
             bindCollapse(
