@@ -6249,7 +6249,8 @@
             allowAccountOperation = false,
             requireQuestWindow = true,
             allowedWantTypes = [1],
-            initialStep = null
+            initialStep = null,
+            repeatUntilDone = false
         } = {}) {
             if (
                 this.questKillRunning ||
@@ -6394,6 +6395,7 @@
                 visited: 0,
                 moves: 0,
                 revisits: 0,
+                rounds: 1,
                 fights: 0,
                 singleFights: 0,
                 removed: 0
@@ -6527,6 +6529,40 @@
                         !path ||
                         path.length === 0
                     ) {
+                        if (
+                            repeatUntilDone &&
+                            state.count <
+                                state.max &&
+                            !this.pveActionPointsExhausted
+                        ) {
+                            state.rounds++;
+                            visited.clear();
+
+                            this.setQuickPanelStatus(
+                                "Quest Kille: brak celu jeszcze niezaliczony — zaczynam obieg " +
+                                state.rounds +
+                                "."
+                            );
+
+                            toolConsole(
+                                "info",
+                                "[SW Tool][PVE] Quest Kille — nowy obieg mapy, czekam na progres serwera.",
+                                {
+                                    questId:
+                                        state.questId,
+                                    count:
+                                        state.count,
+                                    max:
+                                        state.max,
+                                    round:
+                                        state.rounds
+                                }
+                            );
+
+                            await this.sleep(350);
+                            continue;
+                        }
+
                         break;
                     }
 
@@ -11316,30 +11352,15 @@
                     "TEST: Moc Zodiaku — otwieram quest przez X..."
                 );
 
-                // Na tym queście klient nie musi zwrócić q_step po X.
-                // Warunek 0/1 pojawia się jako tracker w pełnej odpowiedzi
-                // mapy po wejściu na Teren Zachodni, więc nie blokujemy się
-                // tutaj na a:22/type:1 ani na przycisku "Dalej".
+                // Nie próbujemy już potwierdzać startu przez q_step, track[]
+                // mapy ani DOM dziennika. X ma tylko uruchomić quest klientem.
                 this.testZodiacQuestStep = null;
                 this.testZodiacTrackVersion++;
                 this.roninPressKey("x");
-
-                // Dziennik klienta jest tutaj najlepszym potwierdzeniem,
-                // że quest został faktycznie aktywowany. Ten quest nie musi
-                // zwracać q_step ani pojawić się w każdym ręcznie pobranym a:3.
-                const journalStep =
-                    await this.waitForTestZodiacDomTracker(
-                        1800
-                    );
-
-                if (!journalStep) {
-                    throw new Error(
-                        "TEST: po X na 13|4 dziennik nie pokazuje aktywnego Moc Zodiaku."
-                    );
-                }
+                await this.sleep(250);
 
                 this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku 0/1 aktywne — idę na Teren Zachodni..."
+                    "TEST: Moc Zodiaku — idę na Teren Zachodni i biję do dropu..."
                 );
 
                 await this.mapSolver.navigateToLocation(
@@ -11352,86 +11373,69 @@
                     }
                 );
 
-                // Jeśli mapa przyniosła track[] — korzystamy z niego.
-                // Jeżeli nie, nadal mamy zweryfikowany stan 0/1 z dziennika.
-                const socketStep =
-                    await this.waitForTestZodiacTracker(
+                // To nie jest potwierdzenie stanu questa — wyłącznie lokalna
+                // konfiguracja nasłuchu dla istniejącego patrolu Quest Kille.
+                // Koniec farmienia nastąpi dopiero, gdy serwer wyśle progres
+                // trackera 1359249 do 1/1.
+                const zodiacStep = {
+                    qb_id:
                         ZODIAC_QUEST,
-                        350
-                    );
-
-                const zodiacStep =
-                    socketStep ||
-                    this.testZodiacDomQuestStep() ||
-                    journalStep;
-
-                if (!zodiacStep) {
-                    throw new Error(
-                        "TEST: utracono stan Moc Zodiaku przed rozpoczęciem farmienia."
-                    );
-                }
-
-                const zodiacWant =
-                    zodiacStep.want;
-                const itemReady =
-                    Boolean(
-                        zodiacWant?.is_met
-                    ) ||
-                    (
-                        this._int(
-                            zodiacWant?.maxv
-                        ) > 0 &&
-                        this._int(
-                            zodiacWant?.count
-                        ) >=
-                            this._int(
-                                zodiacWant?.maxv
-                            )
-                    );
-
-                if (!itemReady) {
-                    // Dokładnie ten sam oszczędny patrol i sposób walki co
-                    // Quest Kille, ale trackerem celu jest quest item type:5.
-                    const farm =
-                        await this.runQuestKills({
-                            allowQuickAction: true,
-                            requireQuestWindow: false,
-                            allowedWantTypes: [5],
-                            initialStep:
-                                zodiacStep
-                        });
-
-                    if (!farm?.done) {
-                        throw new Error(
-                            "TEST: nie zdobyto Nienasyconego Kryształu podczas patrolu Terenu Zachodniego."
-                        );
+                    header:
+                        "Moc Zodiaku",
+                    want: {
+                        qbid:
+                            ZODIAC_QUEST,
+                        type: 5,
+                        id: 31,
+                        amount: 1,
+                        is_met: false,
+                        tl: 0,
+                        name:
+                            "Nienasycony Kryształ",
+                        name2:
+                            "Obcy Ninja",
+                        count: 0,
+                        maxv: 1,
+                        trackable: 1
                     }
+                };
 
-                    toolConsole(
-                        "info",
-                        "[SW Tool][TEST] Moc Zodiaku — kryształ potwierdzony trackerem.",
-                        {
-                            questId:
-                                ZODIAC_QUEST,
-                            count:
-                                this._int(
-                                    farm.count
-                                ),
-                            max:
-                                this._int(
-                                    farm.max
-                                ),
-                            wantType:
-                                this._int(
-                                    farm.wantType
-                                )
-                        }
-                    );
-                } else {
-                    this.setQuickPanelStatus(
-                        "TEST: Nienasycony Kryształ jest już zdobyty — wracam do oddania."
+                const farm =
+                    await this.runQuestKills({
+                        allowQuickAction: true,
+                        requireQuestWindow: false,
+                        allowedWantTypes: [5],
+                        initialStep:
+                            zodiacStep,
+                        repeatUntilDone: true
+                    });
+
+                if (!farm?.done) {
+                    throw new Error(
+                        "TEST: farmienie zakończyło się bez serwerowego potwierdzenia dropu Nienasyconego Kryształu."
                     );
                 }
+
+                toolConsole(
+                    "info",
+                    "[SW Tool][TEST] Moc Zodiaku — serwer potwierdził drop.",
+                    {
+                        questId:
+                            ZODIAC_QUEST,
+                        count:
+                            this._int(
+                                farm.count
+                            ),
+                        max:
+                            this._int(
+                                farm.max
+                            ),
+                        rounds:
+                            this._int(
+                                farm.rounds
+                            )
+                    }
+                );
 
                 this.setQuickPanelStatus(
                     "TEST: Moc Zodiaku — wracam do Ukrytej Wioski 13|4..."
