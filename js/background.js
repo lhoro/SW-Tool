@@ -9,6 +9,7 @@ const DEFAULT_CONFIG = Object.freeze({
   expKillChampions: false,
   expKillElites: false,
   expKillBosses: false,
+  debugLogs: false,
   preferTraining: true
 });
 
