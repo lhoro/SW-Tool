@@ -2308,54 +2308,156 @@
             timeoutMs = 45000
         ) {
             const startedAt = Date.now();
-            let step = initialStep || await this.openRoninQuestStep();
+            let step =
+                initialStep ||
+                await this.openRoninQuestStep();
             let afterDeadlineRetries = 0;
+            let deadlineMs = 0;
 
-            while (Date.now() - startedAt < timeoutMs) {
-                const want = step?.want;
+            const resolveReadyAt = (
+                want
+            ) => {
+                const raw =
+                    this._int(
+                        want?.count
+                    );
+
+                if (raw <= 0) {
+                    return 0;
+                }
+
+                // Serwer występował z timestampem UNIX zarówno
+                // w sekundach, jak i milisekundach. Rozpoznajemy format
+                // po skali zamiast bezwarunkowo mnożyć przez 1000.
+                if (raw >= 100000000000) {
+                    return raw;
+                }
+
+                if (raw >= 1000000000) {
+                    return raw * 1000;
+                }
+
+                return 0;
+            };
+
+            while (true) {
+                const want =
+                    step?.want;
 
                 if (
                     !want ||
                     typeof want !== "object" ||
-                    this._int(want.type) !== 6
+                    this._int(
+                        want.type
+                    ) !== 6
                 ) {
                     return step;
                 }
 
-                if (Boolean(want.is_met)) {
-                    toolConsole("info", 
+                if (
+                    Boolean(
+                        want.is_met
+                    )
+                ) {
+                    toolConsole(
+                        "info",
                         "[SW Tool][RONIN] Etap czasowy gotowy.",
                         {
-                            type: this._int(want.type),
-                            amount: this._int(want.amount),
-                            count: this._int(want.count),
-                            refreshesAfterDeadline: afterDeadlineRetries
+                            type:
+                                this._int(
+                                    want.type
+                                ),
+                            amount:
+                                this._int(
+                                    want.amount
+                                ),
+                            count:
+                                this._int(
+                                    want.count
+                                ),
+                            deadlineMs,
+                            refreshesAfterDeadline:
+                                afterDeadlineRetries
                         }
                     );
                     return step;
                 }
 
-                // count w HAR jest timestampem UNIX (sekundy), kiedy etap
-                // powinien być gotowy. Śpimy lokalnie do tego momentu zamiast
-                // pytać serwer co sekundę.
-                const readyAt = this._int(want.count) * 1000;
-                const now = Date.now();
+                const now =
+                    Date.now();
+                const readyAt =
+                    resolveReadyAt(
+                        want
+                    );
 
-                if (readyAt > now) {
-                    const remaining = readyAt - now;
-                    const left = timeoutMs - (now - startedAt);
-                    await this.sleep(
+                if (
+                    readyAt > 0
+                ) {
+                    deadlineMs =
                         Math.max(
-                            0,
-                            Math.min(remaining + 250, left)
+                            deadlineMs,
+                            readyAt
+                        );
+                }
+
+                // Jeżeli serwer podał realny deadline, pozwalamy mu wyznaczyć
+                // długość czekajki. Dodajemy zapas na opóźnienie zegara/socketu.
+                const hardDeadline =
+                    deadlineMs > 0
+                        ? Math.max(
+                            startedAt +
+                                timeoutMs,
+                            deadlineMs +
+                                10000
+                        )
+                        : startedAt +
+                            timeoutMs;
+
+                if (
+                    now >=
+                    hardDeadline
+                ) {
+                    break;
+                }
+
+                if (
+                    deadlineMs >
+                    now
+                ) {
+                    await this.sleep(
+                        Math.min(
+                            deadlineMs -
+                                now +
+                                150,
+                            hardDeadline -
+                                now
                         )
                     );
                 } else {
-                    // Rzadki retry po deadline, np. przy różnicy zegarów.
-                    await this.sleep(afterDeadlineRetries === 0 ? 250 : 1500);
+                    // Po deadline odświeżamy q_step. Stary Ronin robił
+                    // ponowne otwarcie questa po ~31 s; type:1 jest jego
+                    // socketowym odpowiednikiem.
+                    if (
+                        afterDeadlineRetries >
+                        0
+                    ) {
+                        await this.sleep(
+                            Math.min(
+                                500,
+                                hardDeadline -
+                                    now
+                            )
+                        );
+                    }
+
+                    step =
+                        await this.openRoninQuestStep();
+                    afterDeadlineRetries++;
+                    continue;
                 }
 
-                step = await this.openRoninQuestStep();
+                step =
+                    await this.openRoninQuestStep();
                 afterDeadlineRetries++;
             }
 
