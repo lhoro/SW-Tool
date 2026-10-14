@@ -7087,10 +7087,14 @@
             }
 
             const canSpend =
-                () =>
+                (cost = 1) =>
                     state.paLimit ===
                         0 ||
-                    state.paSpent <
+                    state.paSpent +
+                        Math.max(
+                            1,
+                            this._int(cost)
+                        ) <=
                         state.paLimit;
 
             // Na każdym z dwóch pól najpierw odblokowujemy multi.
@@ -7100,7 +7104,7 @@
                 !multiAvailable &&
                 mobInfo.count > 0
             ) {
-                if (!canSpend()) {
+                if (!canSpend(1)) {
                     state.limitReached =
                         true;
                     this.respawnRunning =
@@ -7138,21 +7142,64 @@
                 mobInfo.count >=
                     state.multiThreshold
             ) {
-                if (!canSpend()) {
+                // Multiwalka kosztuje tyle PA, ile mobów bierze udział
+                // w walce. Przed wysłaniem używamy liczby z pola jako
+                // estymacji, żeby nie przekroczyć ustawionego limitu PA.
+                const estimatedMultiCost =
+                    Math.max(
+                        1,
+                        this._int(
+                            mobInfo.count
+                        )
+                    );
+
+                if (
+                    !canSpend(
+                        estimatedMultiCost
+                    )
+                ) {
                     state.limitReached =
                         true;
                     this.respawnRunning =
                         false;
+
+                    this.setQuickPanelStatus(
+                        "Respiarka STOP — multi wymaga ok. " +
+                        estimatedMultiCost +
+                        " PA, pozostało " +
+                        Math.max(
+                            0,
+                            state.paLimit -
+                                state.paSpent
+                        ) +
+                        " PA."
+                    );
                     return;
                 }
 
-                await this.respawnFight(
-                    true,
-                    point
-                );
+                const response =
+                    await this.respawnFight(
+                        true,
+                        point
+                    );
 
-                state.paSpent++;
+                const removedByMulti =
+                    this.questKillRemovedCount(
+                        response
+                    );
+                const actualMultiCost =
+                    Math.max(
+                        1,
+                        removedByMulti > 0
+                            ? removedByMulti
+                            : estimatedMultiCost
+                    );
+
+                state.paSpent +=
+                    actualMultiCost;
                 state.multiFights++;
+                state.multiPaSpent +=
+                    actualMultiCost;
 
                 if (
                     state.paLimit > 0 &&
@@ -7239,6 +7286,7 @@
                 moves: 0,
                 singleFights: 0,
                 multiFights: 0,
+                multiPaSpent: 0,
                 multiThreshold: 10,
                 multiUnlocked:
                     new Set(),
@@ -7399,7 +7447,9 @@
                             state.singleFights +
                             "x • multi " +
                             state.multiFights +
-                            "x."
+                            "x (" +
+                            state.multiPaSpent +
+                            " PA)."
                         );
                     }
                 }
@@ -7475,7 +7525,9 @@
                     state.singleFights +
                     "x • multi " +
                     state.multiFights +
-                    "x."
+                    "x (" +
+                    state.multiPaSpent +
+                    " PA)."
                 );
             }
 
