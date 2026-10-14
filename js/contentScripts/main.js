@@ -6815,7 +6815,9 @@
             const paLimit =
                 Math.max(
                     0,
-                    rawLimit
+                    Math.floor(
+                        rawLimit
+                    )
                 );
 
             if (
@@ -9734,8 +9736,10 @@
                     const value =
                         Math.max(
                             0,
-                            this._int(
-                                respawnLimitInput.value
+                            Math.floor(
+                                this._int(
+                                    respawnLimitInput.value
+                                )
                             )
                         );
                     respawnLimitInput.value =
