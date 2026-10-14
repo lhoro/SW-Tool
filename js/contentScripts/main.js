@@ -9427,25 +9427,28 @@
                 " pasów/odcinków • pola " +
                 plan.reachableCount +
                 " • advanced: " +
-                [
-                    this.config
-                        ?.expKillChampions ===
-                        true
-                        ? "C"
-                        : "",
-                    this.config
-                        ?.expKillElites ===
-                        true
-                        ? "E"
-                        : "",
-                    this.config
-                        ?.expKillBosses ===
-                        true
-                        ? "B"
-                        : ""
-                ]
-                    .filter(Boolean)
-                    .join("/") +
+                (
+                    [
+                        this.config
+                            ?.expKillChampions ===
+                            true
+                            ? "C"
+                            : "",
+                        this.config
+                            ?.expKillElites ===
+                            true
+                            ? "E"
+                            : "",
+                        this.config
+                            ?.expKillBosses ===
+                            true
+                            ? "B"
+                            : ""
+                    ]
+                        .filter(Boolean)
+                        .join("/") ||
+                    "wył."
+                ) +
                 "."
             );
 
@@ -10059,6 +10062,8 @@
                       state.singleFights +
                       "x • multi " +
                       state.fights +
+                      "x • advanced " +
+                      state.advancedFights +
                       "x • powrót na start ✓",
                 stoppedByUser
                     ? ""
