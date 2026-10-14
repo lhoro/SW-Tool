@@ -10554,6 +10554,93 @@
             return this.runExpiarka();
         }
 
+        async startOrOpenTestDailyQuest(
+            questId,
+            timeoutMs = 4000
+        ) {
+            const id = this._int(questId);
+            if (id <= 0) {
+                throw new Error(
+                    "TEST: nieprawidłowe ID questa."
+                );
+            }
+
+            const existing =
+                this.currentQuestStep &&
+                this._int(
+                    this.currentQuestStep.qb_id
+                ) === id
+                    ? this.currentQuestStep
+                    : null;
+
+            if (existing) {
+                return existing;
+            }
+
+            // Dla nieprzyjętego questa a:22/type:1 nie musi w ogóle
+            // odpowiedzieć. Najpierw zachowujemy się jak klient gry:
+            // X na polu questa otwiera/przyjmuje jego stan.
+            this.currentQuestStep = null;
+            this.roninPressKey("x");
+
+            const startedAt = Date.now();
+            let clickedAction = false;
+
+            while (
+                Date.now() - startedAt <
+                timeoutMs
+            ) {
+                const step =
+                    this.currentQuestStep;
+
+                if (
+                    step &&
+                    this._int(step.qb_id) === id
+                ) {
+                    return step;
+                }
+
+                const actions =
+                    this.improvedXQuestActions();
+
+                if (
+                    actions.length > 1
+                ) {
+                    throw new Error(
+                        "TEST: Moc Zodiaku otworzyło kilka akcji — nie wybieram automatycznie."
+                    );
+                }
+
+                if (
+                    actions.length === 1 &&
+                    !clickedAction
+                ) {
+                    clickedAction = true;
+
+                    this.clickQuestAction(
+                        actions[0],
+                        "test-zodiac-start"
+                    );
+                }
+
+                await this.sleep(50);
+            }
+
+            const step =
+                this.currentQuestStep;
+
+            if (
+                step &&
+                this._int(step.qb_id) === id
+            ) {
+                return step;
+            }
+
+            throw new Error(
+                "TEST: po X na 13|4 klient nie zsynchronizował questa Moc Zodiaku."
+            );
+        }
+
         async openTestDailyQuestStep(
             questId
         ) {
@@ -10651,19 +10738,29 @@
                 transition < 4;
                 transition++
             ) {
-                const opened =
-                    await this.openTestDailyQuestStep(
-                        id
-                    );
+                let step;
 
-                if (opened.ended) {
-                    return {
-                        done: true,
-                        step: null
-                    };
+                if (transition === 0) {
+                    step =
+                        await this.startOrOpenTestDailyQuest(
+                            id
+                        );
+                } else {
+                    const opened =
+                        await this.openTestDailyQuestStep(
+                            id
+                        );
+
+                    if (opened.ended) {
+                        return {
+                            done: true,
+                            step: null
+                        };
+                    }
+
+                    step = opened.step;
                 }
 
-                const step = opened.step;
                 const want = step?.want;
 
                 if (
@@ -10716,7 +10813,7 @@
                     };
                 }
 
-                await this.sleep(120);
+                await this.sleep(250);
             }
 
             throw new Error(
