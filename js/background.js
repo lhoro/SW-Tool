@@ -6,6 +6,9 @@ const DEFAULT_CONFIG = Object.freeze({
   acceleratedH: false,
   improvedX: false,
   killRespawnedMobs: false,
+  expKillChampions: false,
+  expKillElites: false,
+  expKillBosses: false,
   preferTraining: true
 });
 
