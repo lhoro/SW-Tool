@@ -7332,7 +7332,7 @@
             );
         }
 
-        expSweepPlan(
+        expSweepSegmentPlan(
             map,
             startX,
             startY
@@ -7351,7 +7351,7 @@
                 return null;
             }
 
-            const keys =
+            const reachableKeys =
                 new Set(
                     reachable.map(
                         (point) =>
@@ -7361,241 +7361,636 @@
                     )
                 );
 
-            const xs =
-                reachable.map(
-                    (point) =>
-                        this._int(point.x)
-                );
-            const ys =
-                reachable.map(
-                    (point) =>
-                        this._int(point.y)
-                );
-
-            const minX =
-                Math.min(...xs);
-            const maxX =
-                Math.max(...xs);
-            const minY =
-                Math.min(...ys);
-            const maxY =
-                Math.max(...ys);
-
-            const vertical = [];
-            let columnIndex = 0;
-
-            for (
-                let x = minX;
-                x <= maxX;
-                x++
-            ) {
-                const ysInColumn = [];
-
-                for (
-                    let y = minY;
-                    y <= maxY;
-                    y++
-                ) {
-                    if (
-                        keys.has(
-                            x +
-                            "_" +
-                            y
-                        )
-                    ) {
-                        ysInColumn.push(y);
-                    }
-                }
-
-                if (
-                    ysInColumn.length === 0
-                ) {
-                    continue;
-                }
-
-                if (
-                    columnIndex % 2 === 1
-                ) {
-                    ysInColumn.reverse();
-                }
-
-                for (
-                    const y of
-                    ysInColumn
-                ) {
-                    vertical.push({
-                        x,
-                        y
-                    });
-                }
-
-                columnIndex++;
-            }
-
-            const horizontal = [];
-            let rowIndex = 0;
-
-            for (
-                let y = minY;
-                y <= maxY;
-                y++
-            ) {
-                const xsInRow = [];
-
-                for (
-                    let x = minX;
-                    x <= maxX;
-                    x++
-                ) {
-                    if (
-                        keys.has(
-                            x +
-                            "_" +
-                            y
-                        )
-                    ) {
-                        xsInRow.push(x);
-                    }
-                }
-
-                if (
-                    xsInRow.length === 0
-                ) {
-                    continue;
-                }
-
-                if (
-                    rowIndex % 2 === 1
-                ) {
-                    xsInRow.reverse();
-                }
-
-                for (
-                    const x of
-                    xsInRow
-                ) {
-                    horizontal.push({
-                        x,
-                        y
-                    });
-                }
-
-                rowIndex++;
-            }
-
-            const transitionScore = (
-                order
+            const build = (
+                orientation
             ) => {
-                if (
-                    !Array.isArray(order) ||
-                    order.length === 0
+                const vertical =
+                    orientation ===
+                    "pionowo";
+                const laneValues =
+                    [
+                        ...new Set(
+                            reachable.map(
+                                (point) =>
+                                    vertical
+                                        ? this._int(
+                                            point.x
+                                        )
+                                        : this._int(
+                                            point.y
+                                        )
+                            )
+                        )
+                    ].sort(
+                        (a, b) =>
+                            a - b
+                    );
+
+                const segments = [];
+                const byId =
+                    new Map();
+                const cellToSegment =
+                    new Map();
+
+                for (
+                    let laneIndex = 0;
+                    laneIndex <
+                        laneValues.length;
+                    laneIndex++
                 ) {
-                    return Number.POSITIVE_INFINITY;
+                    const lane =
+                        laneValues[
+                            laneIndex
+                        ];
+                    const coordinates = [];
+
+                    for (
+                        const point of
+                        reachable
+                    ) {
+                        if (
+                            (
+                                vertical &&
+                                this._int(
+                                    point.x
+                                ) === lane
+                            ) ||
+                            (
+                                !vertical &&
+                                this._int(
+                                    point.y
+                                ) === lane
+                            )
+                        ) {
+                            coordinates.push(
+                                vertical
+                                    ? this._int(
+                                        point.y
+                                    )
+                                    : this._int(
+                                        point.x
+                                    )
+                            );
+                        }
+                    }
+
+                    coordinates.sort(
+                        (a, b) =>
+                            a - b
+                    );
+
+                    let run = [];
+
+                    const flush = () => {
+                        if (
+                            run.length === 0
+                        ) {
+                            return;
+                        }
+
+                        const id =
+                            orientation +
+                            ":" +
+                            lane +
+                            ":" +
+                            run[0] +
+                            "-" +
+                            run[
+                                run.length -
+                                1
+                            ];
+
+                        const cells =
+                            run.map(
+                                (coord) =>
+                                    vertical
+                                        ? {
+                                            x: lane,
+                                            y: coord
+                                        }
+                                        : {
+                                            x: coord,
+                                            y: lane
+                                        }
+                            );
+
+                        const segment = {
+                            id,
+                            orientation,
+                            lane,
+                            laneIndex,
+                            min:
+                                run[0],
+                            max:
+                                run[
+                                    run.length -
+                                    1
+                                ],
+                            cells,
+                            neighbors:
+                                new Set()
+                        };
+
+                        segments.push(
+                            segment
+                        );
+                        byId.set(
+                            id,
+                            segment
+                        );
+
+                        for (
+                            const cell of
+                            cells
+                        ) {
+                            cellToSegment.set(
+                                cell.x +
+                                "_" +
+                                cell.y,
+                                id
+                            );
+                        }
+
+                        run = [];
+                    };
+
+                    for (
+                        const coord of
+                        coordinates
+                    ) {
+                        if (
+                            run.length === 0 ||
+                            coord ===
+                                run[
+                                    run.length -
+                                    1
+                                ] +
+                                    1
+                        ) {
+                            run.push(
+                                coord
+                            );
+                        } else {
+                            flush();
+                            run.push(
+                                coord
+                            );
+                        }
+                    }
+
+                    flush();
                 }
 
-                let score = 0;
-                let breaks = 0;
-                let previous = {
-                    x:
-                        this._int(
-                            startX
-                        ),
-                    y:
-                        this._int(
-                            startY
+                const byLane =
+                    new Map();
+
+                for (
+                    const segment of
+                    segments
+                ) {
+                    if (
+                        !byLane.has(
+                            segment.lane
                         )
+                    ) {
+                        byLane.set(
+                            segment.lane,
+                            []
+                        );
+                    }
+
+                    byLane
+                        .get(
+                            segment.lane
+                        )
+                        .push(
+                            segment
+                        );
+                }
+
+                const rangeGap = (
+                    left,
+                    right
+                ) => {
+                    if (
+                        left.max <
+                        right.min
+                    ) {
+                        return (
+                            right.min -
+                            left.max
+                        );
+                    }
+
+                    if (
+                        right.max <
+                        left.min
+                    ) {
+                        return (
+                            left.min -
+                            right.max
+                        );
+                    }
+
+                    return 0;
                 };
 
                 for (
-                    const point of order
+                    let index = 0;
+                    index <
+                        laneValues.length -
+                            1;
+                    index++
                 ) {
-                    const dx =
-                        Math.abs(
-                            point.x -
-                            previous.x
-                        );
-                    const dy =
-                        Math.abs(
-                            point.y -
-                            previous.y
-                        );
-                    const distance =
-                        Math.max(
-                            dx,
-                            dy
-                        );
+                    const lane =
+                        laneValues[index];
+                    const nextLane =
+                        laneValues[
+                            index + 1
+                        ];
 
-                    score +=
-                        Math.max(
-                            1,
-                            distance
-                        );
-
+                    // Tylko faktycznie sąsiednie kolumny/rzędy tworzą
+                    // bezpośrednie połączenie segmentów.
                     if (
-                        distance > 1
+                        nextLane !==
+                        lane + 1
                     ) {
-                        // Duża kara za przerwę w pasie — wtedy będzie potrzebny
-                        // solver zamiast prostego kroku do sąsiedniego pola.
-                        breaks++;
-                        score += 12;
+                        continue;
                     }
 
-                    previous =
-                        point;
+                    const left =
+                        byLane.get(
+                            lane
+                        ) || [];
+                    const right =
+                        byLane.get(
+                            nextLane
+                        ) || [];
+
+                    for (
+                        const a of left
+                    ) {
+                        for (
+                            const b of right
+                        ) {
+                            // Ruch po skosie jest dozwolony, więc odcinki
+                            // łączą się również gdy ich końce różnią się o 1.
+                            if (
+                                rangeGap(
+                                    a,
+                                    b
+                                ) <= 1
+                            ) {
+                                a.neighbors.add(
+                                    b.id
+                                );
+                                b.neighbors.add(
+                                    a.id
+                                );
+                            }
+                        }
+                    }
                 }
+
+                const splitPenalty =
+                    Math.max(
+                        0,
+                        segments.length -
+                            laneValues.length
+                    );
 
                 return {
-                    score,
-                    breaks
+                    orientation,
+                    vertical,
+                    segments,
+                    byId,
+                    cellToSegment,
+                    laneValues,
+                    reachableCount:
+                        reachable.length,
+                    splitPenalty,
+                    score:
+                        splitPenalty *
+                            20 +
+                        segments.length
                 };
             };
 
-            const verticalScore =
-                transitionScore(
-                    vertical
+            const vertical =
+                build(
+                    "pionowo"
                 );
-            const horizontalScore =
-                transitionScore(
-                    horizontal
+            const horizontal =
+                build(
+                    "poziomo"
                 );
-
-            const useVertical =
-                verticalScore.score <=
-                horizontalScore.score;
-            const order =
-                useVertical
+            const plan =
+                vertical.score <=
+                horizontal.score
                     ? vertical
                     : horizontal;
-            const score =
-                useVertical
-                    ? verticalScore
-                    : horizontalScore;
 
-            return {
-                orientation:
-                    useVertical
-                        ? "pionowo"
-                        : "poziomo",
-                order,
-                reachableCount:
-                    reachable.length,
-                bounds: {
-                    minX,
-                    maxX,
-                    minY,
-                    maxY
-                },
-                breaks:
-                    score.breaks,
-                score:
-                    score.score,
-                first:
-                    order[0] || null,
-                last:
-                    order[
-                        order.length - 1
-                    ] || null
-            };
+            const extremeLane =
+                plan.laneValues[0];
+            const extremeSegments =
+                plan.segments
+                    .filter(
+                        (segment) =>
+                            segment.lane ===
+                            extremeLane
+                    )
+                    .sort(
+                        (a, b) =>
+                            a.min -
+                            b.min
+                    );
+
+            plan.firstSegment =
+                extremeSegments[0] ||
+                plan.segments[0] ||
+                null;
+
+            plan.reachableKeys =
+                reachableKeys;
+
+            return plan;
+        }
+
+        expSegmentPoint(
+            segment,
+            coord
+        ) {
+            return segment.orientation ===
+                "pionowo"
+                ? {
+                    x:
+                        segment.lane,
+                    y:
+                        coord
+                }
+                : {
+                    x:
+                        coord,
+                    y:
+                        segment.lane
+                };
+        }
+
+        expSegmentNearestEnd(
+            segment,
+            point
+        ) {
+            const axis =
+                segment.orientation ===
+                    "pionowo"
+                    ? this._int(
+                        point?.y
+                    )
+                    : this._int(
+                        point?.x
+                    );
+
+            const minDistance =
+                Math.abs(
+                    axis -
+                    segment.min
+                );
+            const maxDistance =
+                Math.abs(
+                    axis -
+                    segment.max
+                );
+
+            return minDistance <=
+                maxDistance
+                ? "min"
+                : "max";
+        }
+
+        expSegmentEndpoint(
+            segment,
+            side
+        ) {
+            return this.expSegmentPoint(
+                segment,
+                side === "max"
+                    ? segment.max
+                    : segment.min
+            );
+        }
+
+        expSegmentContainsAxis(
+            segment,
+            axis
+        ) {
+            return (
+                axis >=
+                    segment.min -
+                        1 &&
+                axis <=
+                    segment.max +
+                        1
+            );
+        }
+
+        expSelectNextSegment(
+            plan,
+            currentSegment,
+            previousSegment,
+            exitPoint,
+            visitedSegments,
+            laneDirection
+        ) {
+            const axis =
+                plan.vertical
+                    ? this._int(
+                        exitPoint.y
+                    )
+                    : this._int(
+                        exitPoint.x
+                    );
+
+            const candidates =
+                [...currentSegment.neighbors]
+                    .map(
+                        (id) =>
+                            plan.byId.get(
+                                id
+                            )
+                    )
+                    .filter(
+                        (segment) =>
+                            segment &&
+                            !visitedSegments.has(
+                                segment.id
+                            ) &&
+                            this.expSegmentContainsAxis(
+                                segment,
+                                axis
+                            )
+                    );
+
+            if (
+                candidates.length === 0
+            ) {
+                return null;
+            }
+
+            const previousLane =
+                previousSegment
+                    ? previousSegment.lane
+                    : null;
+
+            candidates.sort(
+                (left, right) => {
+                    const score = (
+                        segment
+                    ) => {
+                        let value = 0;
+
+                        // Najważniejsza reguła: jeżeli przeszliśmy za koniec
+                        // przeszkody i po drugiej stronie mamy NIEODWIEDZONY
+                        // segment w kolumnie/rzędzie, z którego przyszliśmy,
+                        // wracamy właśnie nim. To daje "owinięcie" przeszkody
+                        // zamiast dalszego marszu i późniejszego nadrabiania.
+                        if (
+                            previousLane !==
+                                null &&
+                            segment.lane ===
+                                previousLane &&
+                            previousSegment &&
+                            segment.id !==
+                                previousSegment.id
+                        ) {
+                            value -=
+                                1000;
+                        }
+
+                        const delta =
+                            segment.lane -
+                            currentSegment.lane;
+                        const direction =
+                            delta === 0
+                                ? 0
+                                : delta > 0
+                                    ? 1
+                                    : -1;
+
+                        if (
+                            laneDirection !==
+                                0 &&
+                            direction ===
+                                laneDirection
+                        ) {
+                            value -= 100;
+                        }
+
+                        const minDistance =
+                            Math.abs(
+                                axis -
+                                segment.min
+                            );
+                        const maxDistance =
+                            Math.abs(
+                                axis -
+                                segment.max
+                            );
+
+                        value +=
+                            Math.min(
+                                minDistance,
+                                maxDistance
+                            ) *
+                            5;
+
+                        // Segment z mniejszą liczbą niewykorzystanych wyjść
+                        // obsługujemy wcześniej, żeby nie zostawiać kieszeni.
+                        let freeNeighbors = 0;
+                        for (
+                            const id of
+                            segment.neighbors
+                        ) {
+                            if (
+                                !visitedSegments.has(
+                                    id
+                                )
+                            ) {
+                                freeNeighbors++;
+                            }
+                        }
+
+                        value +=
+                            freeNeighbors;
+
+                        return value;
+                    };
+
+                    return (
+                        score(left) -
+                        score(right)
+                    );
+                }
+            );
+
+            return candidates[0];
+        }
+
+        expNearestUnvisitedSegment(
+            plan,
+            current,
+            visitedSegments
+        ) {
+            let best = null;
+
+            for (
+                const segment of
+                plan.segments
+            ) {
+                if (
+                    visitedSegments.has(
+                        segment.id
+                    )
+                ) {
+                    continue;
+                }
+
+                for (
+                    const side of
+                    ["min", "max"]
+                ) {
+                    const endpoint =
+                        this.expSegmentEndpoint(
+                            segment,
+                            side
+                        );
+                    const path =
+                        this.mapSolver
+                            .findShortestPath(
+                                this.mapSolver
+                                    ?.map,
+                                current,
+                                endpoint
+                            );
+
+                    if (!path) {
+                        continue;
+                    }
+
+                    if (
+                        !best ||
+                        path.length <
+                            best.path.length
+                    ) {
+                        best = {
+                            segment,
+                            side,
+                            path
+                        };
+                    }
+                }
+            }
+
+            return best;
         }
 
         async expVisitField(
@@ -7675,7 +8070,7 @@
             };
 
             const plan =
-                this.expSweepPlan(
+                this.expSweepSegmentPlan(
                     map,
                     start.x,
                     start.y
@@ -7683,10 +8078,7 @@
 
             if (
                 !plan ||
-                !Array.isArray(
-                    plan.order
-                ) ||
-                plan.order.length === 0
+                !plan.firstSegment
             ) {
                 throw new Error(
                     "Expiarka: brak osiągalnych pól."
@@ -7695,15 +8087,22 @@
 
             const visited =
                 new Set();
+            const visitedSegments =
+                new Set();
             const state = {
                 start,
                 orientation:
                     plan.orientation,
                 reachable:
                     plan.reachableCount,
+                segments:
+                    plan.segments.length,
                 visited: 0,
+                visitedSegments: 0,
                 moves: 0,
                 solverBridges: 0,
+                obstacleWraps: 0,
+                revisitedMoves: 0,
                 fights: 0,
                 singleFights: 0,
                 removed: 0
@@ -7718,44 +8117,183 @@
             this.syncPveModeButtons();
 
             this.setQuickPanelStatus(
-                "Expiarka START • pasy " +
+                "Expiarka START • segmenty " +
                 plan.orientation +
-                " • skraj " +
-                plan.first.x +
-                "|" +
-                plan.first.y +
-                " • pola " +
+                " • " +
+                plan.segments.length +
+                " pasów/odcinków • pola " +
                 plan.reachableCount +
                 "."
             );
 
             console.info(
-                "[SW Tool][PVE] Expiarka — plan sweep:",
+                "[SW Tool][PVE] Expiarka — plan segmentowy:",
                 {
                     start,
                     orientation:
                         plan.orientation,
-                    bounds:
-                        plan.bounds,
-                    first:
-                        plan.first,
-                    last:
-                        plan.last,
+                    segments:
+                        plan.segments.map(
+                            (segment) => ({
+                                id:
+                                    segment.id,
+                                lane:
+                                    segment.lane,
+                                min:
+                                    segment.min,
+                                max:
+                                    segment.max,
+                                neighbors:
+                                    [
+                                        ...segment.neighbors
+                                    ]
+                            })
+                        ),
                     reachable:
                         plan.reachableCount,
-                    estimatedBreaks:
-                        plan.breaks,
-                    score:
-                        plan.score
+                    splitPenalty:
+                        plan.splitPenalty
                 }
             );
 
             let operationError = null;
 
+            const moveOne = async (
+                target,
+                source =
+                    "pve-exp-segment"
+            ) => {
+                const beforeKey =
+                    this._int(
+                        this.mapSolver?.map?.x
+                    ) +
+                    "_" +
+                    this._int(
+                        this.mapSolver?.map?.y
+                    );
+
+                const moved =
+                    await this.mapSolver
+                        .navigateTo(
+                            target.x,
+                            target.y,
+                            {
+                                source,
+                                allowBusy: true
+                            }
+                        );
+
+                if (
+                    !this.expRunning
+                ) {
+                    return false;
+                }
+
+                if (!moved?.ok) {
+                    throw new Error(
+                        "Expiarka: nie udało się wykonać kroku."
+                    );
+                }
+
+                state.moves++;
+
+                const after = {
+                    x:
+                        this._int(
+                            this.mapSolver?.map?.x
+                        ),
+                    y:
+                        this._int(
+                            this.mapSolver?.map?.y
+                        )
+                };
+                const afterKey =
+                    after.x +
+                    "_" +
+                    after.y;
+
+                if (
+                    visited.has(
+                        afterKey
+                    ) &&
+                    afterKey !==
+                        beforeKey
+                ) {
+                    state.revisitedMoves++;
+                }
+
+                await this.expVisitField(
+                    state,
+                    visited,
+                    after
+                );
+
+                return true;
+            };
+
+            const moveTo = async (
+                target,
+                bridge = false
+            ) => {
+                while (
+                    this.expRunning
+                ) {
+                    const current = {
+                        x:
+                            this._int(
+                                this.mapSolver?.map?.x
+                            ),
+                        y:
+                            this._int(
+                                this.mapSolver?.map?.y
+                            )
+                    };
+
+                    if (
+                        current.x ===
+                            target.x &&
+                        current.y ===
+                            target.y
+                    ) {
+                        return true;
+                    }
+
+                    const path =
+                        this.mapSolver
+                            .findShortestPath(
+                                map,
+                                current,
+                                target
+                            );
+
+                    if (
+                        !path ||
+                        path.length === 0
+                    ) {
+                        return false;
+                    }
+
+                    if (bridge) {
+                        state.solverBridges++;
+                    }
+
+                    if (
+                        !await moveOne(
+                            path[0],
+                            bridge
+                                ? "pve-exp-bridge"
+                                : "pve-exp-segment"
+                        )
+                    ) {
+                        return false;
+                    }
+                }
+
+                return false;
+            };
+
             try {
-                // Najpierw czyścimy pole, na którym użytkownik uruchomił
-                // Expiarkę. Potem idziemy solverem do skrajnego początku
-                // wężyka i kontynuujemy pasami.
+                // Pole startowe również jest częścią pokrycia mapy.
                 await this.expVisitField(
                     state,
                     visited,
@@ -7771,44 +8309,35 @@
                     }
                 );
 
-                for (
-                    let index = 0;
-                    index <
-                        plan.order.length &&
-                    this.expRunning;
-                    index++
-                ) {
-                    const target =
-                        plan.order[index];
-                    const targetKey =
-                        target.x +
-                        "_" +
-                        target.y;
+                let currentSegment =
+                    plan.firstSegment;
+                let previousSegment =
+                    null;
+                let laneDirection = 1;
 
+                while (
+                    this.expRunning &&
+                    visitedSegments.size <
+                        plan.segments.length
+                ) {
                     if (
-                        visited.has(
-                            targetKey
-                        )
+                        this._int(
+                            this.mapSolver?.map
+                                ?.locationId
+                        ) !==
+                        start.locationId
                     ) {
-                        continue;
+                        throw new Error(
+                            "Expiarka: postać opuściła mapę patrolu."
+                        );
                     }
 
-                    while (
-                        this.expRunning
+                    if (
+                        visitedSegments.has(
+                            currentSegment.id
+                        )
                     ) {
-                        if (
-                            this._int(
-                                this.mapSolver?.map
-                                    ?.locationId
-                            ) !==
-                            start.locationId
-                        ) {
-                            throw new Error(
-                                "Expiarka: postać opuściła mapę patrolu."
-                            );
-                        }
-
-                        const current = {
+                        const currentPoint = {
                             x:
                                 this._int(
                                     this.mapSolver?.map?.x
@@ -7818,139 +8347,246 @@
                                     this.mapSolver?.map?.y
                                 )
                         };
-
-                        if (
-                            current.x ===
-                                target.x &&
-                            current.y ===
-                                target.y
-                        ) {
-                            await this.expVisitField(
-                                state,
-                                visited,
-                                current
+                        const fallback =
+                            this.expNearestUnvisitedSegment(
+                                plan,
+                                currentPoint,
+                                visitedSegments
                             );
+
+                        if (!fallback) {
                             break;
                         }
 
-                        const dx =
-                            Math.abs(
-                                target.x -
-                                current.x
-                            );
-                        const dy =
-                            Math.abs(
-                                target.y -
-                                current.y
-                            );
-                        let next = null;
+                        currentSegment =
+                            fallback.segment;
+                        state.solverBridges++;
 
                         if (
-                            Math.max(
-                                dx,
-                                dy
-                            ) === 1
+                            !await moveTo(
+                                this.expSegmentEndpoint(
+                                    currentSegment,
+                                    fallback.side
+                                ),
+                                true
+                            )
                         ) {
-                            // Normalny krok wzdłuż pasa.
-                            next =
-                                target;
-                        } else {
-                            // Przeszkoda/dziura w pasie. Solver uzupełnia tylko
-                            // brakujący fragment i zwraca najkrótszą trasę.
-                            const bridge =
-                                this.mapSolver
-                                    .findShortestPath(
-                                        map,
-                                        current,
-                                        target
-                                    );
-
-                            if (
-                                !bridge ||
-                                bridge.length === 0
-                            ) {
-                                console.warn(
-                                    "[SW Tool][PVE] Expiarka — brak mostu solvera do pola:",
-                                    {
-                                        current,
-                                        target,
-                                        index
-                                    }
-                                );
-                                break;
-                            }
-
-                            next =
-                                bridge[0];
-                            state.solverBridges++;
+                            break;
                         }
+                    }
 
-                        const moved =
-                            await this.mapSolver
-                                .navigateTo(
-                                    next.x,
-                                    next.y,
-                                    {
-                                        source:
-                                            "pve-exp-sweep",
-                                        allowBusy: true
-                                    }
-                                );
+                    const currentPoint = {
+                        x:
+                            this._int(
+                                this.mapSolver?.map?.x
+                            ),
+                        y:
+                            this._int(
+                                this.mapSolver?.map?.y
+                            )
+                    };
+                    const entrySide =
+                        this.expSegmentNearestEnd(
+                            currentSegment,
+                            currentPoint
+                        );
+                    const exitSide =
+                        entrySide === "min"
+                            ? "max"
+                            : "min";
+                    const entry =
+                        this.expSegmentEndpoint(
+                            currentSegment,
+                            entrySide
+                        );
 
+                    const alreadyAtEntry =
+                        currentPoint.x ===
+                            entry.x &&
+                        currentPoint.y ===
+                            entry.y;
+
+                    if (!alreadyAtEntry) {
+                        if (
+                            !await moveTo(
+                                entry,
+                                true
+                            )
+                        ) {
+                            break;
+                        }
+                    }
+
+                    const orderedCells =
+                        entrySide === "min"
+                            ? currentSegment.cells
+                            : [
+                                ...currentSegment.cells
+                            ].reverse();
+
+                    for (
+                        const cell of
+                        orderedCells
+                    ) {
                         if (
                             !this.expRunning
                         ) {
                             break;
                         }
 
-                        if (
-                            !moved?.ok
-                        ) {
-                            throw new Error(
-                                "Expiarka: nie udało się wykonać kroku sweep."
+                        const x =
+                            this._int(
+                                this.mapSolver?.map?.x
                             );
+                        const y =
+                            this._int(
+                                this.mapSolver?.map?.y
+                            );
+
+                        if (
+                            x === cell.x &&
+                            y === cell.y
+                        ) {
+                            await this.expVisitField(
+                                state,
+                                visited,
+                                cell
+                            );
+                            continue;
                         }
 
-                        state.moves++;
+                        if (
+                            !await moveOne(
+                                cell
+                            )
+                        ) {
+                            break;
+                        }
+                    }
 
-                        // Każde nowe pole napotkane również na mostku solvera
-                        // czyścimy od razu. Dzięki temu przejście wokół przeszkody
-                        // nie tworzy martwego fragmentu mapy do późniejszego powrotu.
-                        await this.expVisitField(
-                            state,
-                            visited,
-                            {
-                                x:
-                                    this._int(
-                                        this.mapSolver?.map?.x
-                                    ),
-                                y:
-                                    this._int(
-                                        this.mapSolver?.map?.y
-                                    )
-                            }
+                    if (
+                        !this.expRunning
+                    ) {
+                        break;
+                    }
+
+                    visitedSegments.add(
+                        currentSegment.id
+                    );
+                    state.visitedSegments =
+                        visitedSegments.size;
+
+                    const exitPoint =
+                        this.expSegmentEndpoint(
+                            currentSegment,
+                            exitSide
                         );
 
-                        if (
-                            state.moves === 1 ||
-                            state.moves % 12 === 0 ||
-                            state.visited ===
-                                plan.reachableCount
-                        ) {
-                            this.setQuickPanelStatus(
-                                "Expiarka • " +
-                                plan.orientation +
-                                " • pola " +
-                                state.visited +
-                                "/" +
-                                plan.reachableCount +
-                                " • ruchy " +
-                                state.moves +
-                                " • mosty " +
-                                state.solverBridges +
-                                "."
+                    let nextSegment =
+                        this.expSelectNextSegment(
+                            plan,
+                            currentSegment,
+                            previousSegment,
+                            exitPoint,
+                            visitedSegments,
+                            laneDirection
+                        );
+
+                    if (nextSegment) {
+                        const newDirection =
+                            Math.sign(
+                                nextSegment.lane -
+                                currentSegment.lane
                             );
+
+                        if (
+                            previousSegment &&
+                            nextSegment.lane ===
+                                previousSegment.lane &&
+                            nextSegment.id !==
+                                previousSegment.id
+                        ) {
+                            state.obstacleWraps++;
                         }
+
+                        if (
+                            newDirection !== 0
+                        ) {
+                            laneDirection =
+                                newDirection;
+                        }
+
+                        previousSegment =
+                            currentSegment;
+                        currentSegment =
+                            nextSegment;
+                    } else {
+                        const fallback =
+                            this.expNearestUnvisitedSegment(
+                                plan,
+                                exitPoint,
+                                visitedSegments
+                            );
+
+                        if (!fallback) {
+                            break;
+                        }
+
+                        previousSegment =
+                            currentSegment;
+                        currentSegment =
+                            fallback.segment;
+                        state.solverBridges++;
+
+                        if (
+                            !await moveTo(
+                                this.expSegmentEndpoint(
+                                    currentSegment,
+                                    fallback.side
+                                ),
+                                true
+                            )
+                        ) {
+                            break;
+                        }
+
+                        const delta =
+                            currentSegment.lane -
+                            previousSegment.lane;
+
+                        if (delta !== 0) {
+                            laneDirection =
+                                Math.sign(
+                                    delta
+                                );
+                        }
+                    }
+
+                    if (
+                        state.visitedSegments === 1 ||
+                        state.visitedSegments %
+                                5 ===
+                            0 ||
+                        state.visited ===
+                            plan.reachableCount
+                    ) {
+                        this.setQuickPanelStatus(
+                            "Expiarka • " +
+                            plan.orientation +
+                            " • pola " +
+                            state.visited +
+                            "/" +
+                            plan.reachableCount +
+                            " • segmenty " +
+                            state.visitedSegments +
+                            "/" +
+                            plan.segments.length +
+                            " • obejścia " +
+                            state.obstacleWraps +
+                            " • mosty " +
+                            state.solverBridges +
+                            "."
+                        );
                     }
                 }
             } catch (error) {
@@ -8086,8 +8722,12 @@
                       state.visited +
                       "/" +
                       plan.reachableCount +
+                      " • obejścia " +
+                      state.obstacleWraps +
                       " • mosty " +
                       state.solverBridges +
+                      " • powtórne ruchy " +
+                      state.revisitedMoves +
                       " • zwykłe " +
                       state.singleFights +
                       "x • multi " +
@@ -8105,14 +8745,10 @@
                     plan: {
                         orientation:
                             plan.orientation,
-                        bounds:
-                            plan.bounds,
-                        first:
-                            plan.first,
-                        last:
-                            plan.last,
-                        estimatedBreaks:
-                            plan.breaks
+                        segments:
+                            plan.segments.length,
+                        splitPenalty:
+                            plan.splitPenalty
                     },
                     stoppedByUser,
                     end
