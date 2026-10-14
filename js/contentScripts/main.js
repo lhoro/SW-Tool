@@ -2738,15 +2738,10 @@
                     );
                 }
 
-                let step = this.currentRoninQuestStep;
-                if (
-                    !step ||
-                    typeof step !== "object" ||
-                    this._int(step.qb_id) !==
-                        this._int(this.roninQuestId)
-                ) {
-                    step = await this.openRoninQuestStep();
-                }
+                // Zawsze pobieramy świeży q_step z serwera.
+                // Cache currentRoninQuestStep może jeszcze zawierać poprzedni
+                // dialog, podczas gdy serwer już przeszedł do type:1.
+                const step = await this.openRoninQuestStep();
 
                 const want = step?.want;
                 const wantType = this._int(want?.type);
