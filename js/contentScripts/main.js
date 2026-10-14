@@ -117,6 +117,7 @@
             this.questKillDomObserver = null;
             this.respawnRunning = false;
             this.respawnButton = null;
+            this.respawnLimitInput = null;
             this.expRunning = false;
             this.expStopRequested = false;
             this.expButton = null;
@@ -6792,6 +6793,26 @@
                 "respawn"
             );
 
+            const rawLimit =
+                this._int(
+                    this.respawnLimitInput
+                        ?.value
+                );
+            const paLimit =
+                Math.max(
+                    0,
+                    Math.floor(
+                        rawLimit
+                    )
+                );
+
+            if (
+                this.respawnLimitInput
+            ) {
+                this.respawnLimitInput.value =
+                    String(paLimit);
+            }
+
             const map =
                 this.mapSolver?.map;
             const startLocationId =
@@ -6826,7 +6847,13 @@
                 pair.neighbor.x +
                 "|" +
                 pair.neighbor.y +
-                "."
+                (
+                    paLimit > 0
+                        ? " • limit " +
+                          paLimit +
+                          " PA."
+                        : " • bez limitu PA."
+                )
             );
 
             console.info(
@@ -6888,6 +6915,22 @@
                     moves++;
                     toNeighbor =
                         !toNeighbor;
+
+                    if (
+                        paLimit > 0 &&
+                        moves >= paLimit
+                    ) {
+                        this.respawnRunning =
+                            false;
+
+                        this.setQuickPanelStatus(
+                            "Respiarka STOP — wykorzystano limit " +
+                            paLimit +
+                            " PA."
+                        );
+
+                        break;
+                    }
 
                     if (
                         moves === 1 ||
@@ -6968,7 +7011,13 @@
 
             return {
                 moves,
-                stopped: true
+                paLimit,
+                stopped: true,
+                reason:
+                    paLimit > 0 &&
+                    moves >= paLimit
+                        ? "pa-limit"
+                        : "manual"
             };
         }
 
@@ -9277,9 +9326,98 @@
             this.expButton =
                 expButton;
 
+            const respawnRow =
+                document.createElement(
+                    "div"
+                );
+            Object.assign(
+                respawnRow.style,
+                {
+                    display:
+                        "grid",
+                    gridTemplateColumns:
+                        "1fr 58px",
+                    gap:
+                        "5px",
+                    alignItems:
+                        "stretch"
+                }
+            );
+
+            const respawnLimitInput =
+                document.createElement(
+                    "input"
+                );
+            respawnLimitInput.type =
+                "number";
+            respawnLimitInput.min =
+                "0";
+            respawnLimitInput.step =
+                "1";
+            respawnLimitInput.value =
+                "0";
+            respawnLimitInput.title =
+                "Limit PA dla Respiarki (0 = bez limitu)";
+            respawnLimitInput.setAttribute(
+                "aria-label",
+                "Limit PA Respiarki"
+            );
+
+            Object.assign(
+                respawnLimitInput.style,
+                {
+                    width:
+                        "100%",
+                    boxSizing:
+                        "border-box",
+                    padding:
+                        "6px 4px",
+                    border:
+                        "1px solid #c29e51",
+                    borderRadius:
+                        "5px",
+                    background:
+                        "#17142a",
+                    color:
+                        "#fff",
+                    fontSize:
+                        "11px",
+                    textAlign:
+                        "center",
+                    fontFamily:
+                        "Verdana, sans-serif"
+                }
+            );
+
+            respawnLimitInput.addEventListener(
+                "change",
+                () => {
+                    const value =
+                        Math.max(
+                            0,
+                            Math.floor(
+                                this._int(
+                                    respawnLimitInput.value
+                                )
+                            )
+                        );
+
+                    respawnLimitInput.value =
+                        String(value);
+                }
+            );
+
+            this.respawnLimitInput =
+                respawnLimitInput;
+
+            respawnRow.append(
+                respawnButton,
+                respawnLimitInput
+            );
+
             pveBody.append(
                 questKillsButton,
-                respawnButton,
+                respawnRow,
                 expButton
             );
 
