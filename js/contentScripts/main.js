@@ -8,6 +8,9 @@
         acceleratedH: false,
         improvedX: false,
         killRespawnedMobs: false,
+        expKillChampions: false,
+        expKillElites: false,
+        expKillBosses: false,
         preferTraining: true
     });
 
@@ -39,6 +42,15 @@
             killRespawnedMobs: typeof source.killRespawnedMobs === "boolean"
                 ? source.killRespawnedMobs
                 : DEFAULT_CONFIG.killRespawnedMobs,
+            expKillChampions: typeof source.expKillChampions === "boolean"
+                ? source.expKillChampions
+                : DEFAULT_CONFIG.expKillChampions,
+            expKillElites: typeof source.expKillElites === "boolean"
+                ? source.expKillElites
+                : DEFAULT_CONFIG.expKillElites,
+            expKillBosses: typeof source.expKillBosses === "boolean"
+                ? source.expKillBosses
+                : DEFAULT_CONFIG.expKillBosses,
             preferTraining: typeof source.preferTraining === "boolean"
                 ? source.preferTraining
                 : DEFAULT_CONFIG.preferTraining
@@ -8099,6 +8111,182 @@
             return null;
         }
 
+        expAdvancedRankEnabled(
+            rank
+        ) {
+            if (
+                this._int(rank) === 1
+            ) {
+                return this.config
+                    ?.expKillChampions ===
+                    true;
+            }
+
+            if (
+                this._int(rank) === 2
+            ) {
+                return this.config
+                    ?.expKillElites ===
+                    true;
+            }
+
+            if (
+                this._int(rank) === 3
+            ) {
+                return this.config
+                    ?.expKillBosses ===
+                    true;
+            }
+
+            return false;
+        }
+
+        async expKillConfiguredAdvancedMobs(
+            point,
+            field
+        ) {
+            if (
+                !this.expRunning ||
+                !(
+                    this.config
+                        ?.expKillChampions ===
+                        true ||
+                    this.config
+                        ?.expKillElites ===
+                        true ||
+                    this.config
+                        ?.expKillBosses ===
+                        true
+                )
+            ) {
+                return {
+                    fights: 0,
+                    removed: 0
+                };
+            }
+
+            const targets =
+                this.respawnAdvancedTargets(
+                    field
+                ).filter(
+                    (target) =>
+                        this.expAdvancedRankEnabled(
+                            target.rank
+                        )
+                );
+
+            let fights = 0;
+            let removed = 0;
+
+            for (
+                const target of
+                targets
+            ) {
+                for (
+                    let index = 0;
+                    index <
+                        target.count &&
+                    this.expRunning;
+                    index++
+                ) {
+                    const response =
+                        await this.sendAndWait(
+                            {
+                                a: 7,
+                                mob_num:
+                                    target.mobNum,
+                                rank:
+                                    target.rank,
+                                quick: 1
+                            },
+                            [7, 999],
+                            (event) =>
+                                this._int(
+                                    event.e
+                                ) !== 0 ||
+                                (
+                                    this._int(
+                                        event.a
+                                    ) === 7 &&
+                                    (
+                                        this._int(
+                                            event.me
+                                        ) > 0 ||
+                                        event.result !==
+                                            undefined ||
+                                        event.remove_mob !==
+                                            undefined
+                                    )
+                                ),
+                            5000
+                        );
+
+                    this.assertPveActionPoints(
+                        response,
+                        "walka Expiarki z mobem wyższej klasy"
+                    );
+
+                    if (
+                        this._int(
+                            response.e
+                        ) !== 0 ||
+                        this._int(
+                            response.me
+                        ) > 0
+                    ) {
+                        break;
+                    }
+
+                    const killed =
+                        Math.max(
+                            1,
+                            this.questKillRemovedCount(
+                                response
+                            )
+                        );
+
+                    fights++;
+                    removed +=
+                        killed;
+
+                    console.info(
+                        "[SW Tool][PVE] Expiarka — advanced socket kill:",
+                        {
+                            x:
+                                point.x,
+                            y:
+                                point.y,
+                            mobNum:
+                                target.mobNum,
+                            rank:
+                                target.rank,
+                            type:
+                                target.label,
+                            mobId:
+                                target.mobId,
+                            mobName:
+                                target.mobName,
+                            remaining:
+                                target.count -
+                                index -
+                                1
+                        }
+                    );
+                }
+
+                if (
+                    !this.expRunning
+                ) {
+                    break;
+                }
+            }
+
+            return {
+                fights,
+                removed
+            };
+        }
+
         async expClearCurrentField(
             point
         ) {
@@ -8121,13 +8309,35 @@
                 };
             }
 
-            let mobs =
-                Math.max(
-                    0,
-                    this._int(
-                        field.mobs?.count
-                    )
+            const advanced =
+                await this.expKillConfiguredAdvancedMobs(
+                    point,
+                    field
                 );
+
+            if (
+                !this.expRunning
+            ) {
+                return {
+                    fights: 0,
+                    singleFights: 0,
+                    removed: 0,
+                    advancedFights:
+                        this._int(
+                            advanced?.fights
+                        ),
+                    advancedRemoved:
+                        this._int(
+                            advanced?.removed
+                        ),
+                    skipped: false
+                };
+            }
+
+            let mobs =
+                this.respawnNormalMobCount(
+                    field
+                ).count;
             let fights = 0;
             let singleFights = 0;
             let removed = 0;
@@ -8153,12 +8363,9 @@
                     field =
                         liveField;
                     mobs =
-                        Math.max(
-                            0,
-                            this._int(
-                                field.mobs?.count
-                            )
-                        );
+                        this.respawnNormalMobCount(
+                            field
+                        ).count;
                 }
 
                 if (
@@ -8335,12 +8542,9 @@
                     field =
                         liveAfterFight;
                     mobs =
-                        Math.max(
-                            0,
-                            this._int(
-                                field.mobs?.count
-                            )
-                        );
+                        this.respawnNormalMobCount(
+                            field
+                        ).count;
                 } else {
                     mobs =
                         Math.max(
@@ -8380,6 +8584,14 @@
                 fights,
                 singleFights,
                 removed,
+                advancedFights:
+                    this._int(
+                        advanced?.fights
+                    ),
+                advancedRemoved:
+                    this._int(
+                        advanced?.removed
+                    ),
                 skipped: false
             };
         }
@@ -9112,6 +9324,14 @@
                 this._int(
                     cleared?.removed
                 );
+            state.advancedFights +=
+                this._int(
+                    cleared?.advancedFights
+                );
+            state.advancedRemoved +=
+                this._int(
+                    cleared?.advancedRemoved
+                );
         }
 
         async runExpiarka() {
@@ -9186,7 +9406,9 @@
                 revisitedMoves: 0,
                 fights: 0,
                 singleFights: 0,
-                removed: 0
+                removed: 0,
+                advancedFights: 0,
+                advancedRemoved: 0
             };
 
             this.pveActionPointsExhausted =
@@ -9204,6 +9426,26 @@
                 plan.segments.length +
                 " pasów/odcinków • pola " +
                 plan.reachableCount +
+                " • advanced: " +
+                [
+                    this.config
+                        ?.expKillChampions ===
+                        true
+                        ? "C"
+                        : "",
+                    this.config
+                        ?.expKillElites ===
+                        true
+                        ? "E"
+                        : "",
+                    this.config
+                        ?.expKillBosses ===
+                        true
+                        ? "B"
+                        : ""
+                ]
+                    .filter(Boolean)
+                    .join("/") +
                 "."
             );
 
