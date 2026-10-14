@@ -44,6 +44,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const portalDebugStats = document.getElementById("portalDebugStats");
   const exportPortalsBtn = document.getElementById("exportPortalsBtn");
   const clearPortalsBtn = document.getElementById("clearPortalsBtn");
+  const socketCaptureStats = document.getElementById("socketCaptureStats");
+  const socketCaptureToggleBtn = document.getElementById("socketCaptureToggleBtn");
+  const exportSocketCaptureBtn = document.getElementById("exportSocketCaptureBtn");
   const debugStatus = document.getElementById("debugStatus");
 
   let saveQueue = Promise.resolve();
@@ -139,6 +142,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (tabName === "debug") {
       refreshPortalDebug();
+      refreshSocketCaptureState();
     }
   }
 
@@ -212,6 +216,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (error) {
       portalDebugStats.textContent = "Brak dostępu do danych portali.";
       setStatus(debugStatus, error.message, "error");
+    }
+  }
+
+  function renderSocketCaptureState(state) {
+    const active = state?.active === true;
+    const entries = Number(state?.entries || 0);
+
+    socketCaptureStats.textContent =
+      (active ? "Logger aktywny" : "Logger wyłączony") +
+      " • Eventy: " + entries;
+
+    socketCaptureToggleBtn.textContent = active
+      ? "Stop log socketów"
+      : "Start log socketów";
+
+    socketCaptureToggleBtn.dataset.active = active
+      ? "1"
+      : "0";
+  }
+
+  async function refreshSocketCaptureState() {
+    try {
+      const data = await sendCommand("debug.socketCapture.state");
+      renderSocketCaptureState(data);
+    } catch (error) {
+      socketCaptureStats.textContent = "Logger niedostępny.";
+      console.warn("[SW Tool][POPUP] Nie udało się odczytać stanu loggera socketów.", error);
     }
   }
 
@@ -398,6 +429,75 @@ document.addEventListener("DOMContentLoaded", async () => {
       setStatus(debugStatus, error.message, "error");
     } finally {
       clearPortalsBtn.disabled = false;
+    }
+  });
+
+  socketCaptureToggleBtn.addEventListener("click", async () => {
+    try {
+      socketCaptureToggleBtn.disabled = true;
+
+      const active =
+        socketCaptureToggleBtn.dataset.active === "1";
+      const command = active
+        ? "debug.socketCapture.stop"
+        : "debug.socketCapture.start";
+
+      setStatus(
+        debugStatus,
+        active
+          ? "Zatrzymuję logger socketów..."
+          : "Uruchamiam logger socketów..."
+      );
+
+      const data = await sendCommand(command);
+      renderSocketCaptureState(data);
+
+      setStatus(
+        debugStatus,
+        data.active
+          ? "Logger socketów uruchomiony."
+          : "Logger socketów zatrzymany.",
+        "success"
+      );
+    } catch (error) {
+      console.error("[SW Tool][POPUP] Logger socketów:", error);
+      setStatus(debugStatus, error.message, "error");
+    } finally {
+      socketCaptureToggleBtn.disabled = false;
+    }
+  });
+
+  exportSocketCaptureBtn.addEventListener("click", async () => {
+    try {
+      exportSocketCaptureBtn.disabled = true;
+      setStatus(debugStatus, "Przygotowuję log socketów...");
+
+      const data = await sendCommand("debug.socketCapture.export");
+      const entries = Array.isArray(data.entries)
+        ? data.entries
+        : [];
+
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      downloadJson(
+        "sw-tool-socket-log-" + stamp + ".json",
+        entries
+      );
+
+      renderSocketCaptureState({
+        active: data.active,
+        entries: entries.length
+      });
+
+      setStatus(
+        debugStatus,
+        "Wyeksportowano " + entries.length + " eventów.",
+        "success"
+      );
+    } catch (error) {
+      console.error("[SW Tool][POPUP] Eksport logu socketów nie powiódł się.", error);
+      setStatus(debugStatus, error.message, "error");
+    } finally {
+      exportSocketCaptureBtn.disabled = false;
     }
   });
 
