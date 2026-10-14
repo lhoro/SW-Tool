@@ -158,6 +158,8 @@
             this.currentHQuestStep = null;
             this.currentHTracked = null;
             this.currentQuestStep = null;
+            this.testZodiacQuestStep = null;
+            this.testZodiacTrackVersion = 0;
             this.questKillRunning = false;
             this.questKillState = null;
             this.questKillButton = null;
@@ -486,6 +488,8 @@
             if (action === 26) {
                 this.handleDailyRewardResponse(response);
             }
+
+            this.handleTestZodiacQuestResponse(response);
 
             if (action === 22) {
                 this.handleRoninQuestStepResponse(response);
@@ -10554,6 +10558,142 @@
             return this.runExpiarka();
         }
 
+        handleTestZodiacQuestResponse(response) {
+            if (
+                !response ||
+                typeof response !== "object"
+            ) {
+                return false;
+            }
+
+            const questId = 1359249;
+
+            if (
+                this._int(response.quest_end) ===
+                questId
+            ) {
+                this.testZodiacQuestStep = {
+                    qb_id: questId,
+                    header: "Moc Zodiaku",
+                    ended: true,
+                    want: null
+                };
+                this.testZodiacTrackVersion++;
+                return true;
+            }
+
+            const lists = [];
+
+            if (Array.isArray(response.track)) {
+                lists.push(response.track);
+            }
+
+            if (Array.isArray(response.tracked)) {
+                lists.push(response.tracked);
+            }
+
+            for (const list of lists) {
+                for (const entry of list) {
+                    const entryId =
+                        this._int(
+                            entry?.qb_id ||
+                            entry?.qbid ||
+                            entry?.id
+                        );
+
+                    if (
+                        entryId !== questId ||
+                        !entry?.want ||
+                        typeof entry.want !==
+                            "object" ||
+                        this._int(
+                            entry.want.type
+                        ) !== 5
+                    ) {
+                        continue;
+                    }
+
+                    this.testZodiacQuestStep = {
+                        qb_id: questId,
+                        header:
+                            String(
+                                entry.header ||
+                                "Moc Zodiaku"
+                            ),
+                        want: {
+                            ...entry.want
+                        }
+                    };
+                    this.testZodiacTrackVersion++;
+
+                    toolConsole(
+                        "info",
+                        "[SW Tool][TEST] Moc Zodiaku — tracker z serwera.",
+                        {
+                            count:
+                                this._int(
+                                    entry.want.count
+                                ),
+                            max:
+                                Math.max(
+                                    this._int(
+                                        entry.want.maxv
+                                    ),
+                                    this._int(
+                                        entry.want.amount
+                                    )
+                                ),
+                            isMet:
+                                Boolean(
+                                    entry.want.is_met
+                                ),
+                            target:
+                                String(
+                                    entry.want.name2 ||
+                                    ""
+                                ),
+                            item:
+                                String(
+                                    entry.want.name ||
+                                    ""
+                                )
+                        }
+                    );
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        async waitForTestZodiacTracker(
+            questId,
+            timeoutMs = 2500
+        ) {
+            const id = this._int(questId);
+            const startedAt = Date.now();
+
+            while (
+                Date.now() - startedAt <
+                timeoutMs
+            ) {
+                const step =
+                    this.testZodiacQuestStep;
+
+                if (
+                    step &&
+                    this._int(step.qb_id) === id
+                ) {
+                    return step;
+                }
+
+                await this.sleep(25);
+            }
+
+            return null;
+        }
+
         async startOrOpenTestDailyQuest(
             questId,
             timeoutMs = 4000
@@ -10977,39 +11117,66 @@
                 );
 
                 this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku — sprawdzam/przyjmuję quest..."
+                    "TEST: Moc Zodiaku — otwieram quest przez X..."
                 );
 
-                const prepared =
-                    await this.prepareTestZodiacQuest(
+                // Na tym queście klient nie musi zwrócić q_step po X.
+                // Warunek 0/1 pojawia się jako tracker w pełnej odpowiedzi
+                // mapy po wejściu na Teren Zachodni, więc nie blokujemy się
+                // tutaj na a:22/type:1 ani na przycisku "Dalej".
+                this.testZodiacQuestStep = null;
+                this.testZodiacTrackVersion++;
+                this.roninPressKey("x");
+                await this.sleep(250);
+
+                this.setQuickPanelStatus(
+                    "TEST: Moc Zodiaku — idę na Teren Zachodni..."
+                );
+
+                await this.mapSolver.navigateToLocation(
+                    WESTERN_AREA,
+                    18,
+                    8,
+                    {
+                        source:
+                            "test-zodiac-west"
+                    }
+                );
+
+                // Wymuszamy świeże a:3, bo właśnie ono w eksporcie zawiera
+                // track[] z Moc Zodiaku / type:5 / Nienasycony Kryształ 0/1.
+                await this.mapSolver.refreshMap();
+
+                const zodiacStep =
+                    await this.waitForTestZodiacTracker(
                         ZODIAC_QUEST
                     );
 
-                if (prepared.done) {
-                    this.setQuickPanelStatus(
-                        "TEST: Moc Zodiaku jest już zakończone.",
-                        "success"
+                if (!zodiacStep) {
+                    throw new Error(
+                        "TEST: na Terenie Zachodnim brak aktywnego trackera Moc Zodiaku po X na 13|4."
                     );
-                    return {
-                        status: "already-done"
-                    };
                 }
 
-                if (!prepared.itemReady) {
-                    this.setQuickPanelStatus(
-                        "TEST: Moc Zodiaku — idę na Teren Zachodni..."
+                const zodiacWant =
+                    zodiacStep.want;
+                const itemReady =
+                    Boolean(
+                        zodiacWant?.is_met
+                    ) ||
+                    (
+                        this._int(
+                            zodiacWant?.maxv
+                        ) > 0 &&
+                        this._int(
+                            zodiacWant?.count
+                        ) >=
+                            this._int(
+                                zodiacWant?.maxv
+                            )
                     );
 
-                    await this.mapSolver.navigateToLocation(
-                        WESTERN_AREA,
-                        18,
-                        8,
-                        {
-                            source:
-                                "test-zodiac-west"
-                        }
-                    );
-
+                if (!itemReady) {
                     // Dokładnie ten sam oszczędny patrol i sposób walki co
                     // Quest Kille, ale trackerem celu jest quest item type:5.
                     const farm =
@@ -11018,7 +11185,7 @@
                             requireQuestWindow: false,
                             allowedWantTypes: [5],
                             initialStep:
-                                prepared.step
+                                zodiacStep
                         });
 
                     if (!farm?.done) {
