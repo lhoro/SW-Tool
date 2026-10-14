@@ -392,13 +392,16 @@
                     }
 
                     if (
+                        source.startsWith(
+                            "pve-respawn"
+                        )
+                    ) {
+                        // Respiarka synchronizuje kolejną akcję wyłącznie
+                        // odpowiedziami socketów a:4 / a:602.
+                    } else if (
                         source.startsWith("quest-kills") ||
-                        source.startsWith("pve-respawn") ||
                         source.startsWith("pve-exp")
                     ) {
-                        // Tryby PVE pracują pole po polu i same kontrolują
-                        // tempo kolejnej akcji, więc nie dokładamy pełnego
-                        // 100 ms opóźnienia ogólnego solvera.
                         await this.tool.sleep(20);
                     } else if (!source.startsWith("ronin-")) {
                         await this.tool.sleep(STEP_DELAY_MS);
