@@ -6885,9 +6885,94 @@
             return response;
         }
 
+        respawnAdvancedTargets(
+            field
+        ) {
+            const entries =
+                Array.isArray(
+                    field?.mobs?.entries
+                )
+                    ? field.mobs.entries
+                    : [];
+
+            const rankLabels = {
+                1: "champion",
+                2: "elita",
+                3: "boss"
+            };
+
+            const targets = [];
+
+            // mobs[0] = zwykły slot. Wpisy 1+ opisują wyższe klasy
+            // występujące na mapie. ranks[1..3] to liczebność
+            // championów / elit / bossów na aktualnym polu.
+            for (
+                let mobNum = 1;
+                mobNum < entries.length;
+                mobNum++
+            ) {
+                const entry =
+                    entries[mobNum];
+
+                if (
+                    !entry ||
+                    typeof entry !==
+                        "object"
+                ) {
+                    continue;
+                }
+
+                const ranks =
+                    Array.isArray(
+                        entry.ranks
+                    )
+                        ? entry.ranks
+                        : [];
+
+                // Najpierw boss, potem elita, potem champion.
+                for (
+                    const rank of
+                    [3, 2, 1]
+                ) {
+                    const count =
+                        Math.max(
+                            0,
+                            this._int(
+                                ranks[rank]
+                            )
+                        );
+
+                    if (count <= 0) {
+                        continue;
+                    }
+
+                    targets.push({
+                        mobNum,
+                        rank,
+                        count,
+                        label:
+                            rankLabels[rank],
+                        mobId:
+                            this._int(
+                                entry.mob_id
+                            ),
+                        mobName:
+                            String(
+                                entry.pl ||
+                                entry.en ||
+                                ""
+                            )
+                    });
+                }
+            }
+
+            return targets;
+        }
+
         async respawnKillAdvancedMobs(
             state,
-            point
+            point,
+            field
         ) {
             if (
                 this.config
@@ -6898,24 +6983,37 @@
                 return {
                     fights: 0,
                     removed: 0,
-                    paSpent: 0
+                    paSpent: 0,
+                    targets: 0
                 };
             }
 
-            const ranks = [
+            const targets =
+                this.respawnAdvancedTargets(
+                    field
+                );
+
+            if (
+                targets.length === 0
+            ) {
+                return {
+                    fights: 0,
+                    removed: 0,
+                    paSpent: 0,
+                    targets: 0
+                };
+            }
+
+            console.info(
+                "[SW Tool][PVE] Respiarka — zrespione moby z a:602:",
                 {
-                    rank: 3,
-                    label: "boss"
-                },
-                {
-                    rank: 2,
-                    label: "elita"
-                },
-                {
-                    rank: 1,
-                    label: "champion"
+                    x:
+                        point.x,
+                    y:
+                        point.y,
+                    targets
                 }
-            ];
+            );
 
             let fights = 0;
             let removed = 0;
@@ -6923,15 +7021,14 @@
 
             for (
                 const target of
-                ranks
+                targets
             ) {
-                // Jeden slot może zawierać więcej niż jednego moba danej klasy.
-                // Limit chroni przed zapętleniem przy nietypowej odpowiedzi serwera.
                 for (
-                    let attempt = 0;
-                    attempt < 8 &&
+                    let index = 0;
+                    index <
+                        target.count &&
                     this.respawnRunning;
-                    attempt++
+                    index++
                 ) {
                     if (
                         state.paLimit > 0 &&
@@ -6949,7 +7046,8 @@
                         await this.sendAndWait(
                             {
                                 a: 7,
-                                mob_num: 1,
+                                mob_num:
+                                    target.mobNum,
                                 rank:
                                     target.rank,
                                 quick: 1
@@ -6990,23 +7088,31 @@
                             response.me
                         );
 
-                    // Brak danego ranga na polu nie jest błędem Respiarki.
-                    // Po prostu przechodzimy do kolejnej klasy.
                     if (
                         error !== 0 ||
                         me > 0
                     ) {
-                        console.debug(
-                            "[SW Tool][PVE] Respiarka — brak kolejnego moba wyższej klasy:",
+                        console.warn(
+                            "[SW Tool][PVE] Respiarka — serwer odrzucił znany cel z a:602:",
                             {
                                 x:
                                     point.x,
                                 y:
                                     point.y,
+                                mobNum:
+                                    target.mobNum,
                                 rank:
                                     target.rank,
                                 type:
                                     target.label,
+                                mobId:
+                                    target.mobId,
+                                mobName:
+                                    target.mobName,
+                                expected:
+                                    target.count,
+                                attempt:
+                                    index + 1,
                                 e:
                                     error,
                                 me
@@ -7020,15 +7126,9 @@
                             response
                         );
 
-                    // Zwykły a:7 atakuje jeden cel, więc kosztujemy 1 PA
-                    // niezależnie od klasy moba.
-                    const fightCost = 1;
-
-                    state.paSpent +=
-                        fightCost;
+                    state.paSpent++;
                     state.advancedFights++;
-                    state.advancedPaSpent +=
-                        fightCost;
+                    state.advancedPaSpent++;
                     state.advancedRemoved +=
                         Math.max(
                             1,
@@ -7036,8 +7136,7 @@
                         );
 
                     fights++;
-                    paSpent +=
-                        fightCost;
+                    paSpent++;
                     removed +=
                         Math.max(
                             1,
@@ -7051,12 +7150,20 @@
                                 point.x,
                             y:
                                 point.y,
+                            mobNum:
+                                target.mobNum,
                             rank:
                                 target.rank,
                             type:
                                 target.label,
-                            removed:
-                                killed,
+                            mobId:
+                                target.mobId,
+                            mobName:
+                                target.mobName,
+                            remaining:
+                                target.count -
+                                index -
+                                1,
                             paSpent:
                                 state.paSpent,
                             paLimit:
@@ -7076,6 +7183,8 @@
                         break;
                     }
 
+                    // Minimalny yield — nie czekamy na DOM ani nie sondujemy
+                    // nieistniejących rang.
                     await this.sleep(
                         10
                     );
@@ -7091,7 +7200,9 @@
             return {
                 fights,
                 removed,
-                paSpent
+                paSpent,
+                targets:
+                    targets.length
             };
         }
 
@@ -7123,7 +7234,8 @@
             ) {
                 await this.respawnKillAdvancedMobs(
                     state,
-                    point
+                    point,
+                    field
                 );
 
                 if (
