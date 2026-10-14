@@ -4415,12 +4415,24 @@
                 GAME.char_id || this.currentCharacterId
             );
             const limit = availability.limit;
-            let used = availability.used;
+            const initialUsed = Math.max(
+                0,
+                this._int(availability.used)
+            );
+            const plannedAttempts = Math.max(
+                0,
+                limit - initialUsed
+            );
+            let used = initialUsed;
             let attempts = 0;
 
-            while (used < limit) {
-                const beforeUsed = used;
-                const attempt = beforeUsed + 1;
+            for (
+                let index = 0;
+                index < plannedAttempts;
+                index++
+            ) {
+                const attempt =
+                    initialUsed + index + 1;
 
                 this.setQuickPanelStatus(
                     "Ronin: próba " +
@@ -4433,10 +4445,34 @@
                 await this.runSingleRoninAttempt();
                 attempts++;
 
-                used = await this.confirmRoninDailyUsage(
-                    characterId,
-                    Math.min(limit, beforeUsed + 1)
-                );
+                const expectedUsed =
+                    Math.min(
+                        limit,
+                        initialUsed + attempts
+                    );
+
+                used =
+                    await this.confirmRoninDailyUsage(
+                        characterId,
+                        expectedUsed
+                    );
+
+                if (
+                    used > expectedUsed &&
+                    attempts < plannedAttempts
+                ) {
+                    toolConsole(
+                        "warn",
+                        "[SW Tool][RONIN] Licznik icd_5 przeskoczył przed końcem zaplanowanych prób — nie kończę Ronina przedwcześnie.",
+                        {
+                            initialUsed,
+                            expectedUsed,
+                            reportedUsed: used,
+                            plannedAttempts,
+                            attempts
+                        }
+                    );
+                }
 
                 await this.ensureRoninReturned(
                     characterId
@@ -10450,6 +10486,203 @@
             return this.runExpiarka();
         }
 
+        normalizeLocationLabel(value) {
+            return String(value || "")
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, " ")
+                .trim();
+        }
+
+        findStartVillageLocation() {
+            const registry = this.getPortalMap();
+            const locations =
+                registry?.locations &&
+                typeof registry.locations === "object"
+                    ? Object.values(registry.locations)
+                    : [];
+
+            const candidates = [];
+
+            for (const location of locations) {
+                const id = this._int(location?.id);
+                const name = String(location?.name || "").trim();
+                if (id <= 0 || !name) continue;
+
+                const normalized =
+                    this.normalizeLocationLabel(name);
+                let score = 0;
+
+                if (
+                    normalized.includes("wioska startowa") ||
+                    normalized.includes("starting village")
+                ) {
+                    score = 100;
+                } else if (
+                    normalized.includes("startowa") ||
+                    normalized.includes("starter village")
+                ) {
+                    score = 80;
+                } else if (
+                    normalized.includes("wioska")
+                ) {
+                    score = 30;
+                } else if (
+                    normalized.includes("village")
+                ) {
+                    score = 20;
+                }
+
+                if (score > 0) {
+                    candidates.push({
+                        id,
+                        name,
+                        score
+                    });
+                }
+            }
+
+            candidates.sort(
+                (a, b) =>
+                    b.score - a.score ||
+                    a.id - b.id
+            );
+
+            if (candidates.length === 0) {
+                throw new Error(
+                    "TEST: solver nie zna Wioski Startowej w rejestrze portali."
+                );
+            }
+
+            const best = candidates[0];
+            const sameScore = candidates.filter(
+                (candidate) =>
+                    candidate.score === best.score
+            );
+
+            if (
+                best.score < 80 &&
+                sameScore.length > 1
+            ) {
+                throw new Error(
+                    "TEST: znaleziono kilka możliwych wiosek (" +
+                    sameScore
+                        .map(
+                            (candidate) =>
+                                candidate.name +
+                                " #" +
+                                candidate.id
+                        )
+                        .join(", ") +
+                    "). Potrzebne dokładniejsze rozpoznanie."
+                );
+            }
+
+            return best;
+        }
+
+        async runTestDailyMissions() {
+            if (
+                this.quickActionRunning ||
+                this.accountOperationRunning ||
+                this.questKillRunning ||
+                this.respawnRunning ||
+                this.expRunning ||
+                this.dailyRewardClaimStage !== 0 ||
+                this.characterSwitch ||
+                this.responseWaiter ||
+                this.mapSolver?.active
+            ) {
+                throw new Error(
+                    "TEST: poczekaj na zakończenie bieżącej operacji."
+                );
+            }
+
+            if (!this.mapSolver) {
+                throw new Error(
+                    "TEST: solver mapy nie jest dostępny."
+                );
+            }
+
+            this.quickActionRunning = true;
+            this.setQuickPanelBusy(true);
+
+            try {
+                if (!this.mapSolver.map) {
+                    this.setQuickPanelStatus(
+                        "TEST: pobieram aktualną mapę..."
+                    );
+                    await this.mapSolver.refreshMap();
+                }
+
+                const village =
+                    this.findStartVillageLocation();
+
+                const currentLocationId =
+                    this._int(
+                        this.mapSolver?.map?.locationId
+                    );
+
+                if (
+                    currentLocationId !==
+                    village.id
+                ) {
+                    this.setQuickPanelStatus(
+                        "TEST: idę do Wioski Startowej — " +
+                        village.name +
+                        " (#" +
+                        village.id +
+                        ")..."
+                    );
+
+                    await this.mapSolver.navigateToLocation(
+                        village.id,
+                        0,
+                        0,
+                        {
+                            source:
+                                "test-daily-village",
+                            locationOnly: true
+                        }
+                    );
+                }
+
+                this.setQuickPanelStatus(
+                    "TEST: Wioska Startowa osiągnięta — " +
+                    village.name +
+                    " (#" +
+                    village.id +
+                    ").",
+                    "success"
+                );
+
+                toolConsole(
+                    "info",
+                    "[SW Tool][TEST] Gotowy do rozbudowy misji dziennych.",
+                    {
+                        village,
+                        position: {
+                            x: this._int(
+                                this.mapSolver?.map?.x
+                            ),
+                            y: this._int(
+                                this.mapSolver?.map?.y
+                            )
+                        }
+                    }
+                );
+
+                return {
+                    status: "ready",
+                    village
+                };
+            } finally {
+                this.quickActionRunning = false;
+                this.setQuickPanelBusy(false);
+            }
+        }
+
         async runQuickAction(action) {
             if (
                 this.quickActionRunning ||
@@ -11174,10 +11407,54 @@
                 }
             );
 
+            const testFooter =
+                document.createElement("div");
+            Object.assign(testFooter.style, {
+                display: "flex",
+                justifyContent: "flex-start",
+                marginTop: "6px",
+                paddingTop: "6px",
+                borderTop:
+                    "1px solid rgba(194,158,81,.35)"
+            });
+
+            const testButton =
+                makeActionButton(
+                    "TEST",
+                    () => {
+                        this.runTestDailyMissions()
+                            .catch(
+                                (error) => {
+                                    toolConsole(
+                                        "error",
+                                        "[SW Tool][TEST] Test nie powiódł się:",
+                                        error
+                                    );
+
+                                    this.setQuickPanelStatus(
+                                        error instanceof Error
+                                            ? error.message
+                                            : String(error),
+                                        "error"
+                                    );
+                                }
+                            );
+                    }
+                );
+
+            testButton.style.width = "72px";
+            this.quickPanelButtons.push(
+                testButton
+            );
+            testFooter.appendChild(
+                testButton
+            );
+
             logPanel.append(
                 logHeader,
                 logPreview,
-                logList
+                logList,
+                testFooter
             );
 
             host.append(
@@ -12765,8 +13042,23 @@
                             continue;
                         }
 
-                        while (used < dailyLimit) {
-                            const attempt = used + 1;
+                        const initialUsed = used;
+                        const plannedAttempts = Math.max(
+                            0,
+                            dailyLimit - initialUsed
+                        );
+                        let attemptsForCharacter = 0;
+
+                        for (
+                            let attemptIndex = 0;
+                            attemptIndex <
+                                plannedAttempts;
+                            attemptIndex++
+                        ) {
+                            const attempt =
+                                initialUsed +
+                                attemptIndex +
+                                1;
 
                             this.setQuickPanelStatus(
                                 "Ronin konto: " +
@@ -12792,18 +13084,42 @@
                                 "."
                             );
 
-                            const beforeUsed = used;
-
                             await this.runSingleRoninAttempt();
                             completed++;
+                            attemptsForCharacter++;
 
-                            used = await this.confirmRoninDailyUsage(
-                                id,
+                            const expectedUsed =
                                 Math.min(
                                     dailyLimit,
-                                    beforeUsed + 1
-                                )
-                            );
+                                    initialUsed +
+                                        attemptsForCharacter
+                                );
+
+                            used =
+                                await this.confirmRoninDailyUsage(
+                                    id,
+                                    expectedUsed
+                                );
+
+                            if (
+                                used > expectedUsed &&
+                                attemptsForCharacter <
+                                    plannedAttempts
+                            ) {
+                                toolConsole(
+                                    "warn",
+                                    "[SW Tool][ACCOUNT] Ronin — icd_5 przeskoczył przed końcem zaplanowanych prób; wykonuję pozostałe wejścia.",
+                                    {
+                                        character: label,
+                                        charId: id,
+                                        initialUsed,
+                                        expectedUsed,
+                                        reportedUsed: used,
+                                        plannedAttempts,
+                                        attemptsForCharacter
+                                    }
+                                );
+                            }
 
                             // a:777 kończy instancję, ale icd_5 potrafi
                             // przyjść chwilę przed instance_id=0/loc powrotnym.
@@ -12813,10 +13129,14 @@
                             toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Ronin — " +
                                 label +
-                                ": próba zakończona, limit " +
+                                ": próba zakończona, serwer raportuje " +
                                 used +
                                 "/" +
                                 dailyLimit +
+                                ", plan " +
+                                attemptsForCharacter +
+                                "/" +
+                                plannedAttempts +
                                 "."
                             );
                         }
