@@ -6791,11 +6791,9 @@
                     typeof value === "number" ||
                     typeof value === "string"
                 ) {
-                    const parsed =
-                        this._int(value);
-                    return parsed >= 0
-                        ? parsed
-                        : null;
+                    // Prymityw w mobs.mobs może być ID/typem moba.
+                    // Bez nazwanego pola nie traktujemy go jako licznik.
+                    return null;
                 }
 
                 if (
