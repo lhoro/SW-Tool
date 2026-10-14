@@ -2303,6 +2303,60 @@
             }
         }
 
+        async refreshRoninQuestClientState(
+            reason = "quest",
+            {
+                settleMs = 300,
+                pressX = true
+            } = {}
+        ) {
+            const questId = this._int(this.roninQuestId);
+            if (questId <= 0) {
+                throw new Error(
+                    "Ronin: nie znam ID questa do odświeżenia."
+                );
+            }
+
+            // Samo a:22/type:1 odświeża stan serwerowy, ale nie zawsze
+            // przebudowuje klientowe okno questa. Stary Ronin wykonywał
+            // w tych miejscach ponowne X, dlatego zachowujemy ten sygnał
+            // tylko dla etapów, które faktycznie wymagają synchronizacji UI.
+            if (pressX) {
+                toolConsole(
+                    "info",
+                    "[SW Tool][RONIN] Odświeżam klientowy stan questa przez X.",
+                    {
+                        reason,
+                        qbId: questId
+                    }
+                );
+
+                this.currentRoninQuestStep = null;
+                this.roninPressKey("x");
+
+                if (settleMs > 0) {
+                    await this.sleep(settleMs);
+                }
+            }
+
+            const step = await this.openRoninQuestStep();
+
+            toolConsole(
+                "info",
+                "[SW Tool][RONIN] Stan questa po odświeżeniu.",
+                {
+                    reason,
+                    qbId: this._int(step?.qb_id),
+                    wantType: this._int(step?.want?.type),
+                    isMet: Boolean(step?.want?.is_met),
+                    count: this._int(step?.want?.count),
+                    max: this._int(step?.want?.maxv)
+                }
+            );
+
+            return step;
+        }
+
         async waitForRoninTimedQuestReady(
             initialStep = null,
             timeoutMs = 45000
@@ -2434,9 +2488,11 @@
                         )
                     );
                 } else {
-                    // Po deadline odświeżamy q_step. Stary Ronin robił
-                    // ponowne otwarcie questa po ~31 s; type:1 jest jego
-                    // socketowym odpowiednikiem.
+                    // Po deadline pierwsze odświeżenie wykonujemy tak jak
+                    // stary Ronin: ponowne X przebudowuje klientowy quest,
+                    // a dopiero potem pobieramy świeży q_step socketowo.
+                    // Kolejne retry nie naciskają już X, żeby przypadkiem
+                    // nie wykonać akcji na świeżo otwartym oknie.
                     if (
                         afterDeadlineRetries >
                         0
@@ -2451,13 +2507,33 @@
                     }
 
                     step =
-                        await this.openRoninQuestStep();
+                        afterDeadlineRetries === 0
+                            ? await this.refreshRoninQuestClientState(
+                                "etap czasowy po deadline",
+                                {
+                                    settleMs: 300,
+                                    pressX: true
+                                }
+                            )
+                            : await this.openRoninQuestStep();
+
                     afterDeadlineRetries++;
                     continue;
                 }
 
+                // Doszliśmy do deadline po dłuższym sleepie. Pierwszy
+                // refresh musi zsynchronizować również klientowe okno.
                 step =
-                    await this.openRoninQuestStep();
+                    afterDeadlineRetries === 0
+                        ? await this.refreshRoninQuestClientState(
+                            "etap czasowy po oczekiwaniu",
+                            {
+                                settleMs: 300,
+                                pressX: true
+                            }
+                        )
+                        : await this.openRoninQuestStep();
+
                 afterDeadlineRetries++;
             }
 
@@ -2906,14 +2982,10 @@
                 );
             }
 
-            let step = this.currentRoninQuestStep;
-            if (
-                !step ||
-                typeof step !== "object" ||
-                this._int(step.qb_id) !== questId
-            ) {
-                step = await this.openRoninQuestStep();
-            }
+            // Przed każdą akcją pobieramy świeży q_step zamiast ufać
+            // currentRoninQuestStep. Odpowiedź poprzedniej akcji może być
+            // już nieaktualna względem przebudowy okna/trackera klienta.
+            const step = await this.openRoninQuestStep();
 
             const want = step?.want;
             const wantType = this._int(want?.type);
@@ -3703,8 +3775,30 @@
                 { waitForResponse: true }
             );
 
-            const step = await this.openRoninQuestStep();
-            const want = step?.want;
+            // Po H synchronizujemy nie tylko q_step, ale również okno
+            // questa. W starym Roninie po H następowało ponowne X przed
+            // przejściem dalej i ten krok okazuje się istotny dla klienta.
+            let step = await this.refreshRoninQuestClientState(
+                "quest H po wysłaniu 100%",
+                {
+                    settleMs: 300,
+                    pressX: true
+                }
+            );
+            let want = step?.want;
+
+            // Dajemy socketowi jeszcze krótki retry, jeśli klient zdążył
+            // przebudować okno, ale serwerowy q_step przyszedł chwilę później.
+            if (
+                want &&
+                typeof want === "object" &&
+                this._int(want.type) === 39 &&
+                !Boolean(want.is_met)
+            ) {
+                await this.sleep(350);
+                step = await this.openRoninQuestStep();
+                want = step?.want;
+            }
 
             if (
                 want &&
@@ -3713,7 +3807,7 @@
                 !Boolean(want.is_met)
             ) {
                 throw new Error(
-                    "Ronin: H zostało wysłane, ale krok questa nadal nie jest zaliczony."
+                    "Ronin: H zostało wysłane, ale krok questa nadal nie jest zaliczony po odświeżeniu klienta."
                 );
             }
 
