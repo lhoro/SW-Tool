@@ -8161,7 +8161,10 @@
             ) {
                 return {
                     fights: 0,
-                    removed: 0
+                    removed: 0,
+                    champions: 0,
+                    elites: 0,
+                    bosses: 0
                 };
             }
 
@@ -8177,6 +8180,9 @@
 
             let fights = 0;
             let removed = 0;
+            let champions = 0;
+            let elites = 0;
+            let bosses = 0;
 
             for (
                 const target of
@@ -8249,6 +8255,23 @@
                     removed +=
                         killed;
 
+                    if (
+                        target.rank === 1
+                    ) {
+                        champions +=
+                            killed;
+                    } else if (
+                        target.rank === 2
+                    ) {
+                        elites +=
+                            killed;
+                    } else if (
+                        target.rank === 3
+                    ) {
+                        bosses +=
+                            killed;
+                    }
+
                     console.info(
                         "[SW Tool][PVE] Expiarka — advanced socket kill:",
                         {
@@ -8283,7 +8306,10 @@
 
             return {
                 fights,
-                removed
+                removed,
+                champions,
+                elites,
+                bosses
             };
         }
 
@@ -8329,6 +8355,18 @@
                     advancedRemoved:
                         this._int(
                             advanced?.removed
+                        ),
+                    champions:
+                        this._int(
+                            advanced?.champions
+                        ),
+                    elites:
+                        this._int(
+                            advanced?.elites
+                        ),
+                    bosses:
+                        this._int(
+                            advanced?.bosses
                         ),
                     skipped: false
                 };
@@ -8591,6 +8629,18 @@
                 advancedRemoved:
                     this._int(
                         advanced?.removed
+                    ),
+                champions:
+                    this._int(
+                        advanced?.champions
+                    ),
+                elites:
+                    this._int(
+                        advanced?.elites
+                    ),
+                bosses:
+                    this._int(
+                        advanced?.bosses
                     ),
                 skipped: false
             };
@@ -9332,6 +9382,18 @@
                 this._int(
                     cleared?.advancedRemoved
                 );
+            state.championsKilled +=
+                this._int(
+                    cleared?.champions
+                );
+            state.elitesKilled +=
+                this._int(
+                    cleared?.elites
+                );
+            state.bossesKilled +=
+                this._int(
+                    cleared?.bosses
+                );
         }
 
         async runExpiarka() {
@@ -9408,7 +9470,10 @@
                 singleFights: 0,
                 removed: 0,
                 advancedFights: 0,
-                advancedRemoved: 0
+                advancedRemoved: 0,
+                championsKilled: 0,
+                elitesKilled: 0,
+                bossesKilled: 0
             };
 
             this.pveActionPointsExhausted =
@@ -10064,7 +10129,13 @@
                       state.fights +
                       "x • advanced " +
                       state.advancedFights +
-                      "x • powrót na start ✓",
+                      "x [C:" +
+                      state.championsKilled +
+                      " E:" +
+                      state.elitesKilled +
+                      " B:" +
+                      state.bossesKilled +
+                      "] • powrót na start ✓",
                 stoppedByUser
                     ? ""
                     : "success"
