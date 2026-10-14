@@ -149,6 +149,24 @@
               Wyczyść rejestr portali
             </button>
           </div>
+        </div>
+
+        <div class="debug-card">
+          <div class="debug-card-title">Logger socketów</div>
+          <p class="hint">
+            Rejestruje TX/RX Socket.IO z gry. Start czyści poprzedni log.
+          </p>
+
+          <div id="socketCaptureStats" class="debug-stats">Logger wyłączony.</div>
+
+          <div class="button-row">
+            <button id="socketCaptureToggleBtn" class="btn btn-wide" type="button">
+              Start log socketów
+            </button>
+            <button id="exportSocketCaptureBtn" class="btn btn-wide" type="button">
+              Eksportuj log JSON
+            </button>
+          </div>
 
           <div id="debugStatus" class="status" aria-live="polite"></div>
         </div>
