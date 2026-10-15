@@ -2362,33 +2362,27 @@
         }
 
         async waitForRoninTimedQuestReady(
-            initialStep = null,
-            timeoutMs = 37000
+            initialStep = null
         ) {
-            const startedAt = Date.now();
-            const oldRoninWaitMs = 31000;
-            const retryWindowMs = Math.max(
-                3000,
-                timeoutMs - oldRoninWaitMs
-            );
-
-            let step =
+            const step =
                 initialStep ||
                 await this.openRoninQuestStep();
 
-            const initialWant = step?.want;
+            const want =
+                step?.want;
+
             if (
-                !initialWant ||
-                typeof initialWant !== "object" ||
-                this._int(initialWant.type) !== 6 ||
-                Boolean(initialWant.is_met)
+                !want ||
+                typeof want !== "object" ||
+                this._int(
+                    want.type
+                ) !== 6
             ) {
                 return step;
             }
 
-            // Stary, działający Ronin czekał stałe ~31 s i dopiero wtedy
-            // wykonywał ponowne X. Nie wydłużamy już tego etapu do 45+ s
-            // na podstawie niejednoznacznego want.count.
+            // Stary, sprawdzony Ronin nie czekał na lokalne want.is_met.
+            // Sekwencja była dokładnie: 31 s -> X -> Dalej.
             this.setQuickPanelStatus(
                 "Ronin: etap czasowy — czekam 31 s..."
             );
@@ -2397,61 +2391,128 @@
                 "info",
                 "[SW Tool][RONIN] Czekajka start.",
                 {
-                    waitMs: oldRoninWaitMs,
-                    serverCount: this._int(initialWant.count),
-                    serverAmount: this._int(initialWant.amount)
+                    waitMs: 31000,
+                    serverCount:
+                        this._int(
+                            want.count
+                        ),
+                    serverAmount:
+                        this._int(
+                            want.amount
+                        )
                 }
             );
 
-            await this.sleep(oldRoninWaitMs);
-
-            step = await this.refreshRoninQuestClientState(
-                "etap czasowy po 31 s",
-                {
-                    settleMs: 300,
-                    pressX: true
-                }
+            await this.sleep(
+                31000
             );
 
-            const retryStartedAt = Date.now();
-            let retries = 0;
+            this.currentRoninQuestStep =
+                null;
+            this.roninPressKey(
+                "x"
+            );
 
-            while (
-                Date.now() - retryStartedAt <
-                retryWindowMs
-            ) {
-                const want = step?.want;
+            // Nie wymagamy tutaj want.is_met=true. W tym etapie klient
+            // starego bota przechodził dalej po samym upływie czasu.
+            return step;
+        }
 
-                if (
-                    !want ||
-                    typeof want !== "object" ||
-                    this._int(want.type) !== 6 ||
-                    Boolean(want.is_met)
-                ) {
-                    toolConsole(
-                        "info",
-                        "[SW Tool][RONIN] Etap czasowy gotowy.",
-                        {
-                            elapsedMs:
-                                Date.now() - startedAt,
-                            retries,
-                            type: this._int(want?.type),
-                            isMet: Boolean(want?.is_met)
-                        }
-                    );
-                    return step;
-                }
+        async roninTimedQuestNext() {
+            const questId =
+                this._int(
+                    this.roninQuestId
+                );
 
-                await this.sleep(500);
-                step = await this.openRoninQuestStep();
-                retries++;
+            if (questId <= 0) {
+                throw new Error(
+                    "Ronin: nie znam ID aktywnego questa czasowego."
+                );
             }
 
-            throw new Error(
-                "Ronin: etap czasowy nie został zaliczony po 31 s + " +
-                Math.ceil(retryWindowMs / 1000) +
-                " s synchronizacji."
+            toolConsole(
+                "info",
+                "[SW Tool][RONIN] Etap czasowy: wysyłam Dalej po 31 s.",
+                {
+                    qbId:
+                        questId
+                }
             );
+
+            this.currentRoninQuestStep =
+                null;
+
+            const response =
+                await this.sendAndWait(
+                    {
+                        a: 22,
+                        type: 2,
+                        button: 1,
+                        id:
+                            questId
+                    },
+                    [22, 999],
+                    (event) => {
+                        if (
+                            this._int(
+                                event.e
+                            ) !== 0
+                        ) {
+                            return true;
+                        }
+
+                        if (
+                            this._int(
+                                event.a
+                            ) !== 22
+                        ) {
+                            return false;
+                        }
+
+                        if (
+                            event.q_step &&
+                            typeof event.q_step ===
+                                "object"
+                        ) {
+                            return (
+                                this._int(
+                                    event.q_step
+                                        .qb_id
+                                ) ===
+                                questId
+                            );
+                        }
+
+                        if (
+                            event.quest_move &&
+                            typeof event.quest_move ===
+                                "object"
+                        ) {
+                            return (
+                                this._int(
+                                    event.quest_move
+                                        .qb_id
+                                ) ===
+                                questId
+                            );
+                        }
+
+                        return false;
+                    },
+                    10000
+                );
+
+            if (
+                this._int(
+                    response.e
+                ) !== 0
+            ) {
+                throw new Error(
+                    "Ronin: serwer odrzucił przejście dalej po etapie czasowym."
+                );
+            }
+
+            return response;
         }
 
         roninMobSweepTargets(originX, originY, upperHalf) {
@@ -4491,7 +4552,7 @@
             );
             await this.waitForRoninTimedQuestReady(timedStep);
 
-            await this.roninQuestNext();
+            await this.roninTimedQuestNext();
             await this.roninQuestNext();
 
             await this.navigateToRoninQuestMove(null, "4");
