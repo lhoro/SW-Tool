@@ -15786,6 +15786,16 @@
             let failed = 0;
             let dailyClaimed = 0;
 
+            const runsByCharacter =
+                new Map(
+                    characters.map(
+                        (char) => [
+                            Number(char.id),
+                            0
+                        ]
+                    )
+                );
+
             try {
                 for (let i = 0; i < characters.length; i++) {
                     const char = characters[i];
@@ -15900,6 +15910,15 @@
                             completed++;
                             attemptsForCharacter++;
 
+                            runsByCharacter.set(
+                                id,
+                                (
+                                    runsByCharacter.get(
+                                        id
+                                    ) || 0
+                                ) + 1
+                            );
+
                             const expectedUsed =
                                 Math.min(
                                     dailyLimit,
@@ -15975,14 +15994,76 @@
                 await this.restoreAccountCharacter(originalId);
             }
 
-            toolConsole("info", "[SW Tool][ACCOUNT] Ronin zakończony:", {
+            const characterSummary =
+                characters.map(
+                    (char) => {
+                        const id =
+                            Number(char.id);
+                        const label =
+                            char.name ||
+                            ("#" + id);
+                        const runs =
+                            runsByCharacter.get(
+                                id
+                            ) || 0;
+
+                        return {
+                            id,
+                            label,
+                            runs,
+                            text:
+                                label +
+                                " - " +
+                                runs +
+                                "x"
+                        };
+                    }
+                );
+
+            this.setQuickPanelStatus(
+                "Ronin konto — podsumowanie obiegów:",
+                failed > 0
+                    ? ""
+                    : "success"
+            );
+
+            for (
+                const item of
+                characterSummary
+            ) {
+                this.addQuickLog(
+                    item.text,
+                    item.runs > 0
+                        ? "success"
+                        : ""
+                );
+            }
+
+            toolConsole(
+                "info",
+                "[SW Tool][ACCOUNT] Ronin zakończony:",
+                {
+                    completed,
+                    skipped,
+                    levelSkipped,
+                    failed,
+                    dailyClaimed,
+                    dailyLimit,
+                    characters:
+                        characterSummary
+                }
+            );
+
+            return {
                 completed,
                 skipped,
                 levelSkipped,
                 failed,
                 dailyClaimed,
-                dailyLimit
-            });
+                dailyLimit,
+                characters:
+                    characterSummary
+            };
         }
 
         async runAccountAll() {
