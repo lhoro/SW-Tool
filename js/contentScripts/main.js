@@ -4513,17 +4513,52 @@
             });
 
             await this.navigateToRoninQuestMove(null, "6");
-            await this.openRoninQuestStep();
 
-            // Doprowadzamy questa do want.type === 1, a samo zabijanie
-            // przekazujemy dokładnie temu samemu mechanizmowi, którego używa
-            // przycisk "Quest Kille". Nie utrzymujemy drugiego patrolu Ronina.
-            await this.prepareRoninMobCombat();
+            // Pobieramy i zachowujemy dokładnie ten q_step, którym serwer
+            // potwierdził wejście w etap przeciwników (want.type === 1).
+            // Nie przechodzimy już przez globalny currentQuestStep, bo mógł
+            // zostać nadpisany przez poboczny a:22 między przygotowaniem
+            // etapu a startem Quest Kille.
+            const mobStep =
+                await this.prepareRoninMobCombat();
+
+            toolConsole(
+                "info",
+                "[SW Tool][RONIN] Start Quest Kille z bezpośrednio potwierdzonego q_step.",
+                {
+                    qbId:
+                        this._int(
+                            mobStep?.qb_id
+                        ),
+                    wantType:
+                        this._int(
+                            mobStep?.want?.type
+                        ),
+                    count:
+                        this._int(
+                            mobStep?.want?.count
+                        ),
+                    max:
+                        Math.max(
+                            this._int(
+                                mobStep?.want?.maxv
+                            ),
+                            this._int(
+                                mobStep?.want?.amount
+                            )
+                        ),
+                    isMet:
+                        Boolean(
+                            mobStep?.want?.is_met
+                        )
+                }
+            );
 
             const killResult = await this.runQuestKills({
                 allowQuickAction: true,
                 allowAccountOperation: true,
-                requireQuestWindow: false
+                requireQuestWindow: false,
+                initialStep: mobStep
             });
 
             if (!killResult?.done) {
