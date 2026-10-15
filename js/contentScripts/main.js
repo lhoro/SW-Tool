@@ -3085,14 +3085,22 @@
                         event.q_step &&
                         typeof event.q_step === "object"
                     ) {
-                        return true;
+                        return (
+                            this._int(
+                                event.q_step.qb_id
+                            ) === questId
+                        );
                     }
 
                     if (
                         event.quest_move &&
                         typeof event.quest_move === "object"
                     ) {
-                        return true;
+                        return (
+                            this._int(
+                                event.quest_move.qb_id
+                            ) === questId
+                        );
                     }
 
                     return false;
@@ -3219,6 +3227,183 @@
             }
 
             return null;
+        }
+
+        async advanceRoninUntilQuestMove({
+            label = "",
+            maxTransitions = 5
+        } = {}) {
+            const limit =
+                Math.max(
+                    1,
+                    this._int(
+                        maxTransitions
+                    )
+                );
+
+            for (
+                let transition = 0;
+                transition < limit;
+                transition++
+            ) {
+                const pending =
+                    this.currentQuestMove;
+
+                if (
+                    pending &&
+                    this._int(
+                        pending.version
+                    ) >
+                        this._int(
+                            this
+                                .lastConsumedQuestMoveVersion
+                        ) &&
+                    this._int(
+                        pending.locationId
+                    ) === 193
+                ) {
+                    toolConsole(
+                        "info",
+                        "[SW Tool][RONIN] quest_move gotowy przed kolejnym Dalej.",
+                        {
+                            label,
+                            transition,
+                            qbId:
+                                this._int(
+                                    pending.qbId
+                                ),
+                            x:
+                                this._int(
+                                    pending.x
+                                ),
+                            y:
+                                this._int(
+                                    pending.y
+                                ),
+                            version:
+                                this._int(
+                                    pending.version
+                                )
+                        }
+                    );
+
+                    return pending;
+                }
+
+                const step =
+                    await this.openRoninQuestStep();
+
+                const want =
+                    step?.want;
+                const wantType =
+                    this._int(
+                        want?.type
+                    );
+                const isMet =
+                    Boolean(
+                        want?.is_met
+                    );
+
+                toolConsole(
+                    "info",
+                    "[SW Tool][RONIN] Przed ruchem — analiza kroku dialogu.",
+                    {
+                        label,
+                        transition,
+                        qbId:
+                            this._int(
+                                step?.qb_id
+                            ),
+                        wantType,
+                        isMet,
+                        hasWant:
+                            Boolean(
+                                want &&
+                                typeof want ===
+                                    "object"
+                            )
+                    }
+                );
+
+                // Jeżeli trafimy na walkę questową zamiast zwykłego dialogu,
+                // wykonujemy ją i dalej czekamy na quest_move.
+                if (
+                    want &&
+                    typeof want ===
+                        "object" &&
+                    wantType === 7 &&
+                    !isMet
+                ) {
+                    await this.roninQuestFight();
+                    continue;
+                }
+
+                // Innego niezakończonego warunku nie wolno omijać przez Dalej.
+                if (
+                    want &&
+                    typeof want ===
+                        "object" &&
+                    !isMet
+                ) {
+                    throw new Error(
+                        "Ronin: przed " +
+                        (label || "kolejnym ruchem") +
+                        " pojawił się niezakończony warunek type " +
+                        wantType +
+                        "."
+                    );
+                }
+
+                await this.roninQuestNext();
+
+                // Odpowiedź Dalej może od razu zawierać quest_move.
+                // Dajemy wyłącznie krótkie oczekiwanie na handler odpowiedzi,
+                // bez stałego timera sterującego logiką.
+                const moved =
+                    await this.waitForRoninQuestMove(
+                        500
+                    );
+
+                if (moved) {
+                    toolConsole(
+                        "info",
+                        "[SW Tool][RONIN] Dalej wygenerowało quest_move.",
+                        {
+                            label,
+                            transition:
+                                transition + 1,
+                            qbId:
+                                this._int(
+                                    moved.qbId
+                                ),
+                            x:
+                                this._int(
+                                    moved.x
+                                ),
+                            y:
+                                this._int(
+                                    moved.y
+                                ),
+                            version:
+                                this._int(
+                                    moved.version
+                                )
+                        }
+                    );
+
+                    return moved;
+                }
+            }
+
+            throw new Error(
+                "Ronin: nie otrzymano quest_move " +
+                (label
+                    ? "przed " + label + " "
+                    : "") +
+                "po " +
+                limit +
+                " przejściach dialogu."
+            );
         }
 
         async navigateToRoninQuestMove(
@@ -4273,9 +4458,15 @@
             await this.roninQuestNext();
 
             await this.navigateToRoninQuestMove(null, "5");
-            await this.openRoninQuestStep();
-            await this.roninQuestNext();
-            await this.roninQuestNext();
+
+            // Stary Ronin wykonywał w tym miejscu 3x Dalej, ale w praktyce
+            // serwer czasem generuje quest_move już po 2 przejściach.
+            // Nie zakładamy liczby dialogów: idziemy Dalej aż serwer faktycznie
+            // zwróci nowy quest_move prowadzący do punktu 6.
+            await this.advanceRoninUntilQuestMove({
+                label: "punktem 6",
+                maxTransitions: 5
+            });
 
             await this.navigateToRoninQuestMove(null, "6");
             await this.openRoninQuestStep();
