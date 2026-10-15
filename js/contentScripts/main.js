@@ -3293,6 +3293,50 @@
                 const step =
                     await this.openRoninQuestStep();
 
+                const moveAfterOpen =
+                    this.currentQuestMove;
+
+                if (
+                    moveAfterOpen &&
+                    this._int(
+                        moveAfterOpen.version
+                    ) >
+                        this._int(
+                            this
+                                .lastConsumedQuestMoveVersion
+                        ) &&
+                    this._int(
+                        moveAfterOpen.locationId
+                    ) === 193
+                ) {
+                    toolConsole(
+                        "info",
+                        "[SW Tool][RONIN] Samo odświeżenie q_step przyniosło quest_move.",
+                        {
+                            label,
+                            transition,
+                            qbId:
+                                this._int(
+                                    moveAfterOpen.qbId
+                                ),
+                            x:
+                                this._int(
+                                    moveAfterOpen.x
+                                ),
+                            y:
+                                this._int(
+                                    moveAfterOpen.y
+                                ),
+                            version:
+                                this._int(
+                                    moveAfterOpen.version
+                                )
+                        }
+                    );
+
+                    return moveAfterOpen;
+                }
+
                 const want =
                     step?.want;
                 const wantType =
