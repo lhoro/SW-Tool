@@ -11642,6 +11642,282 @@
             );
         }
 
+        testZodiacQuestFromMapResponse(
+            response,
+            {
+                questId = 1359249,
+                x = 13,
+                y = 4
+            } = {}
+        ) {
+            if (
+                !response ||
+                typeof response !== "object" ||
+                !response.quests ||
+                typeof response.quests !==
+                    "object"
+            ) {
+                return null;
+            }
+
+            const id =
+                this._int(questId);
+            const fieldKey =
+                this._int(x) +
+                "_" +
+                this._int(y);
+            const raw =
+                response.quests[
+                    fieldKey
+                ];
+
+            const entries =
+                Array.isArray(raw)
+                    ? raw
+                    : (
+                        raw &&
+                        typeof raw ===
+                            "object"
+                            ? [raw]
+                            : []
+                    );
+
+            const quest =
+                entries.find(
+                    (entry) =>
+                        this._int(
+                            entry?.qb_id
+                        ) === id
+                ) ||
+                entries.find(
+                    (entry) =>
+                        this._int(
+                            entry?.qb_id
+                        ) > 0 &&
+                        String(
+                            entry?.name || ""
+                        )
+                            .toLowerCase()
+                            .includes(
+                                "moc zodiaku"
+                            )
+                ) ||
+                null;
+
+            if (!quest) {
+                return null;
+            }
+
+            return {
+                quest,
+                qbId:
+                    this._int(
+                        quest.qb_id
+                    ),
+                x:
+                    this._int(x),
+                y:
+                    this._int(y),
+                source:
+                    "a:3.quests"
+            };
+        }
+
+        async loadTestZodiacQuestFromMap(
+            questId,
+            x,
+            y
+        ) {
+            const id =
+                this._int(questId);
+
+            const response =
+                await this.sendAndWait(
+                    {
+                        a: 3,
+                        vo: [1, 1, 0]
+                    },
+                    [3, 999],
+                    (event) => {
+                        if (
+                            this._int(
+                                event.e
+                            ) !== 0
+                        ) {
+                            return true;
+                        }
+
+                        if (
+                            this._int(
+                                event.a
+                            ) !== 3
+                        ) {
+                            return false;
+                        }
+
+                        return Boolean(
+                            this.testZodiacQuestFromMapResponse(
+                                event,
+                                {
+                                    questId:
+                                        id,
+                                    x,
+                                    y
+                                }
+                            )
+                        );
+                    },
+                    10000
+                );
+
+            if (
+                this._int(
+                    response.e
+                ) !== 0
+            ) {
+                throw new Error(
+                    "TEST: serwer odrzucił pobranie mapy questa."
+                );
+            }
+
+            const found =
+                this.testZodiacQuestFromMapResponse(
+                    response,
+                    {
+                        questId:
+                            id,
+                        x,
+                        y
+                    }
+                );
+
+            if (
+                !found ||
+                found.qbId <= 0
+            ) {
+                throw new Error(
+                    "TEST: a:3 nie zawiera Moc Zodiaku na polu " +
+                    this._int(x) +
+                    "|" +
+                    this._int(y) +
+                    "."
+                );
+            }
+
+            toolConsole(
+                "info",
+                "[SW Tool][TEST] Moc Zodiaku znaleziona jak w Roninie — z a:3.quests.",
+                {
+                    qbId:
+                        found.qbId,
+                    x:
+                        found.x,
+                    y:
+                        found.y,
+                    name:
+                        String(
+                            found.quest?.name ||
+                            ""
+                        )
+                }
+            );
+
+            return found;
+        }
+
+        async runTestZodiacQuestDialog(
+            questId,
+            phase = "start"
+        ) {
+            const id =
+                this._int(questId);
+
+            const opened =
+                await this.openTestDailyQuestStep(
+                    id
+                );
+
+            if (opened.ended) {
+                return {
+                    ended: true,
+                    opened,
+                    advanced: null
+                };
+            }
+
+            if (!opened.step) {
+                throw new Error(
+                    "TEST: Moc Zodiaku nie zwróciło q_step przy otwarciu okna."
+                );
+            }
+
+            toolConsole(
+                "info",
+                "[SW Tool][TEST] Moc Zodiaku — okno otwarte socketowo jak w Roninie.",
+                {
+                    phase,
+                    qbId:
+                        this._int(
+                            opened.step?.qb_id
+                        ),
+                    button:
+                        String(
+                            opened.step
+                                ?.buttton1 ||
+                            opened.step
+                                ?.button1 ||
+                            ""
+                        ),
+                    wantType:
+                        this._int(
+                            opened.step
+                                ?.want?.type
+                        ),
+                    isMet:
+                        Boolean(
+                            opened.step
+                                ?.want?.is_met
+                        )
+                }
+            );
+
+            const advanced =
+                await this.advanceTestDailyQuest(
+                    id
+                );
+
+            toolConsole(
+                "info",
+                "[SW Tool][TEST] Moc Zodiaku — Dalej/JASNE wykonane socketowo jak w Roninie.",
+                {
+                    phase,
+                    qbId:
+                        id,
+                    questEnd:
+                        this._int(
+                            advanced
+                                ?.quest_end
+                        ),
+                    nextStepId:
+                        this._int(
+                            advanced
+                                ?.q_step
+                                ?.qb_id
+                        )
+                }
+            );
+
+            return {
+                ended:
+                    this._int(
+                        advanced
+                            ?.quest_end
+                    ) === id,
+                opened,
+                advanced
+            };
+        }
+
         async openTestDailyQuestStep(
             questId
         ) {
@@ -11711,12 +11987,78 @@
                         id
                     },
                     [22, 999],
-                    (event) =>
-                        this._int(event.e) !== 0 ||
-                        (
-                            this._int(event.a) ===
-                                22
-                        ),
+                    (event) => {
+                        if (
+                            this._int(
+                                event.e
+                            ) !== 0
+                        ) {
+                            return true;
+                        }
+
+                        if (
+                            this._int(
+                                event.a
+                            ) !== 22
+                        ) {
+                            return false;
+                        }
+
+                        if (
+                            this._int(
+                                event?.quest_end
+                            ) === id
+                        ) {
+                            return true;
+                        }
+
+                        if (
+                            event.q_step &&
+                            typeof event.q_step ===
+                                "object"
+                        ) {
+                            return (
+                                this._int(
+                                    event.q_step.qb_id
+                                ) === id
+                            );
+                        }
+
+                        if (
+                            event.quest_move &&
+                            typeof event.quest_move ===
+                                "object"
+                        ) {
+                            return (
+                                this._int(
+                                    event.quest_move
+                                        .qb_id
+                                ) === id
+                            );
+                        }
+
+                        const lists = [
+                            event.track,
+                            event.tracked
+                        ].filter(
+                            Array.isArray
+                        );
+
+                        return lists.some(
+                            (list) =>
+                                list.some(
+                                    (entry) =>
+                                        this._int(
+                                            entry
+                                                ?.qb_id ||
+                                            entry
+                                                ?.qbid ||
+                                            entry
+                                                ?.id
+                                        ) === id
+                                )
+                        );
+                    },
                     10000
                 );
 
@@ -11825,66 +12167,22 @@
         async finishTestZodiacQuest(
             questId
         ) {
-            const id = this._int(questId);
+            const id =
+                this._int(questId);
 
-            for (
-                let transition = 0;
-                transition < 4;
-                transition++
-            ) {
-                const opened =
-                    await this.openTestDailyQuestStep(
-                        id
-                    );
+            const result =
+                await this.runTestZodiacQuestDialog(
+                    id,
+                    "finish"
+                );
 
-                if (opened.ended) {
-                    return true;
-                }
-
-                const want =
-                    opened.step?.want;
-
-                if (
-                    want &&
-                    typeof want === "object" &&
-                    !Boolean(want.is_met) &&
-                    !(
-                        this._int(want.maxv) > 0 &&
-                        this._int(want.count) >=
-                            this._int(want.maxv)
-                    )
-                ) {
-                    throw new Error(
-                        "TEST: nie mogę oddać Moc Zodiaku — warunek questa nadal nie jest zaliczony (" +
-                        this._int(want.count) +
-                        "/" +
-                        Math.max(
-                            this._int(want.maxv),
-                            this._int(want.amount)
-                        ) +
-                        ")."
-                    );
-                }
-
-                const advanced =
-                    await this.advanceTestDailyQuest(
-                        id
-                    );
-
-                if (
-                    this._int(
-                        advanced?.quest_end
-                    ) === id
-                ) {
-                    return true;
-                }
-
-                await this.sleep(120);
+            if (!result.ended) {
+                throw new Error(
+                    "TEST: po końcowym Dalej serwer nie zwrócił quest_end dla Moc Zodiaku."
+                );
             }
 
-            throw new Error(
-                "TEST: Moc Zodiaku nie zwróciło quest_end po oddaniu."
-            );
+            return true;
         }
 
         async runTestZodiacExpSweep(
@@ -12549,62 +12847,27 @@
                 );
 
                 this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku — otwieram quest przez X..."
+                    "TEST: Moc Zodiaku — pobieram quest z mapy jak Ronin..."
                 );
 
-                // Pierwsze X tylko otwiera okno questa. Potem czekamy
-                // na faktyczny przycisk "JASNE!" i klikamy dokładnie go.
-                this.testZodiacQuestStep = null;
-                this.testZodiacTrackVersion++;
-
-                this.roninPressKey("x");
-
-                const acceptAction =
-                    await this.waitForSingleQuestAction(
-                        5000,
-                        {
-                            failOnMultiple: true
-                        }
+                const mapQuest =
+                    await this.loadTestZodiacQuestFromMap(
+                        ZODIAC_QUEST,
+                        QUEST_X,
+                        QUEST_Y
                     );
-
-                if (!acceptAction) {
-                    throw new Error(
-                        "TEST: po X nie pojawił się przycisk JASNE! do akceptacji Moc Zodiaku."
-                    );
-                }
-
-                const acceptText =
-                    String(
-                        acceptAction
-                            .textContent ||
-                        ""
-                    ).trim();
-
-                if (
-                    !acceptText
-                        .toLowerCase()
-                        .includes("jasne")
-                ) {
-                    throw new Error(
-                        "TEST: oczekiwano przycisku JASNE!, znaleziono: " +
-                        acceptText
-                    );
-                }
 
                 this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku — klikam JASNE! i czekam na serwer..."
+                    "TEST: Moc Zodiaku — otwieram okno socketowo..."
                 );
 
-                await this.clickQuestActionAndWaitForSocket(
-                    acceptAction,
-                    {
-                        label:
-                            "JASNE! — akceptacja Moc Zodiaku"
-                    }
+                await this.runTestZodiacQuestDialog(
+                    mapQuest.qbId,
+                    "start"
                 );
 
                 this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku — zaakceptowane przez serwer, idę na Teren Zachodni i biję do dropu..."
+                    "TEST: Moc Zodiaku — JASNE! zaakceptowane przez serwer, idę na Teren Zachodni i biję do dropu..."
                 );
 
                 await this.mapSolver.navigateToLocation(
@@ -12692,6 +12955,10 @@
                         source:
                             "test-zodiac-return"
                     }
+                );
+
+                this.setQuickPanelStatus(
+                    "TEST: Moc Zodiaku — otwieram końcowe okno i robię Dalej..."
                 );
 
                 await this.finishTestZodiacQuest(
