@@ -12169,18 +12169,198 @@
         ) {
             const id =
                 this._int(questId);
+            const questX = 13;
+            const questY = 4;
 
-            const result =
-                await this.runTestZodiacQuestDialog(
-                    id,
-                    "finish"
+            // Tak jak w działającym Roninie po etapie mobów:
+            // najpierw odświeżamy klientowe okno przez X. Nie wystarcza
+            // samo a:22/type:1, bo ono nie zawsze przebudowuje UI klienta.
+            const field =
+                await this.waitForQuestKillField(
+                    questX,
+                    questY,
+                    3000
                 );
 
-            if (!result.ended) {
+            if (!field) {
                 throw new Error(
-                    "TEST: po końcowym Dalej serwer nie zwrócił quest_end dla Moc Zodiaku."
+                    "TEST: po powrocie na 13|4 klient nie przygotował pola questa (brak a:602)."
                 );
             }
+
+            this.currentQuestStep = null;
+
+            this.setQuickPanelStatus(
+                "TEST: Moc Zodiaku — otwieram końcowe okno przez X..."
+            );
+
+            this.roninPressKey("x");
+
+            const action =
+                await this.waitForSingleQuestAction(
+                    5000,
+                    {
+                        failOnMultiple: true
+                    }
+                );
+
+            if (!action) {
+                throw new Error(
+                    "TEST: po X na 13|4 nie pojawiło się końcowe okno Moc Zodiaku."
+                );
+            }
+
+            const actionType =
+                this.questActionType(
+                    action
+                );
+            const actionText =
+                String(
+                    action.textContent ||
+                    ""
+                ).trim();
+
+            if (
+                actionType !== "next"
+            ) {
+                throw new Error(
+                    "TEST: końcowe okno nie ma akcji Dalej/JASNE (znaleziono: " +
+                    actionText +
+                    ")."
+                );
+            }
+
+            toolConsole(
+                "info",
+                "[SW Tool][TEST] Końcowe okno Moc Zodiaku otwarte.",
+                {
+                    text:
+                        actionText,
+                    type:
+                        actionType,
+                    x:
+                        questX,
+                    y:
+                        questY
+                }
+            );
+
+            // Po fizycznym otwarciu okna pobieramy świeży stan serwerowy.
+            const opened =
+                await this.openTestDailyQuestStep(
+                    id
+                );
+
+            if (opened.ended) {
+                return true;
+            }
+
+            const want =
+                opened.step?.want;
+            const count =
+                Math.max(
+                    0,
+                    this._int(
+                        want?.count
+                    )
+                );
+            const max =
+                Math.max(
+                    0,
+                    this._int(
+                        want?.maxv
+                    ),
+                    this._int(
+                        want?.amount
+                    )
+                );
+            const isMet =
+                Boolean(
+                    want?.is_met
+                ) ||
+                (
+                    max > 0 &&
+                    count >= max
+                );
+
+            if (
+                want &&
+                typeof want ===
+                    "object" &&
+                this._int(
+                    want.type
+                ) === 5 &&
+                !isMet
+            ) {
+                throw new Error(
+                    "TEST: końcowe okno pokazuje niezakończony warunek Moc Zodiaku (" +
+                    count +
+                    "/" +
+                    max +
+                    ")."
+                );
+            }
+
+            this.setQuickPanelStatus(
+                "TEST: Moc Zodiaku — końcowe Dalej..."
+            );
+
+            // Końcowe potwierdzenie czeka już wyłącznie na quest_end
+            // dla dokładnie tego qb_id, żeby nie złapać pobocznego a:22.
+            const response =
+                await this.sendAndWait(
+                    {
+                        a: 22,
+                        type: 2,
+                        button: 1,
+                        id
+                    },
+                    [22, 999],
+                    (event) =>
+                        this._int(
+                            event.e
+                        ) !== 0 ||
+                        (
+                            this._int(
+                                event.a
+                            ) === 22 &&
+                            this._int(
+                                event
+                                    ?.quest_end
+                            ) === id
+                        ),
+                    10000
+                );
+
+            if (
+                this._int(
+                    response.e
+                ) !== 0
+            ) {
+                throw new Error(
+                    "TEST: serwer odrzucił końcowe Dalej Moc Zodiaku."
+                );
+            }
+
+            if (
+                this._int(
+                    response
+                        ?.quest_end
+                ) !== id
+            ) {
+                throw new Error(
+                    "TEST: brak quest_end po końcowym Dalej Moc Zodiaku."
+                );
+            }
+
+            toolConsole(
+                "info",
+                "[SW Tool][TEST] Moc Zodiaku — końcowe Dalej potwierdzone quest_end.",
+                {
+                    questId:
+                        id
+                }
+            );
 
             return true;
         }
