@@ -15796,6 +15796,16 @@
                     )
                 );
 
+            const dailyUsageByCharacter =
+                new Map(
+                    characters.map(
+                        (char) => [
+                            Number(char.id),
+                            0
+                        ]
+                    )
+                );
+
             try {
                 for (let i = 0; i < characters.length; i++) {
                     const char = characters[i];
@@ -15832,6 +15842,13 @@
                             this.currentCharacterSnapshot?.char_data?.level
                         );
                         const requiredLevel = this.roninRequiredLevel();
+                        let used =
+                            this.roninDailyUsage();
+
+                        dailyUsageByCharacter.set(
+                            id,
+                            used
+                        );
 
                         if (level < requiredLevel) {
                             skipped++;
@@ -15847,8 +15864,6 @@
                             );
                             continue;
                         }
-
-                        let used = this.roninDailyUsage();
 
                         if (used >= dailyLimit) {
                             skipped++;
@@ -15932,6 +15947,11 @@
                                     expectedUsed
                                 );
 
+                            dailyUsageByCharacter.set(
+                                id,
+                                used
+                            );
+
                             if (
                                 used > expectedUsed &&
                                 attemptsForCharacter <
@@ -16006,16 +16026,26 @@
                             runsByCharacter.get(
                                 id
                             ) || 0;
+                        const used =
+                            dailyUsageByCharacter.get(
+                                id
+                            ) || 0;
 
                         return {
                             id,
                             label,
                             runs,
+                            used,
+                            limit:
+                                dailyLimit,
                             text:
                                 label +
                                 " - " +
                                 runs +
-                                "x"
+                                "x - " +
+                                used +
+                                "/" +
+                                dailyLimit
                         };
                     }
                 );
