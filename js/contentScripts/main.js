@@ -12792,10 +12792,15 @@
             };
         }
 
-        async runTestDailyMissions() {
+        async runTestDailyMissions({
+            allowAccountOperation = false
+        } = {}) {
             if (
                 this.quickActionRunning ||
-                this.accountOperationRunning ||
+                (
+                    this.accountOperationRunning &&
+                    !allowAccountOperation
+                ) ||
                 this.questKillRunning ||
                 this.respawnRunning ||
                 this.expRunning ||
@@ -12999,7 +13004,10 @@
                 };
             } finally {
                 this.quickActionRunning = false;
-                this.setQuickPanelBusy(false);
+
+                if (!allowAccountOperation) {
+                    this.setQuickPanelBusy(false);
+                }
             }
         }
 
@@ -13731,7 +13739,9 @@
                 document.createElement("div");
             Object.assign(testFooter.style, {
                 display: "flex",
-                justifyContent: "flex-start",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                gap: "5px",
                 marginTop: "6px",
                 paddingTop: "6px",
                 borderTop:
@@ -13763,11 +13773,43 @@
                 );
 
             testButton.style.width = "72px";
+
+            const test2Button =
+                makeActionButton(
+                    "TEST 2",
+                    () => {
+                        try {
+                            this.startAccountOperation(
+                                "accountTestDaily"
+                            );
+                        } catch (error) {
+                            toolConsole(
+                                "error",
+                                "[SW Tool][TEST 2] Start nie powiódł się:",
+                                error
+                            );
+
+                            this.setQuickPanelStatus(
+                                error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                                "error"
+                            );
+                        }
+                    }
+                );
+
+            test2Button.style.width =
+                "72px";
+
             this.quickPanelButtons.push(
-                testButton
+                testButton,
+                test2Button
             );
-            testFooter.appendChild(
-                testButton
+
+            testFooter.append(
+                testButton,
+                test2Button
             );
 
             logPanel.append(
@@ -15633,6 +15675,182 @@
             );
         }
 
+        async runAccountTestDailyMissions() {
+            const characters =
+                [...this.chars];
+            const originalId =
+                Number(
+                    GAME.char_id ||
+                    this.lastCharacterId ||
+                    this.currentCharacterId ||
+                    0
+                );
+
+            let completed = 0;
+            let failed = 0;
+
+            this.setQuickPanelBusy(true);
+
+            try {
+                for (
+                    let i = 0;
+                    i < characters.length;
+                    i++
+                ) {
+                    const char =
+                        characters[i];
+                    const id =
+                        Number(char.id);
+                    const label =
+                        char.name ||
+                        ("#" + id);
+
+                    this.setQuickPanelStatus(
+                        "TEST 2: " +
+                        (i + 1) +
+                        "/" +
+                        characters.length +
+                        " • " +
+                        label +
+                        "..."
+                    );
+
+                    toolConsole(
+                        "info",
+                        "[SW Tool][TEST 2] Start postaci.",
+                        {
+                            index:
+                                i + 1,
+                            total:
+                                characters.length,
+                            charId:
+                                id,
+                            label
+                        }
+                    );
+
+                    try {
+                        this.stopNavigation(
+                            "TEST 2 — zmiana postaci"
+                        );
+
+                        await this.switchCharacterForAccountAction(
+                            id,
+                            0
+                        );
+
+                        // Po zmianie postaci mapSolver może nadal trzymać
+                        // mapę poprzedniej postaci. Świeże a:3 daje dokładny
+                        // stan lokalizacji przed uruchomieniem wspólnego TEST.
+                        await this.mapSolver
+                            .refreshMap();
+
+                        const result =
+                            await this.runTestDailyMissions({
+                                allowAccountOperation:
+                                    true
+                            });
+
+                        if (
+                            result?.status ===
+                            "done"
+                        ) {
+                            completed++;
+                        } else {
+                            failed++;
+                        }
+
+                        toolConsole(
+                            "info",
+                            "[SW Tool][TEST 2] Koniec postaci.",
+                            {
+                                charId:
+                                    id,
+                                label,
+                                result
+                            }
+                        );
+                    } catch (error) {
+                        if (
+                            this.isFatalAccountError(
+                                error
+                            )
+                        ) {
+                            throw error;
+                        }
+
+                        failed++;
+
+                        const message =
+                            error instanceof Error
+                                ? error.message
+                                : String(error);
+
+                        toolConsole(
+                            "warn",
+                            "[SW Tool][TEST 2] Błąd postaci " +
+                                label +
+                                ":",
+                            error
+                        );
+
+                        this.setQuickPanelStatus(
+                            "TEST 2: " +
+                            label +
+                            " — " +
+                            message,
+                            "error"
+                        );
+                    } finally {
+                        this.stopNavigation(
+                            "TEST 2 — koniec postaci"
+                        );
+                    }
+                }
+            } finally {
+                this.stopNavigation(
+                    "TEST 2 — koniec całego konta"
+                );
+
+                await this.restoreAccountCharacter(
+                    originalId
+                );
+
+                this.setQuickPanelBusy(
+                    false
+                );
+            }
+
+            this.setQuickPanelStatus(
+                "TEST 2 zakończone: " +
+                completed +
+                " OK, " +
+                failed +
+                " błędów.",
+                failed > 0
+                    ? ""
+                    : "success"
+            );
+
+            toolConsole(
+                "info",
+                "[SW Tool][TEST 2] Całe konto zakończone.",
+                {
+                    completed,
+                    failed,
+                    characters:
+                        characters.length
+                }
+            );
+
+            return {
+                completed,
+                failed,
+                characters:
+                    characters.length
+            };
+        }
+
         startAccountOperation(action) {
             if (
                 action === "accountTournaments" &&
@@ -15676,6 +15894,7 @@
                 accountTrainings: () => this.runAccountTrainings(),
                 accountMissions: () => this.runAccountMissions(),
                 accountRonin: () => this.runAccountRonin(),
+                accountTestDaily: () => this.runAccountTestDailyMissions(),
                 accountAll: () => this.runAccountAll()
             };
             const runner = runners[action];
