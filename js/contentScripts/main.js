@@ -10620,6 +10620,298 @@
             return this.runExpiarka();
         }
 
+        clickQuestActionAndWaitForSocket(
+            action,
+            {
+                label = "akcja questa",
+                timeoutMs = 10000
+            } = {}
+        ) {
+            if (!(action instanceof Element)) {
+                return Promise.reject(
+                    new Error(
+                        "TEST: brak przycisku questa do kliknięcia."
+                    )
+                );
+            }
+
+            const socket =
+                GAME.socket;
+
+            if (!socket?.connected) {
+                return Promise.reject(
+                    new Error(
+                        "Socket.IO nie jest połączone."
+                    )
+                );
+            }
+
+            return new Promise(
+                (resolve, reject) => {
+                    const originalEmit =
+                        socket.emit;
+                    let txOrder = null;
+                    let settled = false;
+
+                    const cleanup = () => {
+                        if (
+                            socket.emit ===
+                            wrappedEmit
+                        ) {
+                            socket.emit =
+                                originalEmit;
+                        }
+
+                        socket.off(
+                            "gr",
+                            onResponse
+                        );
+                        clearTimeout(
+                            timeoutId
+                        );
+                    };
+
+                    const fail = (
+                        message
+                    ) => {
+                        if (settled) return;
+                        settled = true;
+                        cleanup();
+                        reject(
+                            new Error(message)
+                        );
+                    };
+
+                    const succeed = (
+                        response
+                    ) => {
+                        if (settled) return;
+                        settled = true;
+                        cleanup();
+
+                        toolConsole(
+                            "info",
+                            "[SW Tool][TEST] Klik questa potwierdzony socketem.",
+                            {
+                                label,
+                                text:
+                                    String(
+                                        action.textContent ||
+                                        ""
+                                    ).trim(),
+                                tx:
+                                    txOrder,
+                                rx: {
+                                    a:
+                                        this._int(
+                                            response?.a
+                                        ),
+                                    e:
+                                        this._int(
+                                            response?.e
+                                        ),
+                                    type:
+                                        response?.type,
+                                    questEnd:
+                                        this._int(
+                                            response?.quest_end
+                                        ),
+                                    qStepId:
+                                        this._int(
+                                            response
+                                                ?.q_step
+                                                ?.qb_id
+                                        )
+                                }
+                            }
+                        );
+
+                        resolve({
+                            order:
+                                txOrder,
+                            response
+                        });
+                    };
+
+                    const onResponse =
+                        (response) => {
+                            if (
+                                !txOrder ||
+                                !response ||
+                                typeof response !==
+                                    "object"
+                            ) {
+                                return;
+                            }
+
+                            const actionId =
+                                this._int(
+                                    response.a
+                                );
+
+                            if (
+                                actionId === 999 &&
+                                this._int(
+                                    response.e
+                                ) !== 0
+                            ) {
+                                fail(
+                                    "TEST: błąd autoryzacji po " +
+                                    label +
+                                    "."
+                                );
+                                return;
+                            }
+
+                            if (
+                                actionId !==
+                                this._int(
+                                    txOrder.a
+                                )
+                            ) {
+                                return;
+                            }
+
+                            if (
+                                this._int(
+                                    response.e
+                                ) !== 0
+                            ) {
+                                fail(
+                                    "TEST: serwer odrzucił " +
+                                    label +
+                                    " (a=" +
+                                    this._int(
+                                        txOrder.a
+                                    ) +
+                                    ", type=" +
+                                    String(
+                                        txOrder.type ??
+                                        "-"
+                                    ) +
+                                    ", e=" +
+                                    this._int(
+                                        response.e
+                                    ) +
+                                    ")."
+                                );
+                                return;
+                            }
+
+                            succeed(response);
+                        };
+
+                    const wrappedEmit =
+                        function (
+                            event,
+                            ...args
+                        ) {
+                            if (
+                                !txOrder &&
+                                event === "ga"
+                            ) {
+                                const candidate =
+                                    args.length <= 1
+                                        ? args[0]
+                                        : args;
+
+                                if (
+                                    candidate &&
+                                    typeof candidate ===
+                                        "object" &&
+                                    !Array.isArray(
+                                        candidate
+                                    ) &&
+                                    Number(
+                                        candidate.a
+                                    ) > 0
+                                ) {
+                                    txOrder = {
+                                        ...candidate
+                                    };
+
+                                    toolConsole(
+                                        "info",
+                                        "[SW Tool][TEST] TX z kliknięcia questa.",
+                                        {
+                                            label,
+                                            text:
+                                                String(
+                                                    action
+                                                        .textContent ||
+                                                    ""
+                                                ).trim(),
+                                            order:
+                                                txOrder
+                                        }
+                                    );
+                                }
+                            }
+
+                            return originalEmit.apply(
+                                this,
+                                [
+                                    event,
+                                    ...args
+                                ]
+                            );
+                        };
+
+                    socket.emit =
+                        wrappedEmit;
+                    socket.on(
+                        "gr",
+                        onResponse
+                    );
+
+                    const timeoutId =
+                        setTimeout(
+                            () => {
+                                if (
+                                    !txOrder
+                                ) {
+                                    fail(
+                                        "TEST: " +
+                                        label +
+                                        " nie wygenerowało TX ga."
+                                    );
+                                    return;
+                                }
+
+                                fail(
+                                    "TEST: timeout RX po " +
+                                    label +
+                                    " (TX a=" +
+                                    this._int(
+                                        txOrder.a
+                                    ) +
+                                    ", type=" +
+                                    String(
+                                        txOrder.type ??
+                                        "-"
+                                    ) +
+                                    ")."
+                                );
+                            },
+                            timeoutMs
+                        );
+
+                    try {
+                        this.clickQuestAction(
+                            action,
+                            label
+                        );
+                    } catch (error) {
+                        fail(
+                            error instanceof Error
+                                ? error.message
+                                : String(error)
+                        );
+                    }
+                }
+            );
+        }
+
         pressClientKeyAndWaitForSocket(
             key,
             {
@@ -11595,6 +11887,613 @@
             );
         }
 
+        async runTestZodiacExpSweep(
+            initialStep,
+            {
+                respawnWaitMs =
+                    3 * 60 * 1000
+            } = {}
+        ) {
+            const map =
+                this.mapSolver?.map;
+
+            if (
+                !map ||
+                this._int(
+                    map.locationId
+                ) <= 0 ||
+                this._int(map.x) <= 0 ||
+                this._int(map.y) <= 0
+            ) {
+                throw new Error(
+                    "TEST: brak gotowej mapy Terenu Zachodniego."
+                );
+            }
+
+            const parsed =
+                this.questKillWantState(
+                    initialStep?.want,
+                    initialStep?.qb_id,
+                    [5]
+                );
+
+            if (!parsed) {
+                throw new Error(
+                    "TEST: brak konfiguracji celu Nienasyconego Kryształu."
+                );
+            }
+
+            const state = {
+                questId:
+                    parsed.questId,
+                stepId:
+                    this._int(
+                        initialStep?.qb_id
+                    ),
+                wantType:
+                    parsed.wantType,
+                allowedWantTypes:
+                    [5],
+                targetId:
+                    parsed.targetId,
+                targetName:
+                    parsed.targetName,
+                count:
+                    parsed.count,
+                max:
+                    parsed.max,
+                rounds: 0,
+                moves: 0,
+                visited: 0,
+                fights: 0,
+                singleFights: 0,
+                removed: 0
+            };
+
+            this.pveActionPointsExhausted =
+                false;
+            this.questKillRunning =
+                true;
+            this.questKillState =
+                state;
+            this.startQuestKillDomObserver();
+            this.syncPveModeButtons();
+
+            try {
+                while (
+                    state.count <
+                        state.max &&
+                    !this.pveActionPointsExhausted
+                ) {
+                    state.rounds++;
+
+                    const currentMap =
+                        this.mapSolver?.map;
+
+                    const plan =
+                        this.expSweepSegmentPlan(
+                            currentMap,
+                            this._int(
+                                currentMap?.x
+                            ),
+                            this._int(
+                                currentMap?.y
+                            )
+                        );
+
+                    if (
+                        !plan ||
+                        !plan.firstSegment
+                    ) {
+                        throw new Error(
+                            "TEST: Expiarka nie zbudowała planu sweepu Terenu Zachodniego."
+                        );
+                    }
+
+                    const visited =
+                        new Set();
+                    const visitedSegments =
+                        new Set();
+
+                    const visitField =
+                        async (
+                            point
+                        ) => {
+                            const key =
+                                this._int(
+                                    point.x
+                                ) +
+                                "_" +
+                                this._int(
+                                    point.y
+                                );
+
+                            if (
+                                visited.has(
+                                    key
+                                )
+                            ) {
+                                return;
+                            }
+
+                            visited.add(key);
+                            state.visited++;
+
+                            const cleared =
+                                await this.questKillClearCurrentField(
+                                    state,
+                                    {
+                                        x:
+                                            this._int(
+                                                point.x
+                                            ),
+                                        y:
+                                            this._int(
+                                                point.y
+                                            )
+                                    }
+                                );
+
+                            state.fights +=
+                                this._int(
+                                    cleared?.fights
+                                );
+                            state.singleFights +=
+                                this._int(
+                                    cleared
+                                        ?.singleFights
+                                );
+                            state.removed +=
+                                this._int(
+                                    cleared?.removed
+                                );
+                        };
+
+                    const moveOne =
+                        async (
+                            target,
+                            source =
+                                "test-zodiac-exp-segment"
+                        ) => {
+                            if (
+                                state.count >=
+                                state.max
+                            ) {
+                                return false;
+                            }
+
+                            const moved =
+                                await this.mapSolver
+                                    .navigateTo(
+                                        target.x,
+                                        target.y,
+                                        {
+                                            source,
+                                            allowBusy:
+                                                true
+                                        }
+                                    );
+
+                            if (!moved?.ok) {
+                                throw new Error(
+                                    "TEST: ruch sweepu Expiarki nie powiódł się."
+                                );
+                            }
+
+                            state.moves++;
+
+                            await visitField({
+                                x:
+                                    this._int(
+                                        this.mapSolver
+                                            ?.map?.x
+                                    ),
+                                y:
+                                    this._int(
+                                        this.mapSolver
+                                            ?.map?.y
+                                    )
+                            });
+
+                            return (
+                                state.count <
+                                state.max
+                            );
+                        };
+
+                    const moveTo =
+                        async (
+                            target,
+                            bridge = false
+                        ) => {
+                            while (
+                                state.count <
+                                    state.max &&
+                                !this
+                                    .pveActionPointsExhausted
+                            ) {
+                                const current = {
+                                    x:
+                                        this._int(
+                                            this
+                                                .mapSolver
+                                                ?.map?.x
+                                        ),
+                                    y:
+                                        this._int(
+                                            this
+                                                .mapSolver
+                                                ?.map?.y
+                                        )
+                                };
+
+                                if (
+                                    current.x ===
+                                        target.x &&
+                                    current.y ===
+                                        target.y
+                                ) {
+                                    return true;
+                                }
+
+                                const path =
+                                    this.mapSolver
+                                        .findShortestPath(
+                                            currentMap,
+                                            current,
+                                            target
+                                        );
+
+                                if (
+                                    !path ||
+                                    path.length ===
+                                        0
+                                ) {
+                                    return false;
+                                }
+
+                                if (
+                                    !await moveOne(
+                                        path[0],
+                                        bridge
+                                            ? "test-zodiac-exp-bridge"
+                                            : "test-zodiac-exp-segment"
+                                    )
+                                ) {
+                                    return false;
+                                }
+                            }
+
+                            return false;
+                        };
+
+                    this.setQuickPanelStatus(
+                        "TEST: Moc Zodiaku — sweep Expiarki " +
+                        state.rounds +
+                        " • " +
+                        plan.orientation +
+                        " • segmenty " +
+                        plan.segments.length +
+                        "."
+                    );
+
+                    await visitField({
+                        x:
+                            this._int(
+                                currentMap?.x
+                            ),
+                        y:
+                            this._int(
+                                currentMap?.y
+                            )
+                    });
+
+                    let currentSegment =
+                        plan.firstSegment;
+                    let previousSegment =
+                        null;
+                    let laneDirection = 1;
+
+                    while (
+                        state.count <
+                            state.max &&
+                        visitedSegments.size <
+                            plan.segments.length &&
+                        !this
+                            .pveActionPointsExhausted
+                    ) {
+                        if (
+                            visitedSegments.has(
+                                currentSegment.id
+                            )
+                        ) {
+                            const currentPoint = {
+                                x:
+                                    this._int(
+                                        this
+                                            .mapSolver
+                                            ?.map?.x
+                                    ),
+                                y:
+                                    this._int(
+                                        this
+                                            .mapSolver
+                                            ?.map?.y
+                                    )
+                            };
+                            const fallback =
+                                this.expNearestUnvisitedSegment(
+                                    plan,
+                                    currentPoint,
+                                    visitedSegments
+                                );
+
+                            if (!fallback) {
+                                break;
+                            }
+
+                            currentSegment =
+                                fallback.segment;
+
+                            if (
+                                !await moveTo(
+                                    this.expSegmentEndpoint(
+                                        currentSegment,
+                                        fallback.side
+                                    ),
+                                    true
+                                )
+                            ) {
+                                break;
+                            }
+                        }
+
+                        const currentPoint = {
+                            x:
+                                this._int(
+                                    this.mapSolver
+                                        ?.map?.x
+                                ),
+                            y:
+                                this._int(
+                                    this.mapSolver
+                                        ?.map?.y
+                                )
+                        };
+                        const entrySide =
+                            this.expSegmentNearestEnd(
+                                currentSegment,
+                                currentPoint
+                            );
+                        const exitSide =
+                            entrySide === "min"
+                                ? "max"
+                                : "min";
+                        const entry =
+                            this.expSegmentEndpoint(
+                                currentSegment,
+                                entrySide
+                            );
+
+                        if (
+                            currentPoint.x !==
+                                entry.x ||
+                            currentPoint.y !==
+                                entry.y
+                        ) {
+                            if (
+                                !await moveTo(
+                                    entry,
+                                    true
+                                )
+                            ) {
+                                break;
+                            }
+                        }
+
+                        const orderedCells =
+                            entrySide === "min"
+                                ? currentSegment
+                                      .cells
+                                : [
+                                    ...currentSegment
+                                        .cells
+                                ].reverse();
+
+                        for (
+                            const cell of
+                            orderedCells
+                        ) {
+                            if (
+                                state.count >=
+                                    state.max ||
+                                this
+                                    .pveActionPointsExhausted
+                            ) {
+                                break;
+                            }
+
+                            const x =
+                                this._int(
+                                    this.mapSolver
+                                        ?.map?.x
+                                );
+                            const y =
+                                this._int(
+                                    this.mapSolver
+                                        ?.map?.y
+                                );
+
+                            if (
+                                x === cell.x &&
+                                y === cell.y
+                            ) {
+                                await visitField(
+                                    cell
+                                );
+                                continue;
+                            }
+
+                            if (
+                                !await moveOne(
+                                    cell
+                                )
+                            ) {
+                                break;
+                            }
+                        }
+
+                        if (
+                            state.count >=
+                                state.max
+                        ) {
+                            break;
+                        }
+
+                        visitedSegments.add(
+                            currentSegment.id
+                        );
+
+                        const exitPoint =
+                            this.expSegmentEndpoint(
+                                currentSegment,
+                                exitSide
+                            );
+
+                        let nextSegment =
+                            this.expSelectNextSegment(
+                                plan,
+                                currentSegment,
+                                previousSegment,
+                                exitPoint,
+                                visitedSegments,
+                                laneDirection
+                            );
+
+                        if (nextSegment) {
+                            const newDirection =
+                                Math.sign(
+                                    nextSegment.lane -
+                                    currentSegment.lane
+                                );
+
+                            previousSegment =
+                                currentSegment;
+                            currentSegment =
+                                nextSegment;
+
+                            if (
+                                newDirection !==
+                                0
+                            ) {
+                                laneDirection =
+                                    newDirection;
+                            }
+                        } else {
+                            const fallback =
+                                this.expNearestUnvisitedSegment(
+                                    plan,
+                                    exitPoint,
+                                    visitedSegments
+                                );
+
+                            if (!fallback) {
+                                break;
+                            }
+
+                            previousSegment =
+                                currentSegment;
+                            currentSegment =
+                                fallback.segment;
+
+                            if (
+                                !await moveTo(
+                                    this.expSegmentEndpoint(
+                                        currentSegment,
+                                        fallback.side
+                                    ),
+                                    true
+                                )
+                            ) {
+                                break;
+                            }
+
+                            const delta =
+                                currentSegment.lane -
+                                previousSegment.lane;
+
+                            if (delta !== 0) {
+                                laneDirection =
+                                    Math.sign(
+                                        delta
+                                    );
+                            }
+                        }
+                    }
+
+                    if (
+                        state.count >=
+                        state.max
+                    ) {
+                        break;
+                    }
+
+                    if (
+                        this
+                            .pveActionPointsExhausted
+                    ) {
+                        break;
+                    }
+
+                    const waitMs =
+                        Math.max(
+                            0,
+                            this._int(
+                                respawnWaitMs
+                            )
+                        );
+
+                    this.setQuickPanelStatus(
+                        "TEST: brak dropu po sweepie " +
+                        state.rounds +
+                        " — czekam 3 min na resp mobów."
+                    );
+
+                    if (waitMs > 0) {
+                        await this.sleep(
+                            waitMs
+                        );
+                    }
+                }
+            } finally {
+                this.stopQuestKillDomObserver();
+                this.questKillRunning =
+                    false;
+                this.questKillState =
+                    null;
+                this.syncPveModeButtons();
+            }
+
+            if (
+                this.pveActionPointsExhausted
+            ) {
+                return {
+                    ...state,
+                    done: false,
+                    stopped: true,
+                    reason:
+                        "no-action-points"
+                };
+            }
+
+            return {
+                ...state,
+                done:
+                    state.count >=
+                    state.max
+            };
+        }
+
         async runTestDailyMissions() {
             if (
                 this.quickActionRunning ||
@@ -11653,29 +12552,54 @@
                     "TEST: Moc Zodiaku — otwieram quest przez X..."
                 );
 
-                // Nie próbujemy potwierdzać startu przez q_step, track[]
-                // mapy ani DOM dziennika. Odtwarzamy dokładnie interakcję gracza:
-                // pierwsze X otwiera okno questa, drugie X go akceptuje.
+                // Pierwsze X tylko otwiera okno questa. Potem czekamy
+                // na faktyczny przycisk "JASNE!" i klikamy dokładnie go.
                 this.testZodiacQuestStep = null;
                 this.testZodiacTrackVersion++;
 
-                await this.pressClientKeyAndWaitForSocket(
-                    "x",
-                    {
-                        label:
-                            "X otwierające Moc Zodiaku"
-                    }
-                );
+                this.roninPressKey("x");
+
+                const acceptAction =
+                    await this.waitForSingleQuestAction(
+                        5000,
+                        {
+                            failOnMultiple: true
+                        }
+                    );
+
+                if (!acceptAction) {
+                    throw new Error(
+                        "TEST: po X nie pojawił się przycisk JASNE! do akceptacji Moc Zodiaku."
+                    );
+                }
+
+                const acceptText =
+                    String(
+                        acceptAction
+                            .textContent ||
+                        ""
+                    ).trim();
+
+                if (
+                    !acceptText
+                        .toLowerCase()
+                        .includes("jasne")
+                ) {
+                    throw new Error(
+                        "TEST: oczekiwano przycisku JASNE!, znaleziono: " +
+                        acceptText
+                    );
+                }
 
                 this.setQuickPanelStatus(
-                    "TEST: Moc Zodiaku — okno otwarte, akceptuję quest..."
+                    "TEST: Moc Zodiaku — klikam JASNE! i czekam na serwer..."
                 );
 
-                await this.pressClientKeyAndWaitForSocket(
-                    "x",
+                await this.clickQuestActionAndWaitForSocket(
+                    acceptAction,
                     {
                         label:
-                            "X akceptujące Moc Zodiaku"
+                            "JASNE! — akceptacja Moc Zodiaku"
                     }
                 );
 
@@ -11721,16 +12645,13 @@
                 };
 
                 const farm =
-                    await this.runQuestKills({
-                        allowQuickAction: true,
-                        requireQuestWindow: false,
-                        allowedWantTypes: [5],
-                        initialStep:
-                            zodiacStep,
-                        repeatUntilDone: true,
-                        repeatDelayMs:
-                            3 * 60 * 1000
-                    });
+                    await this.runTestZodiacExpSweep(
+                        zodiacStep,
+                        {
+                            respawnWaitMs:
+                                3 * 60 * 1000
+                        }
+                    );
 
                 if (!farm?.done) {
                     throw new Error(
