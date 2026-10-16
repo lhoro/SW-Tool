@@ -2935,7 +2935,9 @@
             this.setQuickPanelStatus(
                 "Ronin: synchronizuję ostatnie Dalej przed Quest Kille..."
             );
-            this.roninPressKey("x");
+            if (!this.improvedXQuestWindowOpen()) {
+                this.roninPressKey("x");
+            }
             await this.sleep(300);
 
             const actions = this.improvedXQuestActions();
@@ -3019,7 +3021,9 @@
 
             // Stary Ronin otwierał quest na polu mobów przed walką i Dalej.
             // Dzięki temu UI klienta nie zostaje ze stanem poprzedniego pola.
-            this.roninPressKey("x");
+            if (!this.improvedXQuestWindowOpen()) {
+                this.roninPressKey("x");
+            }
             await this.sleep(250);
 
             for (let i = 0; i < maxTransitions; i++) {
@@ -3132,6 +3136,12 @@
                         "Ronin: przed mobami niezakończony warunek type " +
                         wantType + "."
                     );
+                }
+
+                // Jeśli walka na tym polu jest już zaliczona,
+                // nadal sprawdzamy dwa osobne Dalej z dawnej trasy.
+                if (wantType === 7 && isMet) {
+                    fightOnMobField = true;
                 }
 
                 // Każda akcja na dokładnie tym q_step, który przed chwilą
