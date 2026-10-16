@@ -16018,6 +16018,10 @@
                         if (level < requiredLevel) {
                             skipped++;
                             levelSkipped++;
+                            roninAccountReasons.set(
+                                id,
+                                "poziom " + level + "/" + requiredLevel
+                            );
                             toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Ronin — " +
                                 label +
@@ -16032,6 +16036,7 @@
 
                         if (used >= dailyLimit) {
                             skipped++;
+                            roninAccountReasons.set(id, "limit wykorzystany");
                             toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Ronin — " +
                                 label +
@@ -16162,10 +16167,14 @@
                         }
 
                         failed++;
-                        toolConsole("warn", 
+                        const reason =
+                            error instanceof Error
+                                ? error.message
+                                : String(error);
+                        roninAccountReasons.set(id, "BŁĄD: " + reason);
+                        toolConsole("warn",
                             "[SW Tool][ACCOUNT] Ronin — " +
-                            label +
-                            ":",
+                            label + ": " + reason,
                             error
                         );
                     } finally {
@@ -16191,26 +16200,22 @@
                             runsByCharacter.get(
                                 id
                             ) || 0;
-                        const used =
-                            dailyUsageByCharacter.get(
-                                id
-                            ) || 0;
+                        const used = dailyUsageByCharacter.get(id);
+                        const note = roninAccountReasons.get(id) || "";
 
                         return {
                             id,
                             label,
                             runs,
                             used,
-                            limit:
-                                dailyLimit,
+                            limit: dailyLimit,
+                            note,
                             text:
-                                label +
-                                " - " +
-                                runs +
-                                "x - " +
-                                used +
-                                "/" +
-                                dailyLimit
+                                label + " - " +
+                                runs + "x - " +
+                                (used === null ? "?" : used) +
+                                "/" + dailyLimit +
+                                (note ? " - " + note : "")
                         };
                     }
                 );
