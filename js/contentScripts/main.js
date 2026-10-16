@@ -4272,6 +4272,10 @@
 
             const startedAt = Date.now();
 
+            this.setQuickPanelStatus(
+                "Ronin: czekam na teleport powrotny i rozliczenie..."
+            );
+
             while (Date.now() - startedAt < timeoutMs) {
                 if (
                     sync.characterId !==
@@ -4366,6 +4370,7 @@
                 "Ronin: serwer nie potwierdził teleportu powrotnego i rozliczenia " +
                 "(loc=" + sync.originLocationId + "). Kolejny obieg i zmiana postaci wstrzymane."
             );
+            this.setQuickPanelStatus(error.message, "error");
             error.swToolUnsafeRoninReturn = true;
             throw error;
         }
