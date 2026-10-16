@@ -2920,7 +2920,108 @@
             return state;
         }
 
-        async prepareRoninMobCombat(maxTransitions = 6) {
+        async confirmRoninMobIntroButton(step) {
+            const questId = this._int(step?.qb_id);
+            if (questId <= 0 ||
+                this._int(step?.want?.type) !== 1 ||
+                Boolean(step?.want?.is_met)) {
+                return false;
+            }
+
+            // Stary Ronin wciskał tu DWA razy Dalej po walce questowej.
+            // Drugi przycisk może pozostać widoczny, mimo że type:1
+            // zostało już zwrócone przez serwer. Nie wysyłamy go jednak
+            // w ciemno: sprawdzamy rzeczywisty przycisk oficjalnego klienta.
+            this.setQuickPanelStatus(
+                "Ronin: synchronizuję ostatnie Dalej przed Quest Kille..."
+            );
+            this.roninPressKey("x");
+            await this.sleep(300);
+
+            const actions = this.improvedXQuestActions();
+            if (actions.length === 0) {
+                toolConsole(
+                    "info",
+                    "[SW Tool][RONIN] Brak dodatkowego przycisku przed mobami — etap gotowy.",
+                    { questId }
+                );
+                return false;
+            }
+
+            if (actions.length !== 1 ||
+                this.questActionType(actions[0]) !== "next") {
+                throw new Error(
+                    "Ronin: przed mobami klient pokazuje inną akcję niż pojedyncze Dalej."
+                );
+            }
+
+            const buttonText = String(
+                actions[0].textContent || ""
+            ).trim();
+
+            const response = await this.sendAndWait(
+                {
+                    a: 22,
+                    type: 2,
+                    button: 1,
+                    id: questId
+                },
+                [22, 999],
+                (event) => {
+                    if (this._int(event.a) === 999) {
+                        return this._int(event.e) !== 0;
+                    }
+                    if (this._int(event.a) !== 22) {
+                        return false;
+                    }
+                    if (this._int(event.e) !== 0) {
+                        return true;
+                    }
+                    if (
+                        this._int(event.q_step?.qb_id) === questId ||
+                        this._int(event.quest_move?.qb_id) === questId
+                    ) {
+                        return true;
+                    }
+                    return Array.isArray(event.tracked) &&
+                        event.tracked.some((entry) =>
+                            this._int(entry?.qb_id) === questId
+                        );
+                },
+                10000
+            );
+
+            if (this._int(response.e) !== 0) {
+                throw new Error(
+                    "Ronin: serwer odrzucił ostatnie Dalej przed Quest Kille (e=" +
+                    this._int(response.e) + ")."
+                );
+            }
+
+            toolConsole(
+                "info",
+                "[SW Tool][RONIN] Potwierdzono dodatkowe Dalej na polu mobów.",
+                {
+                    questId,
+                    buttonText,
+                    responseHasStep: Boolean(response.q_step),
+                    responseHasTracker: Array.isArray(response.tracked),
+                    responseHasMove: Boolean(response.quest_move)
+                }
+            );
+            return true;
+        }
+
+        async prepareRoninMobCombat(maxTransitions = 8) {
+            let fightOnMobField = false;
+            let nextAfterFight = 0;
+            let introButtonChecked = false;
+
+            // Stary Ronin otwierał quest na polu mobów przed walką i Dalej.
+            // Dzięki temu UI klienta nie zostaje ze stanem poprzedniego pola.
+            this.roninPressKey("x");
+            await this.sleep(250);
+
             for (let i = 0; i < maxTransitions; i++) {
                 const pendingMove = this.currentQuestMove;
 
@@ -2935,14 +3036,28 @@
                     );
                 }
 
-                // Zawsze pobieramy świeży q_step z serwera.
-                // Cache currentRoninQuestStep może jeszcze zawierać poprzedni
-                // dialog, podczas gdy serwer już przeszedł do type:1.
                 const step = await this.openRoninQuestStep();
-
                 const want = step?.want;
                 const wantType = this._int(want?.type);
                 const isMet = Boolean(want?.is_met);
+
+                toolConsole(
+                    "info",
+                    "[SW Tool][RONIN] Dialog przed Quest Kille — aktualny krok.",
+                    {
+                        qbId: this._int(step?.qb_id),
+                        title: String(step?.title || step?.header || ""),
+                        wantType,
+                        isMet,
+                        transition: i,
+                        fightOnMobField,
+                        nextAfterFight,
+                        buttons: this.improvedXQuestActions().map((action) => ({
+                            type: this.questActionType(action),
+                            text: String(action.textContent || "").trim()
+                        }))
+                    }
+                );
 
                 if (
                     want &&
@@ -2950,23 +3065,48 @@
                     wantType === 1 &&
                     !isMet
                 ) {
-                    toolConsole("info", 
+                    // W starej trasie po walce na tym polu były dwa Dalej.
+                    // Pierwsze może już odsłonić type:1; weryfikujemy,
+                    // czy klient nadal pokazuje drugie Dalej.
+                    if (
+                        fightOnMobField &&
+                        nextAfterFight === 1 &&
+                        !introButtonChecked
+                    ) {
+                        introButtonChecked = true;
+                        const pressed =
+                            await this.confirmRoninMobIntroButton(step);
+                        if (pressed) {
+                            const verified =
+                                await this.openRoninQuestStep();
+                            if (
+                                this._int(verified?.qb_id) !==
+                                    this._int(step.qb_id) ||
+                                this._int(verified?.want?.type) !== 1 ||
+                                Boolean(verified?.want?.is_met)
+                            ) {
+                                throw new Error(
+                                    "Ronin: po ostatnim Dalej serwer nie potwierdził aktywnego etapu mobów."
+                                );
+                            }
+                            return verified;
+                        }
+                    }
+
+                    toolConsole(
+                        "info",
                         "[SW Tool][RONIN] Etap przeciwników gotowy.",
                         {
                             qbId: this._int(step.qb_id),
                             count: this._int(want.count),
-                            max: this._int(
-                                want.maxv || want.amount
-                            ),
-                            transitions: i
+                            max: this._int(want.maxv || want.amount),
+                            transitions: i,
+                            postFightNext: nextAfterFight
                         }
                     );
                     return step;
                 }
 
-                // W zależności od aktualnego stanu serwera przed etapem
-                // mobów może jeszcze wystąpić walka questowa type:7.
-                // Nie zakładamy już jej na sztywno w runRoninRoute().
                 if (
                     want &&
                     typeof want === "object" &&
@@ -2975,14 +3115,11 @@
                 ) {
                     toolConsole(
                         "info",
-                        "[SW Tool][RONIN] Przed mobami wykryto walkę questową — wykonuję dynamicznie.",
-                        {
-                            qbId: this._int(step.qb_id),
-                            transitions: i
-                        }
+                        "[SW Tool][RONIN] Walka questowa przed mobami.",
+                        { qbId: this._int(step.qb_id), transition: i }
                     );
-
-                    await this.roninQuestFight();
+                    await this.roninQuestFight(step);
+                    fightOnMobField = true;
                     continue;
                 }
 
@@ -2992,20 +3129,28 @@
                     !isMet
                 ) {
                     throw new Error(
-                        "Ronin: przed mobami pojawił się nieoczekiwany warunek questa (type " +
-                        wantType +
-                        ")."
+                        "Ronin: przed mobami niezakończony warunek type " +
+                        wantType + "."
                     );
                 }
 
-                // want:false albo zaliczony poprzedni warunek = zwykły dialog.
-                await this.roninQuestNext();
+                // Każda akcja na dokładnie tym q_step, który przed chwilą
+                // otrzymaliśmy; bez dodatkowego type:1 między analizą a Dalej.
+                const result = await this.roninQuestNext(step);
+                if (result !== "next") {
+                    throw new Error(
+                        "Ronin: nieoczekiwana akcja zamiast Dalej przed mobami (" +
+                        result + ")."
+                    );
+                }
+                if (fightOnMobField) {
+                    nextAfterFight++;
+                }
             }
 
             throw new Error(
-                "Ronin: nie udało się dojść do etapu przeciwników po " +
-                maxTransitions +
-                " przejściach dialogu."
+                "Ronin: nie udało się dojść do mobów po " +
+                maxTransitions + " przejściach dialogu."
             );
         }
 
@@ -3150,7 +3295,7 @@
             return refreshed;
         }
 
-        async roninQuestAction() {
+        async roninQuestAction(knownStep = null) {
             const pendingMove = this.currentQuestMove;
             if (
                 pendingMove &&
@@ -3174,8 +3319,16 @@
             // Przed każdą akcją pobieramy świeży q_step zamiast ufać
             // currentRoninQuestStep. Odpowiedź poprzedniej akcji może być
             // już nieaktualna względem przebudowy okna/trackera klienta.
-            const step = await this.openRoninQuestStep();
+            const step =
+                knownStep &&
+                typeof knownStep === "object" &&
+                this._int(knownStep.qb_id) === questId
+                    ? knownStep
+                    : await this.openRoninQuestStep();
 
+            // Otwieranie q_step bywało już wykonane w pętli przygotowania.
+            // Dodatkowe otwarcie pomiędzy odczytem a kliknięciem potrafiło
+            // przebudować klientowy dialog i ukryć przycisk.
             const want = step?.want;
             const wantType = this._int(want?.type);
             const isMet = Boolean(want?.is_met);
@@ -3310,12 +3463,12 @@
             return "next";
         }
 
-        async roninQuestNext() {
-            return this.roninQuestAction();
+        async roninQuestNext(step = null) {
+            return this.roninQuestAction(step);
         }
 
-        async roninQuestFight() {
-            return this.roninQuestAction();
+        async roninQuestFight(step = null) {
+            return this.roninQuestAction(step);
         }
 
         handleQuestMoveResponse(response) {
