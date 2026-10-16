@@ -15964,10 +15964,12 @@
                     characters.map(
                         (char) => [
                             Number(char.id),
-                            0
+                            null
                         ]
                     )
                 );
+
+            const roninAccountReasons = new Map();
 
             try {
                 for (let i = 0; i < characters.length; i++) {
