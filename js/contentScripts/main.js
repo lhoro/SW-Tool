@@ -952,6 +952,73 @@
             );
         }
 
+        async waitForRoninStartQuestReady({
+            timeoutMs = 8500
+        } = {}) {
+            // Mapa (loc=193) i quest z quests muszą pochodzić
+            // z aktualnego wejścia. Pierwszy q_step dopiero po
+            // odświeżeniu klienta, a nie natychmiast po order:8.
+            const startedAt = Date.now();
+            let mapRefreshed = false;
+
+            while (Date.now() - startedAt < timeoutMs) {
+                const mapLocation =
+                    this._int(this.mapSolver?.map?.locationId);
+                const mapResponse = this.lastRoninMapResponse;
+                const quest = this.roninQuestFromMapResponse(
+                    mapResponse
+                );
+
+                if (
+                    mapLocation === 193 &&
+                    quest?.qbId > 0 &&
+                    this._int(this.roninQuestId) === quest.qbId
+                ) {
+                    // Klientowi WWW dajemy krótką chwilę na obsłużenie
+                    // renderu i interakcji pola po otrzymaniu mapy.
+                    await this.sleep(400);
+
+                    if (
+                        this._int(this.mapSolver?.map?.locationId) !== 193
+                    ) {
+                        throw new Error(
+                            "Ronin: lokalizacja zmieniła się podczas ładowania startu."
+                        );
+                    }
+
+                    toolConsole(
+                        "info",
+                        "[SW Tool][RONIN] Startowy quest gotowy po synchronizacji mapy.",
+                        {
+                            questId: quest.qbId,
+                            x: quest.x,
+                            y: quest.y,
+                            elapsedMs: Date.now() - startedAt,
+                            refreshedMap: mapRefreshed
+                        }
+                    );
+                    return quest.qbId;
+                }
+
+                if (
+                    !mapRefreshed &&
+                    Date.now() - startedAt >= 900 &&
+                    this.mapSolver &&
+                    mapLocation === 193
+                ) {
+                    mapRefreshed = true;
+                    await this.mapSolver.refreshMap();
+                    continue;
+                }
+
+                await this.sleep(50);
+            }
+
+            throw new Error(
+                "Ronin: startowy quest nie został załadowany po wejściu na mapę 193."
+            );
+        }
+
         gameDebug() {
             toolConsole("log", "Game ID " + GAME.char_id);
             toolConsole("log", "Char ID " + this.currentCharacterId);
@@ -4358,19 +4425,26 @@
                 },
                 [777, 999],
                 (event) =>
-                    this._int(event.e) !== 0 ||
+                    (
+                        this._int(event.a) === 999 &&
+                        this._int(event.e) !== 0
+                    ) ||
                     (
                         this._int(event.a) === 777 &&
                         this._int(event.order) === 1 &&
-                        this._int(event.instance_id) ===
-                            RONIN_INSTANCE_ID
+                        (
+                            this._int(event.e) !== 0 ||
+                            this._int(event.instance_id) ===
+                                RONIN_INSTANCE_ID
+                        )
                     ),
                 15000
             );
 
             if (this._int(selected.e) !== 0) {
                 throw new Error(
-                    "Ronin: serwer odrzucił wybór instancji."
+                    "Ronin: serwer odrzucił wybór instancji (order=" +
+                    this._int(selected.order) + ", e=" + this._int(selected.e) + ")."
                 );
             }
 
@@ -4383,20 +4457,29 @@
                 },
                 [777, 999],
                 (event) =>
-                    this._int(event.e) !== 0 ||
+                    (
+                        this._int(event.a) === 999 &&
+                        this._int(event.e) !== 0
+                    ) ||
                     (
                         this._int(event.a) === 777 &&
                         this._int(event.order) === 2 &&
-                        this._int(event.instance_id) ===
-                            RONIN_INSTANCE_ID &&
-                        this._int(event.own_room) > 0
+                        (
+                            this._int(event.e) !== 0 ||
+                            (
+                                this._int(event.instance_id) ===
+                                    RONIN_INSTANCE_ID &&
+                                this._int(event.own_room) > 0
+                            )
+                        )
                     ),
                 15000
             );
 
             if (this._int(created.e) !== 0) {
                 throw new Error(
-                    "Ronin: nie udało się utworzyć pokoju."
+                    "Ronin: serwer odrzucił tworzenie pokoju (order=" +
+                    this._int(created.order) + ", e=" + this._int(created.e) + ")."
                 );
             }
 
@@ -4416,8 +4499,16 @@
                 },
                 [777, 999],
                 (event) => {
-                    if (this._int(event.e) !== 0) return true;
-                    if (this._int(event.a) !== 777) return false;
+                    const action = this._int(event.a);
+                    if (action === 999) {
+                        return this._int(event.e) !== 0;
+                    }
+                    if (action !== 777) return false;
+                    // Nie przechwytujemy opóźnionych błędów order:9
+                    // po zakończeniu poprzedniej instancji.
+                    if (this._int(event.e) !== 0) {
+                        return this._int(event.order) === 7;
+                    }
 
                     if (this._int(event.done) === 31) return true;
 
@@ -4436,7 +4527,8 @@
 
             if (this._int(started.e) !== 0) {
                 throw new Error(
-                    "Ronin: serwer odrzucił start pokoju."
+                    "Ronin: serwer odrzucił start pokoju (order=" +
+                    this._int(started.order) + ", e=" + this._int(started.e) + ")."
                 );
             }
 
@@ -4449,19 +4541,23 @@
                 },
                 [3, 777, 999],
                 (event) => {
-                    if (this._int(event.e) !== 0) return true;
+                    const action = this._int(event.a);
+                    if (action === 999) {
+                        return this._int(event.e) !== 0;
+                    }
 
-                    if (
-                        this._int(event.a) === 777 &&
-                        this._int(event.order) === 8 &&
-                        this._int(event.enter_instance) ===
-                            RONIN_INSTANCE_ID
-                    ) {
-                        return true;
+                    if (action === 777) {
+                        if (this._int(event.order) !== 8) return false;
+                        return (
+                            this._int(event.e) !== 0 ||
+                            this._int(event.enter_instance) ===
+                                RONIN_INSTANCE_ID
+                        );
                     }
 
                     return (
-                        this._int(event.a) === 3 &&
+                        action === 3 &&
+                        this._int(event.e) === 0 &&
                         event.loc &&
                         typeof event.loc === "object" &&
                         this._int(event.loc.id) ===
@@ -4473,7 +4569,8 @@
 
             if (this._int(entered.e) !== 0) {
                 throw new Error(
-                    "Ronin: serwer odrzucił wejście do instancji."
+                    "Ronin: serwer odrzucił wejście do instancji (order=" +
+                    this._int(entered.order) + ", e=" + this._int(entered.e) + ")."
                 );
             }
 
@@ -4501,10 +4598,15 @@
                 );
             }
 
+            // To nie order:8, lecz gotowa mapa i quest są warunkiem
+            // rozpoczęcia pierwszego kroku Ronina.
+            await this.waitForRoninStartQuestReady();
+
             toolConsole("info", "[SW Tool][RONIN] Wejście potwierdzone:", {
                 instance: RONIN_INSTANCE_ID,
                 room: roomId,
-                location: RONIN_LOCATION_ID
+                location: RONIN_LOCATION_ID,
+                questId: this._int(this.roninQuestId)
             });
         }
 
