@@ -16111,16 +16111,42 @@
                                         attemptsForCharacter
                                 );
 
-                            used =
-                                await this.confirmRoninDailyUsage(
-                                    id,
-                                    expectedUsed
-                                );
+                            // Po a:777 najpierw potwierdzamy wyjście z
+                            // instancji; dopiero potem odczytujemy icd_5.
+                            await this.ensureRoninReturned(id);
 
-                            dailyUsageByCharacter.set(
-                                id,
-                                used
-                            );
+                            try {
+                                used =
+                                    await this.confirmRoninDailyUsage(
+                                        id,
+                                        expectedUsed
+                                    );
+                                dailyUsageByCharacter.set(id, used);
+                            } catch (error) {
+                                const message =
+                                    error instanceof Error
+                                        ? error.message
+                                        : String(error);
+                                if (
+                                    !message.includes(
+                                        "serwer nie potwierdził zwiększenia licznika dziennego"
+                                    )
+                                ) {
+                                    throw error;
+                                }
+
+                                used = this.roninDailyUsage();
+                                dailyUsageByCharacter.set(id, used);
+                                roninAccountReasons.set(
+                                    id,
+                                    "niepotwierdzony icd_5 po zakończonym Roninie"
+                                );
+                                toolConsole(
+                                    "warn",
+                                    "[SW Tool][ACCOUNT] Ronin: a:777 potwierdzone, icd_5 opóźnione.",
+                                    { label, id, expectedUsed, used }
+                                );
+                            }
 
                             if (
                                 used > expectedUsed &&
@@ -16142,11 +16168,7 @@
                                 );
                             }
 
-                            // a:777 kończy instancję, ale icd_5 potrafi
-                            // przyjść chwilę przed instance_id=0/loc powrotnym.
-                            // Nie rozpoczynamy kolejnej próby na starej mapie 193.
-                            await this.ensureRoninReturned(id);
-
+                            // Kolejna próba dopiero po potwierdzonym powrocie.
                             toolConsole("info", 
                                 "[SW Tool][ACCOUNT] Ronin — " +
                                 label +
