@@ -4870,6 +4870,64 @@
                 );
             }
 
+            const originData =
+                this.currentCharacterSnapshot?.char_data;
+            const originLocationId =
+                this._int(originData?.loc);
+
+            if (
+                !originData ||
+                originLocationId <= 0 ||
+                originLocationId === 193
+            ) {
+                throw new Error(
+                    "Ronin: przed startem brak poprawnej lokalizacji powrotnej z a:2."
+                );
+            }
+
+            const previousReturn = this.roninReturnSync;
+            if (
+                previousReturn?.enteredMap &&
+                !previousReturn.confirmed
+            ) {
+                const error = new Error(
+                    "Ronin: poprzednia instancja nie ma potwierdzonego teleportu powrotnego."
+                );
+                error.swToolUnsafeRoninReturn = true;
+                throw error;
+            }
+
+            this.roninReturnSync = {
+                characterId:
+                    this._int(
+                        this.currentCharacterSnapshot?.char_id ||
+                        originData.id ||
+                        this.currentCharacterId
+                    ),
+                originLocationId,
+                originX: this._int(originData.x),
+                originY: this._int(originData.y),
+                enteredMap: false,
+                finishedAt: 0,
+                instanceCleared: false,
+                originLocationReceived: false,
+                returnMapReceived: false,
+                dailyUsageReceived: false,
+                dailyUsage: null,
+                confirmed: false
+            };
+
+            toolConsole(
+                "info",
+                "[SW Tool][RONIN] Zapisano lokalizację powrotu przed wejściem.",
+                {
+                    charId: this.roninReturnSync.characterId,
+                    originLocationId,
+                    originX: this.roninReturnSync.originX,
+                    originY: this.roninReturnSync.originY
+                }
+            );
+
             this.roninRunning = true;
             this.clearRoninTimers();
             const runStartedAt = Date.now();
@@ -4905,12 +4963,19 @@
                     );
                 }
 
-                const returned = await this.waitForRoninReturn();
-                if (!returned) {
-                    toolConsole("warn", 
-                        "[SW Tool][RONIN] Nie potwierdzono jeszcze powrotu z mapy instancji."
-                    );
+                // runSingleRoninAttempt() kończy się dopiero po
+                // rzeczywistym powrocie i pakiecie icd_5 z serwera.
+                await this.ensureRoninReturned(
+                    this.roninReturnSync.characterId
+                );
+            } catch (error) {
+                // Gdy wejście na mapę 193 już nastąpiło, ale do końca
+                // lub powrotu nie dotarliśmy, zmiana postaci jest niebezpieczna.
+                const sync = this.roninReturnSync;
+                if (sync?.enteredMap && !sync.confirmed) {
+                    error.swToolUnsafeRoninReturn = true;
                 }
+                throw error;
             } finally {
                 this.clearRoninTimers();
                 this.roninRunning = false;
@@ -16276,7 +16341,15 @@
                             );
                         }
                     } catch (error) {
-                        if (this.isFatalAccountError(error)) {
+                        if (
+                            this.isFatalAccountError(error) ||
+                            error?.swToolUnsafeRoninReturn
+                        ) {
+                            toolConsole(
+                                "error",
+                                "[SW Tool][ACCOUNT] Zatrzymuję konto: Ronin nie wrócił bezpiecznie.",
+                                error
+                            );
                             throw error;
                         }
 
@@ -16299,7 +16372,23 @@
                 }
             } finally {
                 this.stopNavigation("koniec operacji Ronin konta");
-                await this.restoreAccountCharacter(originalId);
+                const sync = this.roninReturnSync;
+                if (
+                    sync?.enteredMap &&
+                    !sync.confirmed
+                ) {
+                    toolConsole(
+                        "warn",
+                        "[SW Tool][ACCOUNT] Nie przywracam postaci — powrót z Ronina nie został potwierdzony.",
+                        {
+                            characterId: sync.characterId,
+                            originLocationId: sync.originLocationId,
+                            finishedAt: sync.finishedAt
+                        }
+                    );
+                } else {
+                    await this.restoreAccountCharacter(originalId);
+                }
             }
 
             const characterSummary =
