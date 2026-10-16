@@ -151,6 +151,7 @@
             this.roninCounter = 0;
             this.roninTimers = [];
             this.roninFinishedAt = 0;
+            this.roninReturnSync = null;
             this.roninInstanceDefinition = null;
             this.roninDailyLimit = 2;
             this.roninDailyUsageVersion = 0;
@@ -442,6 +443,55 @@
                 this.handleRoninMapQuestResponse(response);
             }
 
+            // Rejestrujemy nowe, rzeczywiście odebrane RX powrotu.
+            // MapSolver i dane postaci mogły jeszcze zawierać starą lokację.
+            const returnSync = this.roninReturnSync;
+            if (
+                returnSync &&
+                this._int(GAME.char_id || this.currentCharacterId) ===
+                    returnSync.characterId
+            ) {
+                if (
+                    action === 3 &&
+                    error === 0 &&
+                    this._int(response.loc?.id) === 193
+                ) {
+                    returnSync.enteredMap = true;
+                }
+
+                if (returnSync.finishedAt > 0) {
+                    if (
+                        action === 3 &&
+                        error === 0 &&
+                        this._int(response.loc?.id) ===
+                            returnSync.originLocationId
+                    ) {
+                        returnSync.returnMapReceived = true;
+                    }
+
+                    if (action === 998) {
+                        const field = String(response.f || "");
+                        if (
+                            field === "instance_id" &&
+                            this._int(response.v) === 0
+                        ) {
+                            returnSync.instanceCleared = true;
+                        }
+                        if (
+                            field === "loc" &&
+                            this._int(response.v) ===
+                                returnSync.originLocationId
+                        ) {
+                            returnSync.originLocationReceived = true;
+                        }
+                        if (field === "icd_5") {
+                            returnSync.dailyUsageReceived = true;
+                            returnSync.dailyUsage = this._int(response.v);
+                        }
+                    }
+                }
+            }
+
             if (
                 action === 607 &&
                 response.quick_opts &&
@@ -558,12 +608,27 @@
             if (
                 action === 777 &&
                 this._enabled(response.instance_finished) &&
-                this._int(response.instance) === 5
+                this._int(response.instance) === 5 &&
+                this.roninRunning &&
+                (
+                    this._int(response.char_id) === 0 ||
+                    this._int(response.char_id) ===
+                        this._int(this.currentCharacterId)
+                )
             ) {
                 this.roninFinishedAt = Date.now();
-                toolConsole("info", "[SW Tool][RONIN] Instancja zakończona.", {
+                if (
+                    this.roninReturnSync &&
+                    this.roninReturnSync.characterId ===
+                        this._int(this.currentCharacterId)
+                ) {
+                    this.roninReturnSync.finishedAt = this.roninFinishedAt;
+                }
+                toolConsole("info", "[SW Tool][RONIN] Instancja zakończona — czekam na teleport i rozliczenie.", {
                     done: response.done,
-                    share: response.share
+                    share: response.share,
+                    charId: response.char_id,
+                    returnLocation: this.roninReturnSync?.originLocationId
                 });
             }
 
@@ -4197,85 +4262,112 @@
             );
         }
 
-        async waitForRoninReturn(timeoutMs = 5000) {
+        async waitForRoninReturn(timeoutMs = 30000) {
+            const sync = this.roninReturnSync;
+            if (!sync || sync.finishedAt <= 0) {
+                throw new Error(
+                    "Ronin: nie ma potwierdzonego końca instancji do oczekiwania na teleport."
+                );
+            }
+
             const startedAt = Date.now();
 
             while (Date.now() - startedAt < timeoutMs) {
-                const mapLocation = this._int(
-                    this.mapSolver?.map?.locationId
-                );
-                const charLocation = this._int(
-                    this.currentCharacterSnapshot?.char_data?.loc
-                );
-                const instanceId = this._int(
-                    this.currentCharacterSnapshot?.char_data?.instance_id
-                );
-
                 if (
-                    instanceId === 0 &&
-                    (
-                        (mapLocation > 0 && mapLocation !== 193) ||
-                        (charLocation > 0 && charLocation !== 193)
-                    )
+                    sync.characterId !==
+                    this._int(GAME.char_id || this.currentCharacterId)
                 ) {
-                    toolConsole("info", 
-                        "[SW Tool][RONIN] Powrót z instancji potwierdzony:",
-                        {
-                            mapLocation,
-                            charLocation,
-                            instanceId
-                        }
+                    throw new Error(
+                        "Ronin: postać zmieniła się przed potwierdzeniem teleportu."
                     );
+                }
+
+                // Wyłącznie NOWE pakiety odebrane po a:777.
+                // Poprzedni stan snapshotu/mapy nigdy nie zaliczy powrotu.
+                if (
+                    sync.instanceCleared &&
+                    sync.originLocationReceived &&
+                    sync.returnMapReceived &&
+                    sync.dailyUsageReceived
+                ) {
+                    if (!sync.confirmed) {
+                        sync.confirmed = true;
+                        this.setQuickPanelStatus(
+                            "Ronin: teleport i rozliczenie potwierdzone — " +
+                            sync.originLocationId +
+                            " (" + sync.dailyUsage + "/" +
+                            this.roninDailyLimit + ")"
+                        );
+
+                        toolConsole(
+                            "info",
+                            "[SW Tool][RONIN] Teleport powrotny i rozliczenie potwierdzone.",
+                            {
+                                characterId: sync.characterId,
+                                originLocationId: sync.originLocationId,
+                                originX: sync.originX,
+                                originY: sync.originY,
+                                icd_5: sync.dailyUsage,
+                                elapsedAfterFinishMs:
+                                    Date.now() - sync.finishedAt
+                            }
+                        );
+
+                        // Dopiero po otrzymaniu pełnego RX dajemy oficjalnemu
+                        // klientowi moment na wyrenderowanie pola powrotnego.
+                        await this.sleep(350);
+                    }
+
                     return true;
                 }
 
-                await this.sleep(25);
+                await this.sleep(50);
             }
+
+            toolConsole(
+                "warn",
+                "[SW Tool][RONIN] Niepełny powrót z instancji; wstrzymuję dalsze akcje.",
+                {
+                    characterId: sync.characterId,
+                    originLocationId: sync.originLocationId,
+                    finishedAt: sync.finishedAt,
+                    instanceCleared: sync.instanceCleared,
+                    originLocationReceived: sync.originLocationReceived,
+                    returnMapReceived: sync.returnMapReceived,
+                    dailyUsageReceived: sync.dailyUsageReceived,
+                    currentMap: this._int(this.mapSolver?.map?.locationId),
+                    currentLoc: this._int(
+                        this.currentCharacterSnapshot?.char_data?.loc
+                    )
+                }
+            );
 
             return false;
         }
 
         async ensureRoninReturned(characterId) {
+            const sync = this.roninReturnSync;
+            if (
+                !sync ||
+                sync.characterId !== this._int(characterId)
+            ) {
+                throw new Error(
+                    "Ronin: brak stanu powrotu dla bieżącej postaci."
+                );
+            }
+
             if (await this.waitForRoninReturn()) {
                 return true;
             }
 
-            toolConsole("warn", 
-                "[SW Tool][RONIN] Brak potwierdzenia powrotu z instancji — odświeżam postać.",
-                {
-                    characterId,
-                    mapLocation: this._int(
-                        this.mapSolver?.map?.locationId
-                    ),
-                    charLocation: this._int(
-                        this.currentCharacterSnapshot?.char_data?.loc
-                    ),
-                    instanceId: this._int(
-                        this.currentCharacterSnapshot?.char_data?.instance_id
-                    )
-                }
+            // Nie używamy a:2 jako zastępczego teleportu i nie zmieniamy
+            // postaci, dopóki serwer nie potwierdzi powrotu.
+            const error = new Error(
+                "Ronin: serwer nie potwierdził teleportu powrotnego i rozliczenia " +
+                "(loc=" + sync.originLocationId + "). Kolejny obieg i zmiana postaci wstrzymane."
             );
-
-            await this.switchCharacterForAccountAction(
-                characterId,
-                0,
-                true
-            );
-
-            const charLocation = this._int(
-                this.currentCharacterSnapshot?.char_data?.loc
-            );
-            const instanceId = this._int(
-                this.currentCharacterSnapshot?.char_data?.instance_id
-            );
-
-            if (instanceId !== 0 || charLocation === 193) {
-                throw new Error(
-                    "Ronin: postać nadal znajduje się w instancji po jej zakończeniu."
-                );
-            }
-
-            return true;
+            error.swToolUnsafeRoninReturn = true;
+            throw error;
         }
 
         async getRoninInstanceDefinition(
