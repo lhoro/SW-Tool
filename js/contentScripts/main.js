@@ -4270,6 +4270,10 @@
                 );
             }
 
+            if (sync.confirmed) {
+                return true;
+            }
+
             const startedAt = Date.now();
 
             this.setQuickPanelStatus(
