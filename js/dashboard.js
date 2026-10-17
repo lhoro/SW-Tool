@@ -201,7 +201,11 @@
   function minimize(value) {
     panel.classList.toggle("compact", Boolean(value));
     state.ui.minimized = Boolean(value);
-    $("#minimize").textContent = value ? "+" : "−";
+    const button = $("#minimize");
+    button.textContent = value ? "+" : "−";
+    button.title = value ? "Rozwiń panel" : "Zwiń panel";
+    button.setAttribute("aria-label", button.title);
+    button.setAttribute("aria-expanded", String(!value));
     if (state.ui.position) positionPanel(state.ui.position);
     persistUI();
   }
