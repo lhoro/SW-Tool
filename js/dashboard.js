@@ -15,6 +15,7 @@
   };
   const state = { config: { ...DEFAULTS }, accounts: [], ui: {}, lastLog: "", game: null, loading: false };
   let shadow, host, panel, statusLine, timer, polling = false;
+  let configQueue = Promise.resolve();
 
   function requestPage(action, payload = {}, timeoutMs = 11000) {
     const requestId = (crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random());
@@ -201,6 +202,7 @@
     panel.classList.toggle("compact", Boolean(value));
     state.ui.minimized = Boolean(value);
     $("#minimize").textContent = value ? "+" : "−";
+    if (state.ui.position) positionPanel(state.ui.position);
     persistUI();
   }
   function resetPosition() {
@@ -214,7 +216,7 @@
   function positionPanel(position) {
     if (!position || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return;
     const maxX = Math.max(0, innerWidth - panel.offsetWidth);
-    const maxY = Math.max(0, innerHeight - 40);
+    const maxY = Math.max(0, innerHeight - panel.offsetHeight);
     panel.style.left = Math.max(0, Math.min(maxX, position.x)) + "px";
     panel.style.top = Math.max(0, Math.min(maxY, position.y)) + "px";
     panel.style.right = "auto";
@@ -289,22 +291,23 @@
       input.checked = state.config[input.dataset.config] === true;
     });
   }
-  async function changeConfig(key, value) {
-    const previous = { ...state.config };
-    const updated = { ...state.config, [key]: value };
-    state.config = updated;
+  function changeConfig(key, value) {
+    state.config = { ...state.config, [key]: value };
     syncConfig();
-    try {
-      const result = await sendBackground("config.set", { config: updated });
-      state.config = result.config || updated;
-      await requestPage("config.apply", { config: state.config });
-      syncConfig();
+    const snapshot = { ...state.config };
+    configQueue = configQueue.catch(() => {}).then(async () => {
+      await sendBackground("config.set", { config: snapshot });
+      await requestPage("config.apply", { config: snapshot });
       notice("Zapisano ustawienie: " + key + ".");
-    } catch (error) {
-      state.config = previous;
-      syncConfig();
+    }).catch(async (error) => {
+      try {
+        const latest = await chrome.storage.local.get("config");
+        state.config = { ...DEFAULTS, ...(latest.config || {}) };
+        syncConfig();
+      } catch (_) {}
       notice(error.message, true);
-    }
+    });
+    return configQueue;
   }
 
   function renderGame(s) {
