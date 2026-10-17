@@ -1,36 +1,29 @@
 {
   "name": "SW Tool",
   "description": "Narzędzie do gry ShinobiWorld",
-
   "version": "0.0.1",
   "manifest_version": 3,
-  
   "icons": {
     "16": "images/icon_16x16.png",
     "48": "images/icon_48x48.png",
     "128": "images/icon_128x128.png"
   },
-
   "action": {
     "default_popup": "html/popup.html"
   },
-
   "permissions": [
     "tabs",
     "scripting",
     "storage",
     "activeTab"
   ],
-
-	"host_permissions": [
-	  "https://shinobiworld.pl/*",
-	  "https://*.shinobiworld.pl/*"
-	],
-
-  "background":{
-    "service_worker" : "js/background.js" 
+  "host_permissions": [
+    "https://shinobiworld.pl/*",
+    "https://*.shinobiworld.pl/*"
+  ],
+  "background": {
+    "service_worker": "js/background.js"
   },
-
   "content_scripts": [
     {
       "matches": [
@@ -38,7 +31,8 @@
       ],
       "js": [
         "js/jquery.js",
-        "js/contentScript.js"        
+        "js/contentScript.js",
+        "js/dashboard.js"
       ],
       "css": [
         "css/customStyles.css"
@@ -48,15 +42,17 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": [ 
+      "resources": [
         "js/contentScripts/menageCSS.js",
         "js/contentScripts/menageStorage.js",
         "js/contentScripts/mapSolver.js",
         "js/contentScripts/main.js",
-        "js/oldBot.js"
+        "js/oldBot.js",
+        "css/dashboard.css"
       ],
-      "matches": [ "https://*.shinobiworld.pl/*" ]
+      "matches": [
+        "https://*.shinobiworld.pl/*"
+      ]
     }
   ]
-   
 }
