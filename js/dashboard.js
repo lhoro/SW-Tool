@@ -158,6 +158,7 @@
           '<div class="section">Panel i układ gry</div>',
           '<div class="card">',
           boolOption("debugLogs","Szczegółowe logi w konsoli"),
+          '<label class="option"><span>Kompaktowy układ panelu</span><input id="dense-layout" type="checkbox"></label>',
           '<label class="option">Pokaż dawne panele na grze<input id="legacy-panels" type="checkbox"></label>',
           '<button class="secondary" id="reset-position">Reset pozycji dashboardu</button></div>',
         '</div>',
@@ -196,6 +197,15 @@
     state.ui.hidden = Boolean(hidden);
     panel.hidden = hidden;
     $("#launcher").hidden = !hidden;
+    persistUI();
+  }
+  function setDenseMode(enabled) {
+    const dense = Boolean(enabled);
+    state.ui.dense = dense;
+    panel.classList.toggle("dense", dense);
+    $("#dense-layout").checked = dense;
+    // Jeśli panel był przesuwany, pilnujemy widoczności po zmianie szerokości.
+    if (state.ui.position) positionPanel(state.ui.position);
     persistUI();
   }
   function minimize(value) {
@@ -486,6 +496,7 @@
     shadow.addEventListener("change", async event => {
       const input = event.target;
       if (input.dataset.config) await changeConfig(input.dataset.config, input.checked);
+      if (input.id === "dense-layout") setDenseMode(input.checked);
       if (input.id === "legacy-panels")
         document.documentElement.classList.toggle("sw-tool-legacy-visible", input.checked);
       if (input.id === "resp-limit")
@@ -531,6 +542,7 @@
     setTab(["pulpit","automaty","konto","ustawienia","debug"].includes(state.ui.tab) ? state.ui.tab : "pulpit");
     renderAccounts();
     syncConfig();
+    setDenseMode(state.ui.dense !== false);
     bind();
     if (state.ui.position) positionPanel(state.ui.position);
     minimize(state.ui.minimized === true);
