@@ -159,14 +159,13 @@
           '<div class="card">',
           boolOption("debugLogs","Szczegółowe logi w konsoli"),
           '<label class="option"><span>Kompaktowy układ panelu</span><input id="dense-layout" type="checkbox"></label>',
-          '<label class="option">Pokaż dawne panele na grze<input id="legacy-panels" type="checkbox"></label>',
           '<button class="secondary" id="reset-position">Reset pozycji dashboardu</button></div>',
         '</div>',
         '<div class="page" data-page="debug" hidden>',
           '<div class="section">Bieżący log automatyzacji</div>',
           '<div class="card"><div class="row"><div class="card-title">Ostatnie zdarzenia</div><span class="chip" id="log-count">0</span></div>',
           '<div class="log" id="log-box" style="margin-top:10px"><div class="muted">Łączenie z grą...</div></div>',
-          '<button class="secondary" id="show-legacy">Pokaż / ukryj stare panele</button></div>',
+          '</div>',
           '<div class="section">Narzędzia diagnostyczne</div>',
           '<div class="card"><div class="card-title">Logger socketów TX/RX</div>',
           '<div class="muted" id="socket-status">Stan: nieznany</div>',
@@ -417,11 +416,6 @@
       if (btn.id === "close") return setHidden(true);
       if (btn.id === "launcher") return setHidden(false);
       if (btn.id === "restore-position" || btn.id === "reset-position") return resetPosition();
-      if (btn.id === "show-legacy") {
-        $("#legacy-panels").checked = !$("#legacy-panels").checked;
-        document.documentElement.classList.toggle("sw-tool-legacy-visible", $("#legacy-panels").checked);
-        return;
-      }
       if (btn.id === "save-accounts") {
         const accounts = [];
         for (let i = 0; i < 5; i++) {
@@ -497,8 +491,6 @@
       const input = event.target;
       if (input.dataset.config) await changeConfig(input.dataset.config, input.checked);
       if (input.id === "dense-layout") setDenseMode(input.checked);
-      if (input.id === "legacy-panels")
-        document.documentElement.classList.toggle("sw-tool-legacy-visible", input.checked);
       if (input.id === "resp-limit")
         input.value = String(Math.max(0, Math.floor(Number(input.value) || 0)));
     });
@@ -547,7 +539,6 @@
     if (state.ui.position) positionPanel(state.ui.position);
     minimize(state.ui.minimized === true);
     setHidden(state.ui.hidden === true);
-    document.documentElement.classList.add("sw-tool-dashboard-active");
     state.loading = true;
     await refreshGame();
     timer = setInterval(refreshGame, 1800);
@@ -565,6 +556,5 @@
   init().catch(error => {
     console.error("[SW Tool][DASHBOARD] Inicjalizacja:", error);
     if (host) host.remove();
-    document.documentElement.classList.remove("sw-tool-dashboard-active");
   });
 })();
