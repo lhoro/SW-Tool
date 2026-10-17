@@ -8,9 +8,6 @@
     "48": "images/icon_48x48.png",
     "128": "images/icon_128x128.png"
   },
-  "action": {
-    "default_popup": "html/popup.html"
-  },
   "permissions": [
     "tabs",
     "scripting",
@@ -33,9 +30,6 @@
         "js/jquery.js",
         "js/contentScript.js",
         "js/dashboard.js"
-      ],
-      "css": [
-        "css/customStyles.css"
       ],
       "run_at": "document_end"
     }
