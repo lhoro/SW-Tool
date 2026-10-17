@@ -65,7 +65,10 @@ input:focus,button:focus-visible{outline:2px solid #e1bf7a;outline-offset:1px}
 .dot{display:inline-block;width:7px;height:7px;background:#73c58b;border-radius:50%;margin-right:5px}
 .inline{display:flex;gap:7px;align-items:center}
 .inline input{flex:1}
-.compact .top,.compact .tabs,.compact .scroller,.compact .status{display:none}
-.compact{width:195px!important}
-.compact .footer{padding:8px}
+/* Zminimalizowany panel zachowuje nagłówek i przycisk + do przywracania. */
+.compact{width:min(260px,calc(100vw - 16px))!important}
+.compact .top{display:block;padding:8px}
+.compact .logo,.compact .subtitle,.compact .accounts-short,.compact .tabs,.compact .scroller,.compact .status,.compact .footer{display:none!important}
+.compact .head{cursor:move}
+.compact .title{font-size:13px}
 @media(max-width:480px){#panel{right:7px;bottom:7px;max-height:calc(100vh - 14px)}.top{padding:9px}.scroller{padding:10px}}
