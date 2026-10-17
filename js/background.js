@@ -339,7 +339,13 @@ async function handleMessage(msg, sender) {
         throw new Error("Uzupełnij login i hasło dla wybranego profilu.");
       }
 
-      const tab = await getActiveGameTab();
+      // Panel na grze zawsze przełącza własną kartę, nie przypadkową aktywną.
+      const tab = msg.source === "dashboard" && sender.tab?.id
+        ? sender.tab
+        : await getActiveGameTab();
+      if (!GAME_URL.test(tab.url || sender.url || "")) {
+        throw new Error("Można przełączać tylko kartę ShinobiWorld.");
+      }
 
       const result = await switchAccountViaApi(account, tab.id);
 
@@ -358,7 +364,7 @@ async function handleMessage(msg, sender) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (!msg || !["popup", "contentScript"].includes(msg.source)) {
+  if (!msg || !["popup", "contentScript", "dashboard"].includes(msg.source)) {
     return false;
   }
 
