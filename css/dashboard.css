@@ -65,6 +65,46 @@ input:focus,button:focus-visible{outline:2px solid #e1bf7a;outline-offset:1px}
 .dot{display:inline-block;width:7px;height:7px;background:#73c58b;border-radius:50%;margin-right:5px}
 .inline{display:flex;gap:7px;align-items:center}
 .inline input{flex:1}
+/* Widok gęsty to rozmiar dashboardu, niezależny od minimalizacji.
+   Zachowujemy pełny nagłówek i przycisk + w stanie .compact. */
+#panel.dense:not(.compact){width:min(354px,calc(100vw - 16px))}
+.dense:not(.compact) .top{padding:9px 10px 7px}
+.dense:not(.compact) .head{gap:7px}
+.dense:not(.compact) .logo{height:30px;min-width:32px;font-size:11px}
+.dense:not(.compact) .title{font-size:13px}
+.dense:not(.compact) .subtitle{font-size:8px;margin-top:1px}
+.dense:not(.compact) .icon{width:28px;height:27px}
+.dense:not(.compact) .accounts-short{margin-top:7px;gap:4px}
+.dense:not(.compact) .account-slot{min-height:25px;font-size:9px}
+.dense:not(.compact) .tabs{padding:4px 5px 0}
+.dense:not(.compact) .tab{font-size:9px;padding:7px 1px}
+.dense:not(.compact) .scroller{padding:9px 10px}
+.dense:not(.compact) .section{margin:0 0 6px;letter-spacing:.8px;font-size:9px}
+.dense:not(.compact) .stats{gap:5px;margin-bottom:11px}
+.dense:not(.compact) .stat{padding:7px 6px}
+.dense:not(.compact) .value{font-size:14px}
+.dense:not(.compact) .label{font-size:9px;margin-top:3px}
+.dense:not(.compact) .card{padding:9px;margin-bottom:8px}
+.dense:not(.compact) .card-title{font-size:11px}
+.dense:not(.compact) .muted{margin-top:3px;line-height:1.35}
+.dense:not(.compact) .chip{font-size:9px;padding:3px 5px}
+.dense:not(.compact) .primary{margin-top:8px;padding:7px 6px;font-size:11px}
+.dense:not(.compact) .secondary{margin-top:7px;padding:7px 6px;font-size:11px}
+.dense:not(.compact) .quick{gap:5px;margin-bottom:11px}
+.dense:not(.compact) .action{min-height:38px;padding:7px 3px;font-size:10px}
+.dense:not(.compact) .action strong{display:inline;font-size:14px;margin:0 5px 0 0;vertical-align:middle}
+.dense:not(.compact) .option{margin:7px 0;gap:6px;font-size:10px}
+.dense:not(.compact) .option input[type=checkbox]{width:32px;height:18px}
+.dense:not(.compact) .option input[type=checkbox]:before{width:12px;height:12px}
+.dense:not(.compact) .option input[type=checkbox]:checked:before{transform:translateX(14px)}
+.dense:not(.compact) .field{margin:6px 0;gap:4px}
+.dense:not(.compact) input[type=text],
+.dense:not(.compact) input[type=password],
+.dense:not(.compact) input[type=number]{padding:6px;font-size:10px}
+.dense:not(.compact) .account-edit{padding:6px 0}
+.dense:not(.compact) .status{padding:6px 10px;min-height:26px;font-size:9px}
+.dense:not(.compact) .footer{display:none}
+
 /* Zminimalizowany panel zachowuje nagłówek i przycisk + do przywracania. */
 .compact{width:min(260px,calc(100vw - 16px))!important}
 .compact .top{display:block;padding:8px}
