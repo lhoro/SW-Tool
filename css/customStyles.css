@@ -1,4 +1,0 @@
-/* Stare panele pozostają awaryjnie dostępne z dashboardu. */
-html.sw-tool-dashboard-active:not(.sw-tool-legacy-visible) #sw-tool-side-panels {
-    display: none !important;
-}
