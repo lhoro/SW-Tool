@@ -17296,6 +17296,11 @@
                 return;
             }
 
+            // Inputy w Shadow DOM dashboardu są retargetowane na host.
+            if (event.composedPath?.().some(
+                (node) => node?.id === "sw-tool-dashboard-host"
+            )) return;
+
             const target = event.target;
             if (
                 target instanceof Element &&
@@ -17354,6 +17359,9 @@
         }, true);
 
         $(document).keydown((event) => {
+            if (event.originalEvent?.composedPath?.().some(
+                (node) => node?.id === "sw-tool-dashboard-host"
+            )) return;
             if (
                 event.repeat ||
                 $("input, textarea, [contenteditable='true']").is(":focus")
@@ -17458,6 +17466,87 @@
                     true,
                     payload
                 );
+                return;
+            }
+
+            // Dashboard żyje w isolated world. Nie udostępniamy mu
+            // GAME ani BOT; przez bridge przekazujemy tylko prosty status
+            // i jawnie dozwolone akcje istniejących automatów.
+            if (data.action === "dashboard.state") {
+                const tool = await toolReadyPromise;
+                const charId = Number(
+                    window.GAME?.char_id || tool.currentCharacterId || 0
+                );
+                const logs = Array.isArray(tool.quickLogEntries)
+                    ? tool.quickLogEntries : [];
+                sendBridgeResponse(data.requestId, true, {
+                    characterId: charId,
+                    character: charId > 0 ? tool.currentCharacterLabel() : "",
+                    characters: Array.isArray(tool.chars) ? tool.chars.length : 0,
+                    accountRunning: tool.accountOperationRunning === true,
+                    quickRunning: tool.quickActionRunning === true,
+                    roninRunning: tool.roninRunning === true,
+                    questRunning: tool.questKillRunning === true,
+                    expRunning: tool.expRunning === true,
+                    respawnRunning: tool.respawnRunning === true,
+                    latestLog: logs.length ? logs[logs.length - 1].message : "",
+                    logCount: logs.length,
+                    logs: logs.slice(-45)
+                });
+                return;
+            }
+
+            if (data.action === "dashboard.command") {
+                const tool = await toolReadyPromise;
+                const kind = String(data.payload?.kind || "");
+                const action = String(data.payload?.action || "");
+
+                if (kind === "account") {
+                    const result = tool.startAccountOperation(action);
+                    sendBridgeResponse(data.requestId, true, result);
+                    return;
+                }
+
+                const handlers = {
+                    quick: {
+                        all: () => tool.runQuickAction("all"),
+                        training: () => tool.runQuickAction("training"),
+                        arena: () => tool.runQuickAction("arena"),
+                        abyss: () => tool.runQuickAction("abyss"),
+                        mission: () => tool.runQuickAction("mission"),
+                        ronin: () => tool.runQuickAction("ronin")
+                    },
+                    pve: {
+                        quest: () => tool.runQuestKills(),
+                        exp: () => tool.toggleExpiarka(),
+                        respawn: () => {
+                            if (tool.respawnLimitInput) {
+                                tool.respawnLimitInput.value = String(
+                                    Math.max(0, Math.floor(Number(
+                                        data.payload?.respawnLimit || 0
+                                    ) || 0))
+                                );
+                            }
+                            return tool.toggleRespawner();
+                        }
+                    }
+                };
+                const handler = handlers[kind]?.[action];
+                if (!handler) {
+                    throw new Error("Nieznana akcja dashboardu: " + kind + "/" + action);
+                }
+                // Akcje są długotrwałe; nie blokuj bridge podczas walki/instancji.
+                Promise.resolve().then(handler).catch((error) => {
+                    tool.setQuickPanelStatus(
+                        "Dashboard: " +
+                        (error instanceof Error ? error.message : String(error)),
+                        "error"
+                    );
+                    toolConsole("warn", "[SW Tool][DASHBOARD] Akcja:", kind, action, error);
+                });
+                sendBridgeResponse(data.requestId, true, {
+                    started: true, kind, action
+                });
                 return;
             }
 
