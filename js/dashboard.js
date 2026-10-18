@@ -680,7 +680,8 @@
     });
     // Zapobiega skrótom gry podczas pisania w polach panelu.
     shadow.addEventListener("keydown", e => {
-      if (e.target instanceof HTMLInputElement) e.stopPropagation();
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement ||
+          e.target instanceof HTMLTextAreaElement) e.stopPropagation();
     });
     configureDrag();
   }
