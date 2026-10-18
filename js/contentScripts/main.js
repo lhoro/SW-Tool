@@ -145,6 +145,13 @@
             this.quickActionRunning = false;
             this.quickActionName = null;
             this.characterPreferences = {};
+            const skippedFromStorage = storageGetItem("swToolSkipCharacterIds", []);
+            this.characterSkipIds = new Set([
+                51052,
+                ...(Array.isArray(skippedFromStorage) ? skippedFromStorage : [])
+                    .map(Number)
+                    .filter(id => Number.isSafeInteger(id) && id > 0)
+            ]);
             this.roninRunning = false;
             this.quickPanelButtons = [];
             this.quickPanelStatus = null;
@@ -299,7 +306,8 @@
             const id = Number(charId);
             return id === 51052 ||
                 (Number.isSafeInteger(id) && id > 0 &&
-                    this.characterPreferences[String(id)]?.skip === true);
+                    (this.characterSkipIds.has(id) ||
+                     this.characterPreferences[String(id)]?.skip === true));
         }
 
         accountActionCharacters() {
@@ -17146,8 +17154,20 @@
                         skip: id === 51052 || config.skip === true
                     };
                 }
+                const explicitIds = Array.isArray(data.payload?.skipIds)
+                    ? data.payload.skipIds : Object.entries(normalized)
+                        .filter(([, settings]) => settings.skip)
+                        .map(([id]) => Number(id));
+                const skipIds = [51052, ...explicitIds
+                    .map(Number)
+                    .filter(id => Number.isSafeInteger(id) && id > 0)];
+                tool.characterSkipIds = new Set(skipIds);
+                storageSetItem("swToolSkipCharacterIds", [...tool.characterSkipIds]);
                 tool.characterPreferences = normalized;
-                sendBridgeResponse(data.requestId, true, { count: Object.keys(normalized).length });
+                sendBridgeResponse(data.requestId, true, {
+                    count: Object.keys(normalized).length,
+                    skipped: tool.characterSkipIds.size
+                });
                 return;
             }
 
