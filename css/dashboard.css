@@ -103,6 +103,12 @@ input:focus,button:focus-visible{outline:2px solid #e1bf7a;outline-offset:1px}
 .current-account{border-color:#68cc82;color:#9df4b6}
 .character-list{display:grid;gap:7px;margin-top:8px}
 .character-card{border:1px solid #5d516b;border-radius:7px;background:#201b2d;padding:8px;display:grid;gap:7px}
+.character-card.character-skipped{border-color:#a44d61;background:#35212d}
+.character-skipped .character-heading strong{color:#ffbbc5}
+.character-skip{display:flex;align-items:center;gap:7px;font-size:10px;color:#f3bcc7;font-weight:650;cursor:pointer}
+.character-skip input{width:14px;height:14px;accent-color:#cf6174;cursor:pointer}
+.character-skip input:disabled{cursor:not-allowed;opacity:1}
+
 .character-heading{display:flex;align-items:center;justify-content:space-between;gap:5px;color:#f5d393;font-size:11px;min-width:0}
 .character-heading strong{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .character-heading span{font-size:9px;color:#c4b5d0;white-space:nowrap}
