@@ -16753,6 +16753,34 @@
             // Dashboard żyje w isolated world. Nie udostępniamy mu
             // GAME ani BOT; przez bridge przekazujemy tylko prosty status
             // i jawnie dozwolone akcje istniejących automatów.
+            if (data.action === "dashboard.characters.refresh") {
+                const tool = await toolReadyPromise;
+                if (tool.accountOperationRunning || tool.quickActionRunning ||
+                    tool.questKillRunning || tool.expRunning || tool.respawnRunning ||
+                    tool.roninRunning || tool.characterSwitch || tool.responseWaiter) {
+                    throw new Error("Nie można pobierać listy postaci podczas automatyzacji.");
+                }
+                // Akcja a:1 zwraca listę postaci aktualnie zalogowanego konta.
+                const result = await tool.sendAndWait(
+                    { a: 1 },
+                    1,
+                    event => Array.isArray(event.chars) || Number(event.e || 0) !== 0,
+                    15000
+                );
+                if (Number(result.e || 0) !== 0 || !Array.isArray(result.chars)) {
+                    throw new Error("Serwer nie zwrócił prawidłowej listy postaci.");
+                }
+                tool.syncCharactersFromResponse(result);
+                sendBridgeResponse(data.requestId, true, {
+                    characters: tool.chars.map(char => ({
+                        id: Number(char.id || 0),
+                        name: String(char.name || ""),
+                        level: Number(char.level || 0)
+                    }))
+                });
+                return;
+            }
+
             if (data.action === "dashboard.preferences") {
                 const tool = await toolReadyPromise;
                 const preferences = data.payload?.characters;
