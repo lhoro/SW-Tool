@@ -24,6 +24,7 @@ const PAGE_SCRIPTS = isGameServerHost
       { path: "js/contentScripts/menageCSS.js" },
       { path: "js/contentScripts/menageStorage.js" },
       { path: "js/contentScripts/mapSolver.js", optional: true },
+      { path: "js/contentScripts/autoQuest.js" },
       { path: "js/contentScripts/main.js" }
     ]
   : [];
