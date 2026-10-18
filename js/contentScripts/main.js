@@ -17277,6 +17277,13 @@
                     return;
                 }
 
+                // Start i STOP wykonujemy synchronicznie, dzięki czemu błędy
+                // walidacji trafiają od razu do pulpitu.
+                if (kind === "pve" && action === "autoQuest") {
+                    sendBridgeResponse(data.requestId, true, tool.startAutoQuest());
+                    return;
+                }
+
                 const handlers = {
                     quick: {
                         all: () => tool.runQuickAction("all"),
@@ -17287,7 +17294,6 @@
                         ronin: () => tool.runQuickAction("ronin")
                     },
                     pve: {
-                        autoQuest: () => tool.startAutoQuest(),
                         quest: () => tool.runQuestKills(),
                         pickup: () => tool.togglePickupQuest(),
                         exp: () => tool.toggleExpiarka(),
