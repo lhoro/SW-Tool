@@ -159,7 +159,7 @@
           '<div class="section">Questy</div>',
           '<div class="quick quest-actions">',
             '<button class="action" data-command="quest" type="button" title="Automatycznie wykonaj etap zabijania przeciwników w aktywnym queście"><strong>◎</strong>Quest Kille</button>',
-            '<button class="action" type="button" disabled title="Pickup Quest — funkcja w przygotowaniu"><strong>▤</strong>Pickup Quest</button>',
+            '<button class="action" id="pickup-button" type="button" data-command="pickup" title="Zbieraj przedmioty do aktywnego questa i wróć na pole startowe"><strong>▤</strong>Pickup Quest</button>',
           '</div>',
           '<div class="section">Expiarka</div>',
           '<div class="card feature">',
@@ -531,7 +531,7 @@
     state.game = s;
     const active = Number(s.characterId || 0) > 0;
     const busy = Boolean(s.accountRunning || s.quickRunning || s.questRunning ||
-      s.roninRunning || s.expRunning || s.respawnRunning);
+      s.roninRunning || s.expRunning || s.respawnRunning || s.pickupRunning);
     const taskStatus = $("#task-status");
     taskStatus.textContent = busy ? String(s.automationLabel || "Pracuje") : "Gotowy";
     taskStatus.classList.toggle("state-ready", !busy);
@@ -539,6 +539,9 @@
     taskStatus.title = busy ? String(s.latestLog || taskStatus.textContent) : "Brak aktywnej automatyzacji";
     $("#exp-button").textContent = s.expRunning ? "■ Zatrzymaj expiarkę" : "▶ Start expiarki";
     $("#resp-button").textContent = s.respawnRunning ? "■ Zatrzymaj respiarkę" : "▶ Start respiarki";
+    $("#pickup-button").innerHTML = s.pickupRunning ?
+      "<strong>■</strong>Stop Pickup" : "<strong>▤</strong>Pickup Quest";
+    $("#pickup-button").disabled = !active || (busy && !s.pickupRunning);
     $$("[data-quick],[data-account-action]").forEach(btn => {
       btn.disabled = !active || busy;
     });
