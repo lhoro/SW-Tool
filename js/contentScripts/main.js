@@ -132,6 +132,7 @@
     class TOOL {
         constructor() {
             this.chars = [];
+            this.charactersFromServer = false;
             this.currentCharacterId = 0;
             this.currentCharacterIndex = -1;
             this.lastCharacterId = 0;
@@ -261,6 +262,7 @@
                 .filter(Boolean);
 
             storageSetItem("chars", this.chars);
+            this.charactersFromServer = true;
 
             const activeId = Number(GAME.char_id || this.lastCharacterId || 0);
             this.currentCharacterIndex = this.chars.findIndex(
@@ -16813,6 +16815,7 @@
                     characterId: charId,
                     character: charId > 0 ? tool.currentCharacterLabel() : "",
                     characters: Array.isArray(tool.chars) ? tool.chars.length : 0,
+                    charactersFresh: tool.charactersFromServer === true,
                     characterList: Array.isArray(tool.chars)
                         ? tool.chars.map(char => ({
                             id: Number(char.id || 0),
