@@ -419,7 +419,8 @@
   async function ensureAccountSwitchAllowed() {
     const game = await requestPage("dashboard.state", {}, 9000);
     if (game.accountRunning || game.quickRunning || game.roninRunning ||
-        game.questRunning || game.expRunning || game.respawnRunning) {
+        game.questRunning || game.pickupRunning ||
+        game.expRunning || game.respawnRunning) {
       throw new Error("Zatrzymaj aktywną automatyzację przed zmianą konta.");
     }
   }
