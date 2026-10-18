@@ -463,9 +463,14 @@
       { afterAll: char.afterAll, trainingSkill: char.trainingSkill,
         skip: char.id === 51052 || char.skip === true }
     ]));
-    const signature = JSON.stringify([slot, preferences]);
+    // Globalna lista pomijanych postaci obejmuje wszystkie zapisane konta.
+    const allSkipped = state.accountCharacters.flatMap(profile =>
+      (profile?.characters || []).filter(char => char.skip === true)
+        .map(char => Number(char.id)));
+    const skipIds = [...new Set([51052, ...allSkipped])];
+    const signature = JSON.stringify([slot, preferences, skipIds]);
     if (signature === state.preferencesSignature) return;
-    await requestPage("dashboard.preferences", { characters: preferences });
+    await requestPage("dashboard.preferences", { characters: preferences, skipIds });
     state.preferencesSignature = signature;
   }
 
