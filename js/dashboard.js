@@ -139,11 +139,13 @@
             '<button class="action" data-account-action="accountTournaments"><strong>♛</strong>Turnieje</button>',
             '<button class="action" data-account-action="accountAll"><strong>★</strong>ALL</button>',
           '</div>',
-          '<div class="card">',
-            boolOption("preferTraining","Po ALL preferuj trening (zamiast misji)"),
-          '</div>',
         '</div>',
         '<div class="page" data-page="pve" hidden>',
+          '<div class="section">Questy</div>',
+          '<div class="quick quest-actions">',
+            '<button class="action" data-command="quest" type="button" title="Automatycznie wykonaj etap zabijania przeciwników w aktywnym queście"><strong>◎</strong>Quest Kille</button>',
+            '<button class="action" type="button" disabled title="Pickup Quest — funkcja w przygotowaniu"><strong>▤</strong>Pickup Quest</button>',
+          '</div>',
           '<div class="section">Expiarka</div>',
           '<div class="card feature">',
             '<div class="quick options-grid">',
@@ -161,20 +163,8 @@
             '</div>',
             '<button class="secondary" data-command="respawn" id="resp-button">▶ Start respiarki</button>',
           '</div>',
-          '<div class="section">Quest Kille</div>',
-          '<div class="card">',
-            '<button class="secondary" data-command="quest">▶ Uruchom Quest Kille</button>',
-          '</div>',
         '</div>',
-        '<div class="page" data-page="pvp" hidden>',
-          '<div class="section">Walka PVP</div>',
-          '<div class="card feature">',
-            '<div class="card-title">⚔ Arena PvP</div>',
-            '<div class="muted">Wykonaj dostępne walki arenowe na bieżącej postaci.</div>',
-            '<button class="primary" data-quick="arena">▶ Arena PvP · ta postać</button>',
-            '<button class="secondary" data-account-action="accountArenaPvp">Arena PvP · całe konto</button>',
-          '</div>',
-        '</div>',
+        '<div class="page" data-page="pvp" hidden></div>',
         '<div class="page" data-page="konto" hidden>',
           '<div class="section">Profile kont i ustawienia postaci</div>',
           '<div class="muted">Odświeżenie postaci innego konta przełączy na nie grę. Ustawienia każdej postaci są zapisywane lokalnie.</div>',
@@ -190,8 +180,7 @@
           boolOption("mapClickMovement","Chodzenie kliknięciem po mapie"),
           boolOption("acceleratedH","Przyspieszone H"),
           boolOption("improvedX","Ulepszony X"),
-          '<button class="secondary" id="reset-config">Przywróć domyślne ustawienia</button>',
-          '<button class="secondary" id="reset-position">Reset pozycji dashboardu</button></div>',
+          '<button class="secondary" id="reset-config" title="Przywraca domyślne ustawienia gry i automatyzacji w rozszerzeniu.">Przywróć domyślne ustawienia</button></div>',
         '</div>',
         '<div class="page" data-page="debug" hidden>',
           '<div class="section">Konsola</div>',
@@ -357,7 +346,7 @@
       const characterCards = characters.map(char => {
         const key = i + ":" + char.id;
         const afterOptions = [
-          ["default", "Domyślnie (z Pulpitu)"],
+          ["default", "Domyślnie (Trening)"],
           ["training", "Trening"],
           ["mission", "Misja"]
         ].map(([value,label]) => '<option value="' + value + '"' +
@@ -369,7 +358,7 @@
           '<span>Lv. ' + char.level + ' · ID ' + char.id + '</span></div>' +
           '<label class="character-field">Po zakończeniu ALL' +
           '<select data-character-mode="' + key + '">' + afterOptions + '</select></label>' +
-          '<label class="character-field">Co trenować (Quick Trening i ALL)' +
+          '<label class="character-field">Trenuj' +
           '<select data-character-skill="' + key + '">' + skillOptions + '</select></label>' +
           '</div>';
       }).join("");
