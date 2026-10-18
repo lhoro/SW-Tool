@@ -5448,6 +5448,11 @@
         handlePickupQuestResponse(response) {
             const state = this.pickupQuestState;
             if (!state || !response || Number(response.a) !== 22) return;
+            if (response.done !== undefined ||
+                (response.track !== undefined &&
+                 this._int(response.track) === state.questId)) {
+                state.completionSeq++;
+            }
             if (response.track !== undefined &&
                 this._int(response.track) === state.questId) {
                 state.count = Math.min(state.max,
@@ -5573,6 +5578,7 @@
                 count: parsed.count,
                 max: parsed.max,
                 attempts: 0,
+                completionSeq: 0,
                 start: origin
             };
             this.pickupQuestState = state;
@@ -5628,6 +5634,7 @@
                         continue;
                     }
                     const mining = started.mining;
+                    const completionBefore = state.completionSeq;
                     const cdMs = Math.max(10000, Math.min(600000,
                         this._int(mining.cd) * 1000));
                     cooldowns.set(target.mineId, Date.now() + cdMs);
