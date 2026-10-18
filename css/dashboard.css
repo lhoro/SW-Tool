@@ -46,6 +46,7 @@ button{cursor:pointer}
 .secondary{display:block;width:100%;margin-top:7px;padding:7px 6px;border-radius:7px;background:#3a314d;color:#f0cc87;font-weight:750;border:1px solid #9c7d4c;font-size:11px}
 .primary:disabled,.secondary:disabled,.action:disabled{opacity:.5;cursor:default}
 .quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:0 0 11px}
+.account-quick .action:last-child{grid-column:1/-1;min-height:36px}
 .action{background:#332b46;border:1px solid #67546e;color:#e8deeb;border-radius:8px;padding:7px 3px;min-height:38px;font-size:10px}
 .action strong{display:inline;color:#e8c27c;font-size:14px;margin:0 5px 0 0;vertical-align:middle}
 .quick.options-grid,.quick.resp-options{margin-bottom:5px}
@@ -83,6 +84,26 @@ input:focus,button:focus-visible{outline:2px solid #e1bf7a;outline-offset:1px}
 .dot{display:inline-block;width:7px;height:7px;background:#73c58b;border-radius:50%;margin-right:5px}
 .inline{display:flex;gap:7px;align-items:center}
 .inline input{flex:1}
+/* Każdy profil ma własną zwijaną sekcję i edytor postaci. */
+.account-section{border:1px solid #655374;background:#292238;border-radius:9px;margin:0 0 8px;overflow:hidden}
+.account-section[open]{border-color:#a58655}
+.account-section summary{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:10px;cursor:pointer;list-style:none;background:#332945;color:#f4d58f;font-size:11px}
+.account-section summary::-webkit-details-marker{display:none}
+.account-section summary span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.account-section summary small{font-size:9px;color:#c6b6d0;white-space:nowrap}
+.account-section summary:focus-visible{outline:2px solid #e1bf7a;outline-offset:-2px}
+.account-content{padding:9px}
+.account-content .field{margin:0 0 8px}
+.current-account{border-color:#68cc82;color:#9df4b6}
+.character-list{display:grid;gap:7px;margin-top:8px}
+.character-card{border:1px solid #5d516b;border-radius:7px;background:#201b2d;padding:8px;display:grid;gap:7px}
+.character-heading{display:flex;align-items:center;justify-content:space-between;gap:5px;color:#f5d393;font-size:11px;min-width:0}
+.character-heading strong{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.character-heading span{font-size:9px;color:#c4b5d0;white-space:nowrap}
+.character-field{display:flex;align-items:center;justify-content:space-between;gap:5px;font-size:10px;color:#e6d7ed}
+.character-field select{appearance:auto;flex:0 0 54%;min-width:0;padding:6px 4px;border-radius:5px;border:1px solid #857052;background:#332943;color:#efdcf4;font-size:10px}
+.character-field select:focus-visible{outline:2px solid #e1bf7a}
+
 /* Zminimalizowany panel zachowuje nagłówek i przycisk + do przywracania. */
 .compact{width:min(260px,calc(100vw - 16px))!important}
 .compact .top{display:block;padding:8px}
