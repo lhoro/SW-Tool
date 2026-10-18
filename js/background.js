@@ -227,6 +227,9 @@ async function switchAccountViaApi(account, tabId, slot) {
   try {
     const savedTab = await chrome.tabs.get(tabId);
     originalUrl = savedTab.url || "";
+    // Po rozpoczęciu logowania poprzedni profil nie jest już pewnym
+    // źródłem tożsamości, więc nie przypisujemy do niego cudzych postaci.
+    await chrome.storage.local.remove("swActiveAccountSlot");
     // Główna domena jest źródłem /main_page_ajax. Zapewnia to
     // wysyłanie i zapisywanie ciasteczek w kontekście właściwej witryny.
     await navigateTabToAuthPage(tabId, "https://shinobiworld.pl/");
