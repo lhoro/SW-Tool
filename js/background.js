@@ -217,7 +217,7 @@ async function authenticateOnShinobiWorld(account) {
   }
 }
 
-async function switchAccountViaApi(account, tabId) {
+async function switchAccountViaApi(account, tabId, slot) {
   if (accountSwitchInProgress) {
     throw new Error("Przełączanie konta już trwa.");
   }
@@ -250,6 +250,7 @@ async function switchAccountViaApi(account, tabId) {
     toolConsole("info", "[SW Tool][AUTH] Autoryzacja OK; wejście na S1.");
 
     await chrome.storage.local.set({
+      swActiveAccountSlot: { slot, login: account.login, at: Date.now() },
       swAccountSwitchStatus: { state: "started", at: Date.now() }
     });
     await chrome.tabs.update(tabId, { url: authUrl });
@@ -402,7 +403,7 @@ async function handleMessage(msg, sender) {
         throw new Error("Można przełączać tylko kartę ShinobiWorld.");
       }
 
-      const result = await switchAccountViaApi(account, tab.id);
+      const result = await switchAccountViaApi(account, tab.id, slot);
 
       return {
         ok: true,
