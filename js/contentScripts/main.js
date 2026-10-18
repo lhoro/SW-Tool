@@ -16944,6 +16944,19 @@
 
             const key = String(event.key || "").toLowerCase();
 
+            // Obsłuż skróty w fazie capture: oficjalny klient gry nie może
+            // dostać drugiego eventu i wybrać usuwanej postaci.
+            if ((key === "," || key === ".") &&
+                !event.ctrlKey && !event.altKey && !event.metaKey) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                if (!event.repeat) {
+                    if (key === ",") BOT.prevChar();
+                    else BOT.nextChar();
+                }
+                return;
+            }
+
             if (key === "x") {
                 if (BOT.config.improvedX === true) {
                     // Przytrzymane X nie może generować kolejnych interakcji
@@ -16988,26 +17001,6 @@
                 BOT.improvedXHeld = false;
             }
         }, true);
-
-        $(document).keydown((event) => {
-            if (event.originalEvent?.composedPath?.().some(
-                (node) => node?.id === "sw-tool-dashboard-host"
-            )) return;
-            if (
-                event.repeat ||
-                $("input, textarea, [contenteditable='true']").is(":focus")
-            ) {
-                return;
-            }
-
-            if (event.key === ",") {
-                event.preventDefault();
-                BOT.prevChar();
-            } else if (event.key === ".") {
-                event.preventDefault();
-                BOT.nextChar();
-            }
-        });
 
         toolConsole("info", "[SW Tool][PAGE] TOOL gotowy.");
         return BOT;
