@@ -42,7 +42,8 @@
         "js/contentScripts/mapSolver.js",
         "js/contentScripts/main.js",
         "js/oldBot.js",
-        "css/dashboard.css"
+        "css/dashboard.css",
+        "images/icon_48x48.png"
       ],
       "matches": [
         "https://*.shinobiworld.pl/*"
