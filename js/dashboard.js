@@ -13,7 +13,8 @@
     expKillChampions: false, expKillElites: false, expKillBosses: false,
     debugLogs: false, preferTraining: true
   };
-  const state = { config: { ...DEFAULTS }, accounts: [], ui: {}, lastLog: "", uiLogs: [], game: null, loading: false };
+  const state = { config: { ...DEFAULTS }, accounts: [], accountCharacters: [], activeAccount: null,
+    preferencesSignature: "", ui: {}, lastLog: "", uiLogs: [], game: null, loading: false };
   let shadow, host, panel, timer, polling = false;
   let configQueue = Promise.resolve();
 
@@ -113,7 +114,7 @@
         '<button class="tab active" data-tab="pulpit">Pulpit</button>',
         '<button class="tab" data-tab="pve">PVE</button>',
         '<button class="tab" data-tab="pvp">PVP</button>',
-        '<button class="tab" data-tab="konto">Konto</button>',
+        '<button class="tab" data-tab="konto">Konta</button>',
         '<button class="tab" data-tab="ustawienia">Ustawienia</button>',
         '<button class="tab" data-tab="debug">Debug</button>',
       '</nav>',
@@ -135,8 +136,8 @@
             '<button class="action" data-account-action="accountRonin"><strong>✦</strong>Ronin</button>',
             '<button class="action" data-account-action="accountTrainings"><strong>⚡</strong>Treningi</button>',
             '<button class="action" data-account-action="accountMissions"><strong>▤</strong>Misje</button>',
-            '<button class="action" data-account-action="accountAll"><strong>★</strong>ALL</button>',
             '<button class="action" data-account-action="accountTournaments"><strong>♛</strong>Turnieje</button>',
+            '<button class="action" data-account-action="accountAll"><strong>★</strong>ALL</button>',
           '</div>',
           '<div class="card">',
             boolOption("preferTraining","Po ALL preferuj trening (zamiast misji)"),
@@ -175,10 +176,10 @@
           '</div>',
         '</div>',
         '<div class="page" data-page="konto" hidden>',
-          '<div class="section">Zapisane konta (maks. 5)</div>',
-          '<div class="card"><div class="muted">Login i hasło są zapisane lokalnie przez rozszerzenie. Zmień je tutaj, bez popupu.</div>',
+          '<div class="section">Profile kont i ustawienia postaci</div>',
+          '<div class="muted">Odświeżenie postaci innego konta przełączy na nie grę. Ustawienia każdej postaci są zapisywane lokalnie.</div>',
           '<div id="account-editor"></div>',
-          '<button class="primary" id="save-accounts">Zapisz profile kont</button></div>',
+          '<button class="primary" id="save-accounts">Zapisz konta</button>',
         '</div>',
         '<div class="page" data-page="ustawienia" hidden>',
           '<div class="section">Ustawienia gry i automatyzacji</div>',
