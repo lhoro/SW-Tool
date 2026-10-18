@@ -5468,6 +5468,21 @@
             }
         }
 
+        pickupQuestField(map, questId) {
+            if (!questId) return null;
+            for (const [key, quests] of Object.entries(map?.pickupQuests || {})) {
+                if (!Array.isArray(quests) ||
+                    !quests.some(q => this._int(q?.qb_id) === questId)) continue;
+                const match = /^(\d+)_(\d+)$/.exec(key);
+                if (!match) continue;
+                const x = this._int(match[1]), y = this._int(match[2]);
+                if (x > 0 && y > 0 && map.cells?.get(key)?.movable) {
+                    return { x, y };
+                }
+            }
+            return null;
+        }
+
         pickupQuestTargets(map, itemId) {
             const targets = new Map();
             const positive = value => {
@@ -5571,26 +5586,50 @@
         }
 
         async runPickupQuest() {
-            const step = this.currentQuestStep;
-            const parsed = this.questKillWantState(step?.want, step?.qb_id, [22]);
-            if (!parsed) {
-                throw new Error("Otwórz quest ze zbieraniem przedmiotów (want.type=22).");
-            }
-            if (parsed.isMet) {
-                this.setQuickPanelStatus("Pickup Quest: wymaganie jest już ukończone.", "success");
-                return;
-            }
             const map = this.mapSolver?.map;
             if (!map?.cells || !this._int(map.locationId) ||
                 !this._int(map.x) || !this._int(map.y)) {
                 throw new Error("Brak gotowej mapy. Otwórz mapę gry.");
             }
+            const step = this.currentQuestStep;
+            let parsed = this.questKillWantState(step?.want, step?.qb_id, [22]);
+            // Track z a=3 pozwala znaleźć questa także po ponownym wejściu
+            // na postać, gdy okno dialogowe nie zostało jeszcze otwarte.
+            if (!parsed) {
+                const tracked = (map.pickupTrack || [])
+                    .map(q => this.questKillWantState(q?.want, q?.qb_id, [22]))
+                    .filter(q => q && !q.isMet &&
+                        this.pickupQuestField(map, q.questId) &&
+                        this.pickupQuestTargets(map, q.targetId).length > 0);
+                if (tracked.length === 1) {
+                    parsed = tracked[0];
+                } else if (tracked.length > 1) {
+                    const atQuest = tracked.filter(q => {
+                        const field = this.pickupQuestField(map, q.questId);
+                        return field?.x === map.x && field?.y === map.y;
+                    });
+                    if (atQuest.length === 1) parsed = atQuest[0];
+                }
+            }
+            if (!parsed) {
+                throw new Error("Nie rozpoznano jednoznacznego questa Pickup. " +
+                    "Stań na polu właściwego questa lub otwórz jego dialog.");
+            }
+            if (parsed.isMet) {
+                this.setQuickPanelStatus("Pickup Quest: wymaganie jest już ukończone.", "success");
+                return;
+            }
             const candidates = this.pickupQuestTargets(map, parsed.targetId);
             if (!candidates.length) {
-                throw new Error("Brak rozpoznanych sakiewek w danych mapy a:3. " +
-                    "Potrzebny eksport TX/RX z wejściem na mapę.");
+                throw new Error("Na tej mapie nie znaleziono znajdziek " +
+                    "dla przedmiotu ID " + parsed.targetId + ".");
             }
-            const origin = { locationId: map.locationId, x: map.x, y: map.y };
+            const questField = this.pickupQuestField(map, parsed.questId);
+            const origin = {
+                locationId: map.locationId,
+                x: questField?.x || map.x,
+                y: questField?.y || map.y
+            };
             const state = {
                 questId: parsed.questId,
                 itemId: parsed.targetId,
