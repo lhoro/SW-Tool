@@ -159,7 +159,8 @@
                 maxY,
                 charId,
                 x: player?.x || 0,
-                y: player?.y || 0
+                y: player?.y || 0,
+                pickupRawMap: rawMap
             };
 
             if (this.active) {
