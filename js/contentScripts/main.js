@@ -140,7 +140,9 @@
             this.currentCharacterSnapshot = null;
             this.responseWaiter = null;
             this.accountOperationRunning = false;
+            this.accountOperationAction = null;
             this.quickActionRunning = false;
+            this.quickActionName = null;
             this.roninRunning = false;
             this.quickPanelButtons = [];
             this.quickPanelStatus = null;
@@ -13901,6 +13903,7 @@
             }
 
             const label = this.currentCharacterLabel();
+            this.quickActionName = action;
             this.quickActionRunning = true;
             this.setQuickPanelBusy(true);
 
@@ -14030,6 +14033,7 @@
                 );
             } finally {
                 this.quickActionRunning = false;
+                this.quickActionName = null;
                 this.setQuickPanelBusy(false);
             }
         }
@@ -16260,11 +16264,17 @@
                 throw new Error("Nieznana operacja konta: " + String(action));
             }
 
+            this.accountOperationAction = action;
             this.accountOperationRunning = true;
             Promise.resolve()
                 .then(runner)
                 .catch((error) => {
                     toolConsole("error", "[SW Tool][ACCOUNT] Operacja nie powiodła się:", action, error);
+                    this.setQuickPanelStatus(
+                        "Błąd operacji konta: " +
+                        (error instanceof Error ? error.message : String(error)),
+                        "error"
+                    );
                 })
                 .finally(() => {
                     if (this.trainingCaptchaWaiter?.cancel) {
@@ -16272,6 +16282,7 @@
                     }
 
                     this.accountOperationRunning = false;
+                    this.accountOperationAction = null;
                 });
 
             return {
@@ -16731,6 +16742,32 @@
                 );
                 const logs = Array.isArray(tool.quickLogEntries)
                     ? tool.quickLogEntries : [];
+                const accountNames = {
+                    accountTournaments: "Turnieje",
+                    accountSoulAbyss: "Otchłań",
+                    accountArenaPvp: "Arena PvP",
+                    accountTrainings: "Treningi",
+                    accountMissions: "Misje",
+                    accountRonin: "Ronin",
+                    accountTestDaily: "Misje testowe",
+                    accountAll: "Quick ALL"
+                };
+                const quickNames = {
+                    all: "Quick ALL",
+                    training: "Trening",
+                    arena: "Arena PvP",
+                    abyss: "Otchłań",
+                    mission: "Misje",
+                    ronin: "Ronin"
+                };
+                const automationLabel =
+                    tool.expRunning ? "Expiarka" :
+                    tool.respawnRunning ? "Respiarka" :
+                    tool.questKillRunning ? "Quest Kille" :
+                    tool.roninRunning ? "Ronin" :
+                    tool.quickActionRunning ? (quickNames[tool.quickActionName] || "Quick") :
+                    tool.accountOperationRunning ? (accountNames[tool.accountOperationAction] || "Operacja konta") :
+                    "";
                 sendBridgeResponse(data.requestId, true, {
                     characterId: charId,
                     character: charId > 0 ? tool.currentCharacterLabel() : "",
@@ -16741,6 +16778,7 @@
                     questRunning: tool.questKillRunning === true,
                     expRunning: tool.expRunning === true,
                     respawnRunning: tool.respawnRunning === true,
+                    automationLabel,
                     latestLog: logs.length ? logs[logs.length - 1].message : "",
                     logCount: logs.length,
                     logs: logs.slice(-45)
