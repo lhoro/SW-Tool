@@ -130,7 +130,7 @@
             '<button class="action" data-quick="all"><strong>★</strong>ALL</button>',
           '</div>',
           '<div class="section">Szybkie akcje całego konta</div>',
-          '<div class="quick">',
+          '<div class="quick account-quick">',
             '<button class="action" data-account-action="accountArenaPvp"><strong>⚔</strong>Arena</button>',
             '<button class="action" data-account-action="accountSoulAbyss"><strong>◈</strong>Otchłań</button>',
             '<button class="action" data-account-action="accountRonin"><strong>✦</strong>Ronin</button>',
