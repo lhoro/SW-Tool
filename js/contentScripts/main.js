@@ -5516,6 +5516,167 @@
             }
         }
 
+        togglePickupQuest() {
+            if (this.pickupQuestRunning) {
+                this.pickupQuestStop = true;
+                this.setQuickPanelStatus("Pickup Quest: zatrzymuję i wracam na start...");
+                return { stopping: true };
+            }
+            if (this.accountOperationRunning || this.quickActionRunning ||
+                this.questKillRunning || this.expRunning || this.respawnRunning ||
+                this.roninRunning || this.characterSwitch ||
+                this.responseWaiter || this.mapSolver?.active) {
+                throw new Error("Poczekaj na zakończenie bieżącej automatyzacji.");
+            }
+            this.pickupQuestRunning = true;
+            this.pickupQuestStop = false;
+            Promise.resolve().then(() => this.runPickupQuest())
+                .catch(error => {
+                    const message = error instanceof Error ? error.message : String(error);
+                    this.setQuickPanelStatus("Pickup Quest: " + message, "error");
+                    toolConsole("warn", "[SW Tool][PICKUP] ", error);
+                })
+                .finally(() => {
+                    this.pickupQuestRunning = false;
+                    this.pickupQuestStop = false;
+                    this.pickupQuestState = null;
+                });
+            return { started: true };
+        }
+
+        async runPickupQuest() {
+            const step = this.currentQuestStep;
+            const parsed = this.questKillWantState(step?.want, step?.qb_id, [22]);
+            if (!parsed) {
+                throw new Error("Otwórz quest ze zbieraniem przedmiotów (want.type=22).");
+            }
+            if (parsed.isMet) {
+                this.setQuickPanelStatus("Pickup Quest: wymaganie jest już ukończone.", "success");
+                return;
+            }
+            const map = this.mapSolver?.map;
+            if (!map?.cells || !this._int(map.locationId) ||
+                !this._int(map.x) || !this._int(map.y)) {
+                throw new Error("Brak gotowej mapy. Otwórz mapę gry.");
+            }
+            const candidates = this.pickupQuestTargets(map, parsed.targetId);
+            if (!candidates.length) {
+                throw new Error("Brak rozpoznanych sakiewek w danych mapy a:3. " +
+                    "Potrzebny eksport TX/RX z wejściem na mapę.");
+            }
+            const origin = { locationId: map.locationId, x: map.x, y: map.y };
+            const state = {
+                questId: parsed.questId,
+                itemId: parsed.targetId,
+                count: parsed.count,
+                max: parsed.max,
+                attempts: 0,
+                start: origin
+            };
+            this.pickupQuestState = state;
+            const cooldowns = new Map();
+            const runUntil = Date.now() + 40 * 60000;
+            let operationError = null;
+            this.setQuickPanelStatus("Pickup Quest: " + state.count + "/" +
+                state.max + ", sakiewki: " + candidates.length + ".");
+            try {
+                while (!this.pickupQuestStop && state.count < state.max &&
+                       state.attempts < 100 && Date.now() < runUntil) {
+                    if (this._int(this.mapSolver?.map?.locationId) !== origin.locationId) {
+                        throw new Error("Postać opuściła mapę questa.");
+                    }
+                    const now = Date.now();
+                    const available = candidates
+                        .filter(p => (cooldowns.get(p.mineId) || 0) <= now)
+                        .map(p => {
+                            const path = this.mapSolver.findShortestPath(
+                                map, { x: map.x, y: map.y }, { x: p.x, y: p.y });
+                            return path ? { ...p, distance: path.length } : null;
+                        })
+                        .filter(Boolean)
+                        .sort((a, b) => a.distance - b.distance);
+                    if (!available.length) {
+                        const ready = Math.min(...candidates.map(p =>
+                            cooldowns.get(p.mineId) || runUntil));
+                        if (!Number.isFinite(ready) || ready <= now) {
+                            throw new Error("Brak osiągalnych pól ze znajdźkami.");
+                        }
+                        this.setQuickPanelStatus("Pickup Quest: zasoby na cooldownie — czekam.");
+                        await this.waitForPickupQuestDelay(Math.min(ready - now, runUntil - now));
+                        continue;
+                    }
+                    const target = available[0];
+                    await this.mapSolver.navigateTo(target.x, target.y, {
+                        source: "quest-pickup", allowBusy: true
+                    });
+                    if (this.pickupQuestStop) break;
+                    await this.waitForQuestKillField(target.x, target.y, 1800);
+                    state.attempts++;
+                    const before = state.count;
+                    this.setQuickPanelStatus("Pickup Quest: " + before + "/" + state.max +
+                        " • zbieranie " + target.x + "|" + target.y + "...");
+                    const started = await this.sendAndWait(
+                        { a: 22, type: 8, mid: target.mineId },
+                        [22, 999],
+                        event => Boolean(event.mining) || this._int(event.e) !== 0,
+                        15000
+                    );
+                    if (this._int(started.e) !== 0 || !started.mining) {
+                        cooldowns.set(target.mineId, Date.now() + 30000);
+                        continue;
+                    }
+                    const mining = started.mining;
+                    const cdMs = Math.max(10000, Math.min(600000,
+                        this._int(mining.cd) * 1000));
+                    cooldowns.set(target.mineId, Date.now() + cdMs);
+                    const expires = Number(mining.expires || 0);
+                    const durationMs = Math.max(0, this._int(mining.duration)) * 1000;
+                    const remaining = expires > Date.now() ?
+                        Math.min(30000, expires - Date.now() + 150) :
+                        Math.min(30000, durationMs + 150);
+                    await this.waitForPickupQuestDelay(remaining);
+                    const finished = await this.sendAndWait(
+                        { a: 22, type: 8 },
+                        [22, 999],
+                        event => event.done !== undefined ||
+                            event.track !== undefined || this._int(event.e) !== 0,
+                        15000
+                    );
+                    if (this._int(finished.e) !== 0) {
+                        throw new Error("Serwer odrzucił zakończenie zbierania.");
+                    }
+                    for (let i = 0; i < 12 && state.count === before; i++) {
+                        await this.sleep(100);
+                    }
+                    this.setQuickPanelStatus("Pickup Quest: " + state.count + "/" +
+                        state.max + " • próby " + state.attempts + ".");
+                }
+                if (state.count < state.max && !this.pickupQuestStop) {
+                    throw new Error("Nie ukończono zbierania w limicie prób lub czasu (" +
+                        state.count + "/" + state.max + ").");
+                }
+            } catch (error) {
+                operationError = error;
+            } finally {
+                try {
+                    if (this._int(this.mapSolver?.map?.locationId) === origin.locationId &&
+                        (this._int(map.x) !== origin.x || this._int(map.y) !== origin.y)) {
+                        this.setQuickPanelStatus("Pickup Quest: wracam na pole questa...");
+                        await this.mapSolver.navigateToLocation(
+                            origin.locationId, origin.x, origin.y, {
+                                source: "quest-pickup-return", allowBusy: true
+                            });
+                    }
+                } catch (error) {
+                    if (!operationError) operationError = error;
+                }
+            }
+            if (operationError) throw operationError;
+            this.setQuickPanelStatus(state.count >= state.max ?
+                "Pickup Quest ukończony: " + state.count + "/" + state.max + "." :
+                "Pickup Quest zatrzymany.", state.count >= state.max ? "success" : "");
+        }
+
         questKillWantState(
             want,
             questId = 0,
