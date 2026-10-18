@@ -8,7 +8,8 @@ button{cursor:pointer}
 #panel{pointer-events:auto;position:fixed;right:12px;bottom:12px;width:min(354px,calc(100vw - 16px));max-height:calc(100vh - 24px);display:flex;flex-direction:column;border:1px solid #aa884b;border-radius:13px;overflow:hidden;background:#1d1a2a;color:#f5effa;box-shadow:0 14px 40px #000b}
 .top{background:linear-gradient(120deg,#3a314d,#292139);border-bottom:1px solid #8c713e;padding:9px 10px 7px}
 .head{display:flex;align-items:center;gap:7px;user-select:none;touch-action:none;cursor:move}
-.logo{height:30px;min-width:32px;background:linear-gradient(130deg,#e1c684,#a27a3a);border-radius:8px;display:grid;place-items:center;color:#241c2b;font-weight:900;font-size:11px}
+.logo{width:30px;height:30px;min-width:30px;border:1px solid #ad8a4b;border-radius:7px;display:grid;place-items:center;overflow:hidden;background:#2b2540}
+.logo img{display:block;width:100%;height:100%;object-fit:contain}
 .title{font-size:13px;font-weight:850;color:#ecc982;letter-spacing:.3px}
 .subtitle{font-size:8px;letter-spacing:1px;color:#c1afcb;margin-top:1px}
 .head-actions{display:flex;gap:4px;margin-left:auto}
@@ -24,10 +25,12 @@ button{cursor:pointer}
 .scroller{overflow:auto;min-height:0;padding:9px 10px;scrollbar-width:thin;scrollbar-color:#665075 #1d1a2a}
 .page[hidden]{display:none}
 .section{font-size:9px;font-weight:800;letter-spacing:.8px;color:#d0b47c;margin:0 0 6px;text-transform:uppercase}
-.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin-bottom:11px}
+.stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-bottom:11px}
 .stat,.card{background:#2b2540;border:1px solid #5e5066;border-radius:9px}
 .stat{padding:7px 6px}
 .value{color:#efca83;font-size:14px;font-weight:850;font-variant-numeric:tabular-nums;word-break:break-word}
+.value.state-ready{color:#70dc83}
+.value.state-running{color:#ff7979}
 .label{font-size:9px;color:#c4b7cf;margin-top:3px;line-height:1.35}
 .card{padding:9px;margin-bottom:8px}
 .card.feature{border-color:#ae8b50;background:linear-gradient(125deg,#382d4b,#2b2540 80%)}
@@ -59,8 +62,9 @@ input:focus,button:focus-visible{outline:2px solid #e1bf7a;outline-offset:1px}
 .log-line .time{color:#d5b576}
 .log-line.error{color:#ffb3b3}
 .log-line.success{color:#abe7b7}
-.status{padding:6px 10px;background:#271f37;border-top:1px solid #665372;font-size:9px;line-height:1.4;color:#e8cb90;overflow-wrap:anywhere;min-height:26px}
-.status.error{color:#ffb1b1}
+.toast{position:absolute;z-index:2;top:78px;left:8px;right:8px;padding:8px 10px;background:#302941;border:1px solid #ab8b50;border-radius:7px;box-shadow:0 4px 14px #000a;color:#f0ce85;font-size:10px;line-height:1.4;overflow-wrap:anywhere}
+.toast[hidden]{display:none!important}
+.toast.error{border-color:#b65c66;color:#ffabab}
 .footer{display:none;align-items:center;justify-content:space-between;background:#241e31;border-top:1px solid #51415e;padding:7px 11px;color:#c3b4cf;font-size:10px}
 .dot{display:inline-block;width:7px;height:7px;background:#73c58b;border-radius:50%;margin-right:5px}
 .inline{display:flex;gap:7px;align-items:center}
@@ -68,7 +72,7 @@ input:focus,button:focus-visible{outline:2px solid #e1bf7a;outline-offset:1px}
 /* Zminimalizowany panel zachowuje nagłówek i przycisk + do przywracania. */
 .compact{width:min(260px,calc(100vw - 16px))!important}
 .compact .top{display:block;padding:8px}
-.compact .logo,.compact .subtitle,.compact .accounts-short,.compact .tabs,.compact .scroller,.compact .status,.compact .footer{display:none!important}
+.compact .logo,.compact .subtitle,.compact .accounts-short,.compact .tabs,.compact .scroller,.compact .toast,.compact .footer{display:none!important}
 .compact .head{cursor:move}
 .compact .title{font-size:13px}
 @media(max-width:480px){#panel{right:7px;bottom:7px;max-height:calc(100vh - 14px)}.top{padding:9px}.scroller{padding:10px}}
