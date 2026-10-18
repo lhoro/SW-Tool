@@ -288,13 +288,61 @@
     });
   }
 
+
+  const TRAINING_SKILLS = [
+    [0, "Automatycznie (najwyższa)"],
+    [8, "Taijutsu"], [9, "Kenjutsu"], [10, "Shurikenjutsu"], [11, "Ninjutsu"],
+    [1, "Katon (ogień)"], [2, "Suiton (woda)"], [3, "Doton (ziemia)"],
+    [4, "Fuuton (wiatr)"], [5, "Raiton (błyskawice)"], [6, "Genjutsu"],
+    [7, "Kinjutsu"], [13, "Senjutsu"], [12, "Fuinjutsu"]
+  ];
+  const DEFAULT_CHARACTER_MODE = "default";
+  const skillValid = (value) => TRAINING_SKILLS.some(([id]) => id === Number(value));
+  const createAccountCharacters = (login) => ({ login: String(login || "").trim(), characters: [] });
+
+  function normalizeAccountCharacters(value, login) {
+    const normalizedLogin = String(login || "").trim();
+    if (!value || value.login !== normalizedLogin || !Array.isArray(value.characters)) {
+      return createAccountCharacters(normalizedLogin);
+    }
+    const used = new Set();
+    return {
+      login: normalizedLogin,
+      characters: value.characters.slice(0, 100).map(char => {
+        const id = Number(char?.id);
+        if (!Number.isSafeInteger(id) || id <= 0 || used.has(id)) return null;
+        used.add(id);
+        return {
+          id,
+          name: String(char?.name || ""),
+          level: Math.max(0, Math.floor(Number(char?.level || 0))),
+          afterAll: ["training", "mission"].includes(char?.afterAll) ? char.afterAll : DEFAULT_CHARACTER_MODE,
+          trainingSkill: skillValid(char?.trainingSkill) ? Number(char.trainingSkill) : 0
+        };
+      }).filter(Boolean)
+    };
+  }
+
+  function getActiveProfileIndex() {
+    const marker = state.activeAccount;
+    const index = Number(marker?.slot);
+    if (!Number.isInteger(index) || index < 0 || index >= 5) return -1;
+    return state.accounts[index]?.login &&
+      state.accounts[index].login === marker.login ? index : -1;
+  }
+
   function renderAccounts() {
     const slots = $("#accounts-short");
     slots.textContent = "";
     const editor = $("#account-editor");
-    editor.textContent = "";
+    const expanded = new Set($$("details[data-account-section][open]")
+      .map(el => Number(el.dataset.accountSection)));
+    const hasPrevious = Boolean(editor.querySelector("details[data-account-section]"));
+    const activeIndex = getActiveProfileIndex();
+    const cards = [];
     for (let i = 0; i < 5; i++) {
       const account = state.accounts[i] || { name: "Konto " + (i + 1), login:"", password:"" };
+      const cached = state.accountCharacters[i] || createAccountCharacters(account.login);
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "account-slot";
@@ -302,26 +350,129 @@
       btn.textContent = account.login || "ACC " + (i + 1);
       btn.title = account.login || "Pusty profil " + (i + 1);
       btn.disabled = !account.login || !account.password;
+      btn.classList.toggle("current-account", i === activeIndex);
       slots.appendChild(btn);
-      const row = document.createElement("div");
-      row.className = "account-edit";
-      const label = document.createElement("div");
-      label.className = "account-label";
-      label.textContent = "Konto " + (i + 1);
-      const fields = document.createElement("div");
-      fields.className = "field";
-      const login = document.createElement("input");
-      login.type = "text"; login.autocomplete = "off"; login.spellcheck = false;
-      login.placeholder = "Login"; login.value = account.login;
-      login.dataset.accountLogin = String(i);
-      const password = document.createElement("input");
-      password.type = "password"; password.autocomplete = "off";
-      password.placeholder = "Hasło"; password.value = account.password;
-      password.dataset.accountPassword = String(i);
-      fields.append(login, password);
-      row.append(label, fields);
-      editor.appendChild(row);
+
+      const characters = cached.characters || [];
+      const characterCards = characters.map(char => {
+        const key = i + ":" + char.id;
+        const afterOptions = [
+          ["default", "Domyślnie (z Pulpitu)"],
+          ["training", "Trening"],
+          ["mission", "Misja"]
+        ].map(([value,label]) => '<option value="' + value + '"' +
+          (char.afterAll === value ? " selected" : "") + '>' + label + '</option>').join("");
+        const skillOptions = TRAINING_SKILLS.map(([id,label]) => '<option value="' + id + '"' +
+          (char.trainingSkill === id ? " selected" : "") + '>' + label + '</option>').join("");
+        return '<div class="character-card">' +
+          '<div class="character-heading"><strong>' + escapeText(char.name || "#" + char.id) + '</strong>' +
+          '<span>Lv. ' + char.level + ' · ID ' + char.id + '</span></div>' +
+          '<label class="character-field">Po zakończeniu ALL' +
+          '<select data-character-mode="' + key + '">' + afterOptions + '</select></label>' +
+          '<label class="character-field">Co trenować (Quick Trening i ALL)' +
+          '<select data-character-skill="' + key + '">' + skillOptions + '</select></label>' +
+          '</div>';
+      }).join("");
+      const expandedNow = hasPrevious ? expanded.has(i) : i === (activeIndex >= 0 ? activeIndex : 0);
+      cards.push(
+        '<details class="account-section" data-account-section="' + i + '"' + (expandedNow ? ' open' : '') + '>' +
+        '<summary><span><strong>Konto ' + (i + 1) + '</strong> · ' +
+        escapeText(account.login || "Nie skonfigurowano") +
+        '</span><small>' + (i === activeIndex ? 'Aktywne · ' : '') +
+        characters.length + ' postaci</small></summary>' +
+        '<div class="account-content">' +
+          '<div class="field">' +
+            '<input type="text" autocomplete="off" placeholder="Login" data-account-login="' + i +
+            '" value="' + escapeText(account.login) + '">' +
+            '<input type="password" autocomplete="off" placeholder="Hasło" data-account-password="' + i +
+            '" value="' + escapeText(account.password) + '">' +
+          '</div>' +
+          '<button class="secondary" data-refresh-slot="' + i + '" type="button">↻ Aktualizuj listę postaci</button>' +
+          '<div class="muted">' + (characters.length ? "Lista z ostatniego odświeżenia." :
+            "Brak listy. Aktualizacja zaloguje wybrane konto i pobierze postacie.") + '</div>' +
+          '<div class="character-list">' + (characterCards ||
+            '<div class="muted">Najpierw zaktualizuj listę postaci.</div>') + '</div>' +
+        '</div></details>'
+      );
     }
+    editor.innerHTML = cards.join("");
+  }
+
+  async function saveAccountProfilesFromEditor() {
+    const accounts = Array.from({ length:5 }, (_,i) => ({
+      name: "Konto " + (i + 1),
+      login: $('[data-account-login="' + i + '"]').value.trim(),
+      password: $('[data-account-password="' + i + '"]').value
+    }));
+    const accountCharacters = accounts.map((account,i) =>
+      normalizeAccountCharacters(state.accountCharacters[i], account.login));
+    await chrome.storage.local.set({ accounts, swAccountCharacters: accountCharacters });
+    state.accounts = accounts;
+    state.accountCharacters = accountCharacters;
+    renderAccounts();
+  }
+
+  async function saveCharacterSelection(input) {
+    const raw = input.dataset.characterMode || input.dataset.characterSkill;
+    const match = /^([0-4]):([1-9]\d*)$/.exec(raw || "");
+    if (!match) return;
+    const slot = Number(match[1]);
+    const id = Number(match[2]);
+    const character = state.accountCharacters[slot]?.characters.find(char => char.id === id);
+    if (!character) return;
+    if (input.dataset.characterMode) {
+      character.afterAll = ["training", "mission"].includes(input.value) ? input.value : "default";
+    } else {
+      character.trainingSkill = skillValid(input.value) ? Number(input.value) : 0;
+    }
+    await chrome.storage.local.set({ swAccountCharacters: state.accountCharacters });
+    await applyCurrentCharacterPreferences();
+    notice("Zapisano preferencje: " + (character.name || "#" + id));
+  }
+
+  async function applyCurrentCharacterPreferences() {
+    const slot = getActiveProfileIndex();
+    const characters = slot >= 0 ? state.accountCharacters[slot]?.characters || [] : [];
+    const preferences = Object.fromEntries(characters.map(char => [
+      String(char.id),
+      { afterAll: char.afterAll, trainingSkill: char.trainingSkill }
+    ]));
+    const signature = JSON.stringify([slot, preferences]);
+    if (signature === state.preferencesSignature) return;
+    await requestPage("dashboard.preferences", { characters: preferences });
+    state.preferencesSignature = signature;
+  }
+
+  async function syncAccountCharacterList(gameState, force = false) {
+    const slot = getActiveProfileIndex();
+    if (slot < 0 || !gameState?.charactersFresh || !Array.isArray(gameState.characterList)) return false;
+    const list = gameState.characterList;
+    if (!list.length) return false;
+    const account = state.accounts[slot];
+    const profile = normalizeAccountCharacters(state.accountCharacters[slot], account.login);
+    const previous = new Map(profile.characters.map(char => [char.id, char]));
+    const next = list.map(raw => {
+      const id = Number(raw.id);
+      if (!Number.isSafeInteger(id) || id <= 0) return null;
+      const old = previous.get(id);
+      return {
+        id,
+        name: String(raw.name || ""),
+        level: Math.max(0, Math.floor(Number(raw.level || 0))),
+        afterAll: old?.afterAll || "default",
+        trainingSkill: skillValid(old?.trainingSkill) ? Number(old.trainingSkill) : 0
+      };
+    }).filter(Boolean);
+    if (!next.length) return false;
+    if (JSON.stringify(profile.characters) !== JSON.stringify(next)) {
+      state.accountCharacters[slot] = { login: account.login, characters: next };
+      await chrome.storage.local.set({ swAccountCharacters: state.accountCharacters });
+      renderAccounts();
+      notice("Zaktualizowano listę postaci konta " + (slot + 1) + ".");
+    } else if (force) {
+      notice("Lista postaci konta " + (slot + 1) + " jest aktualna.");
+    }
+    return true;
   }
 
   function syncConfig() {
