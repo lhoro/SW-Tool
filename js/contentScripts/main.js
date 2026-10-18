@@ -166,6 +166,9 @@
             this.testZodiacQuestStep = null;
             this.testZodiacTrackVersion = 0;
             this.questKillRunning = false;
+            this.pickupQuestRunning = false;
+            this.pickupQuestStop = false;
+            this.pickupQuestState = null;
             this.questKillState = null;
             this.questKillButton = null;
             this.questKillDomObserver = null;
@@ -557,6 +560,7 @@
             // (np. a=7: track/new_amount albo map_handler.send_tracker),
             // a nie wyłącznie w a=22.
             this.handleQuestKillResponse(response);
+            this.handlePickupQuestResponse(response);
 
             if (
                 action === 998 &&
@@ -16827,6 +16831,7 @@
                     ronin: "Ronin"
                 };
                 const automationLabel =
+                    tool.pickupQuestRunning ? "Pickup Quest" :
                     tool.expRunning ? "Expiarka" :
                     tool.respawnRunning ? "Respiarka" :
                     tool.questKillRunning ? "Quest Kille" :
@@ -16850,6 +16855,7 @@
                     quickRunning: tool.quickActionRunning === true,
                     roninRunning: tool.roninRunning === true,
                     questRunning: tool.questKillRunning === true,
+                    pickupRunning: tool.pickupQuestRunning === true,
                     expRunning: tool.expRunning === true,
                     respawnRunning: tool.respawnRunning === true,
                     automationLabel,
@@ -16882,6 +16888,7 @@
                     },
                     pve: {
                         quest: () => tool.runQuestKills(),
+                        pickup: () => tool.togglePickupQuest(),
                         exp: () => tool.toggleExpiarka(),
                         respawn: () => {
                             tool.respawnPaLimit = Math.max(0, Math.floor(
