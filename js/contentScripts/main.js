@@ -5731,7 +5731,12 @@
                         state.count + "/" + state.max + ").");
                 }
             } catch (error) {
-                operationError = error;
+                // STOP podczas oczekiwania na cooldown jest normalną akcją
+                // użytkownika. Nadal wracamy do questa, bez fałszywego błędu.
+                if (!this.pickupQuestStop ||
+                    error?.message !== "Pickup Quest zatrzymany.") {
+                    operationError = error;
+                }
             } finally {
                 try {
                     if (this._int(this.mapSolver?.map?.locationId) === origin.locationId &&
@@ -17070,7 +17075,8 @@
             if (data.action === "dashboard.characters.refresh") {
                 const tool = await toolReadyPromise;
                 if (tool.accountOperationRunning || tool.quickActionRunning ||
-                    tool.questKillRunning || tool.expRunning || tool.respawnRunning ||
+                    tool.questKillRunning || tool.pickupQuestRunning ||
+                    tool.expRunning || tool.respawnRunning ||
                     tool.roninRunning || tool.characterSwitch || tool.responseWaiter) {
                     throw new Error("Nie można pobierać listy postaci podczas automatyzacji.");
                 }
