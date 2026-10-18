@@ -7981,7 +7981,8 @@
             if (this.questKillButton) {
                 const blocked =
                     this.respawnRunning ||
-                    this.expRunning;
+                    this.expRunning ||
+                    this.pickupQuestRunning;
 
                 if (!this.questKillRunning) {
                     this.questKillButton.disabled =
@@ -8000,7 +8001,7 @@
                     !this.respawnRunning &&
                     (
                         this.questKillRunning ||
-                this.pickupQuestRunning ||
+                        this.pickupQuestRunning ||
                         this.expRunning
                     );
 
@@ -8019,7 +8020,7 @@
                     !this.expRunning &&
                     (
                         this.questKillRunning ||
-                this.pickupQuestRunning ||
+                        this.pickupQuestRunning ||
                         this.respawnRunning
                     );
 
@@ -8036,6 +8037,7 @@
 
         pveModeStartGuard(mode) {
             const otherPveRunning =
+                this.pickupQuestRunning ||
                 (
                     mode !== "quest-kills" &&
                     this.questKillRunning
