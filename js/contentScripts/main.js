@@ -5508,10 +5508,12 @@
             return [...targets.values()];
         }
 
-        async waitForPickupQuestDelay(durationMs) {
+        async waitForPickupQuestDelay(durationMs, interruptible = true) {
             const end = Date.now() + Math.max(0, durationMs);
             while (Date.now() < end) {
-                if (this.pickupQuestStop) throw new Error("Pickup Quest zatrzymany.");
+                if (interruptible && this.pickupQuestStop) {
+                    throw new Error("Pickup Quest zatrzymany.");
+                }
                 await this.sleep(Math.min(500, end - Date.now()));
             }
         }
@@ -5634,7 +5636,8 @@
                     const remaining = expires > Date.now() ?
                         Math.min(30000, expires - Date.now() + 150) :
                         Math.min(30000, durationMs + 150);
-                    await this.waitForPickupQuestDelay(remaining);
+                    // Dokończ już rozpoczęte zbieranie przed zatrzymaniem bota.
+                    await this.waitForPickupQuestDelay(remaining, false);
                     const finished = await this.sendAndWait(
                         { a: 22, type: 8 },
                         [22, 999],
