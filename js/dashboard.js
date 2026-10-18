@@ -296,8 +296,15 @@
   }
 
   function syncConfig() {
-    $$("[data-config]").forEach(input => {
+    $("[data-config]").forEach(input => {
       input.checked = state.config[input.dataset.config] === true;
+    });
+    $("[data-config-toggle]").forEach(button => {
+      const on = state.config[button.dataset.configToggle] === true;
+      button.classList.toggle("toggle-on", on);
+      button.classList.toggle("toggle-off", !on);
+      button.setAttribute("aria-pressed", String(on));
+      button.title = on ? "Włączone — kliknij, by wyłączyć" : "Wyłączone — kliknij, by włączyć";
     });
   }
   function changeConfig(key, value) {
@@ -322,52 +329,24 @@
   function renderGame(s) {
     state.game = s;
     const active = Number(s.characterId || 0) > 0;
-    $("#current-char").textContent = active ? String(s.character || "—") : "Brak";
-    $("#current-char").style.fontSize = "12px";
     const busy = Boolean(s.accountRunning || s.quickRunning || s.questRunning ||
       s.roninRunning || s.expRunning || s.respawnRunning);
     const taskStatus = $("#task-status");
-    taskStatus.textContent = busy ? (String(s.automationLabel || "Pracuje")) : "Gotowy";
+    taskStatus.textContent = busy ? String(s.automationLabel || "Pracuje") : "Gotowy";
     taskStatus.classList.toggle("state-ready", !busy);
     taskStatus.classList.toggle("state-running", busy);
     taskStatus.title = busy ? String(s.latestLog || taskStatus.textContent) : "Brak aktywnej automatyzacji";
-    taskStatus.style.fontSize = "12px";
-    $("#ronin-status").textContent = s.roninRunning ? "W trakcie" : (s.accountRunning ? "Operacja konta" : "Gotowy");
-    $("#ronin-desc").textContent = (s.roninRunning || s.accountRunning) && s.latestLog
-      ? String(s.latestLog).slice(0,190)
-      : "Dwa podejścia na postać, z oczekiwaniem na powrót z instancji.";
-    $("#exp-status").textContent = s.expRunning ? "Aktywna" : "Wyłączona";
-    $("#resp-status").textContent = s.respawnRunning ? "Aktywna" : "Wyłączona";
-    $("#pvp-status").textContent = s.accountRunning || s.quickRunning ? "Trwa operacja" : "Gotowa";
     $("#exp-button").textContent = s.expRunning ? "■ Zatrzymaj expiarkę" : "▶ Start expiarki";
     $("#resp-button").textContent = s.respawnRunning ? "■ Zatrzymaj respiarkę" : "▶ Start respiarki";
     $$("[data-quick],[data-account-action]").forEach(btn => {
-      btn.disabled = !active || busy || s.expRunning || s.respawnRunning;
+      btn.disabled = !active || busy;
     });
     $$('[data-command="quest"]').forEach(btn => {
-      btn.disabled = !active || busy || s.expRunning || s.respawnRunning;
+      btn.disabled = !active || busy;
     });
     $("#exp-button").disabled = !active || (busy && !s.expRunning) || s.respawnRunning;
     $("#resp-button").disabled = !active || (busy && !s.respawnRunning) || s.expRunning;
-    const logs = Array.isArray(s.logs) ? s.logs : [];
-    $("#log-count").textContent = String(s.logCount || logs.length);
-    const signature = JSON.stringify(logs);
-    if (signature !== state.lastLog) {
-      state.lastLog = signature;
-      const logBox = $("#log-box");
-      logBox.textContent = "";
-      logs.forEach(entry => {
-        const line = document.createElement("div");
-        line.className = "log-line " + (entry.type === "error" ? "error" : entry.type === "success" ? "success" : "");
-        const time = document.createElement("span");
-        time.className = "time";
-        time.textContent = String(entry.time || "") + " ";
-        line.append(time, document.createTextNode(String(entry.message || "")));
-        logBox.appendChild(line);
-      });
-      if (!logs.length) logBox.textContent = "Brak zdarzeń.";
-      logBox.scrollTop = logBox.scrollHeight;
-    }
+    renderLogs(s);
   }
 
   async function refreshGame() {
@@ -416,6 +395,11 @@
       if (btn.id === "close") return setHidden(true);
       if (btn.id === "launcher") return setHidden(false);
       if (btn.id === "restore-position" || btn.id === "reset-position") return resetPosition();
+      if (btn.dataset.configToggle) {
+        const key = btn.dataset.configToggle;
+        await changeConfig(key, state.config[key] !== true);
+        return;
+      }
       if (btn.id === "save-accounts") {
         const accounts = [];
         for (let i = 0; i < 5; i++) {
@@ -435,7 +419,6 @@
       }
       if (btn.dataset.switchAccount !== undefined) {
         const slot = Number(btn.dataset.switchAccount);
-        if (!window.confirm("Przełączyć na profil " + (slot + 1) + "? Aktualna gra zostanie przeładowana.")) return;
         try {
           notice("Przełączanie konta...");
           btn.disabled = true;
