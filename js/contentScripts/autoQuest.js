@@ -123,7 +123,7 @@
                 }
                 let step = this.currentQuestStep;
                 if (step && (!questId || this._int(step.qb_id) === questId) &&
-                    (step !== previous || this.improvedXQuestWindowOpen())) {
+                    (questId > 0 || step !== previous)) {
                     return step;
                 }
                 const actions = this.improvedXQuestActions();
@@ -143,7 +143,8 @@
                     }
                     await this.autoQuestWait(250);
                     step = this.currentQuestStep;
-                    if (step && (!questId || this._int(step.qb_id) === questId)) return step;
+                    if (step && (!questId || this._int(step.qb_id) === questId) &&
+                        (questId > 0 || step !== previous)) return step;
                 }
                 if (questId) {
                     // Serwerowy odczyt tylko dla konkretnego questa z bieżącego pola.
