@@ -178,7 +178,17 @@
                 charId,
                 x: player?.x || 0,
                 y: player?.y || 0,
-                pickupRawMap: rawMap
+                pickupRawMap: rawMap,
+                // a=3: znajdźki są w mines.coords[x_y] jako
+                // [mine_id, item_id, stan, flaga]. ID znajduje się w indeksie 0.
+                pickupMines: response.mines?.coords &&
+                    typeof response.mines.coords === "object"
+                    ? response.mines.coords : {},
+                pickupQuests: response.quests &&
+                    typeof response.quests === "object"
+                    ? response.quests : {},
+                pickupTrack: Array.isArray(response.track)
+                    ? response.track : []
             };
 
             if (this.active) {
