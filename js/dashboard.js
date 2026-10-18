@@ -509,7 +509,7 @@
       if (document.body) resolve();
       else document.addEventListener("DOMContentLoaded", resolve, { once:true });
     });
-    const stored = await chrome.storage.local.get(["config", "accounts", "swDashboardUI"]);
+    const stored = await chrome.storage.local.get(["config", "accounts", "swDashboardUI", "swAccountSwitchStatus"]);
     Object.keys(DEFAULTS).forEach(key => {
       state.config[key] = typeof stored.config?.[key] === "boolean" ? stored.config[key] : DEFAULTS[key];
     });
@@ -548,6 +548,17 @@
     setHidden(state.ui.hidden === true);
     state.loading = true;
     await refreshGame();
+    const switchStatus = stored.swAccountSwitchStatus;
+    if (switchStatus && Date.now() - Number(switchStatus.at || 0) < 180000) {
+      if (switchStatus.state === "failed") {
+        notice(String(switchStatus.error || "Przełączanie konta nie powiodło się."), true);
+      } else if (switchStatus.state === "started") {
+        notice("Wykonano logowanie i rozpoczęto przejście na S1.");
+      }
+    }
+    if (switchStatus) {
+      chrome.storage.local.remove("swAccountSwitchStatus").catch(() => {});
+    }
     timer = setInterval(refreshGame, 1800);
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area !== "local") return;
