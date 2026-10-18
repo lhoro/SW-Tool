@@ -40,3 +40,18 @@ V 0.0.3
 - Dodano przycisk resetowania bota (W razie problemów resetuje wszystkie ustawienia na domyślne wraz z listą postaci na koncie),
 
 
+
+## Auto Quest (wersja eksperymentalna, EXT `dev`)
+
+Na zakładce **Pulpit** wybierz **▶ Start Auto Quest** po wejściu na pole questa.
+Przycisk zmienia się w **■ Stop Auto Quest**. Zatrzymanie anuluje
+oczekiwanie na odpowiedź socketu i kończy dalsze kroki automatu. Wysłanej
+już do serwera akcji nie można cofnąć.
+
+Silnik korzysta z `q_step`, `quest_end`, `map.quests` i dostępnych
+przycisków dialogu. Rozpoznaje jednoznaczne dialogi i trzy typy aktywnych
+warunków `want`: **1 — Quest Kille**, **22 — Pickup Quest**, **7 — walka
+questowa**. Po każdym etapie pobiera aktualny stan zadania. Nieznane typy,
+kilka questów na jednym polu, kilka akcji w dialogu, brak postępu lub
+brak mapy powodują zatrzymanie z komunikatem. To nie jest jeszcze
+uniwersalny solver dowolnego zadania; funkcja wymaga prób w grze.
