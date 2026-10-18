@@ -293,6 +293,19 @@
             this.characterSwitch = null;
         }
 
+        // Postacie przeznaczone do usunięcia nigdy nie są wybierane przez bota.
+        // ID 51052 (Zebra) jest blokowane nawet przed załadowaniem dashboardu.
+        isCharacterSkipped(charId) {
+            const id = Number(charId);
+            return id === 51052 ||
+                (Number.isSafeInteger(id) && id > 0 &&
+                    this.characterPreferences[String(id)]?.skip === true);
+        }
+
+        accountActionCharacters() {
+            return this.chars.filter(char => !this.isCharacterSkipped(char?.id));
+        }
+
         switchRelative(delta) {
             if (this.accountOperationRunning || this.quickActionRunning) {
                 toolConsole("info", "[SW Tool][PAGE] Trwa inna operacja.");
@@ -340,13 +353,21 @@
                 return;
             }
 
-            const targetIndex =
-                (sourceIndex + delta + this.chars.length) %
-                this.chars.length;
+            // Szukamy kolejnej DOZWOLONEJ postaci w kierunku , lub .
+            // Pomijamy również wiele sąsiadujących postaci do usunięcia.
+            let targetIndex = -1;
+            for (let offset = 1; offset < this.chars.length; offset++) {
+                const index = (sourceIndex + delta * offset +
+                    this.chars.length * (offset + 1)) % this.chars.length;
+                const id = Number(this.chars[index]?.id || 0);
+                if (id > 0 && id !== sourceId && !this.isCharacterSkipped(id)) {
+                    targetIndex = index;
+                    break;
+                }
+            }
             const targetId = Number(this.chars[targetIndex]?.id || 0);
-
-            if (targetId <= 0 || targetId === sourceId) {
-                toolConsole("warn", "[SW Tool][PAGE] Brak innej postaci do przełączenia.");
+            if (targetIndex < 0 || this.isCharacterSkipped(targetId)) {
+                toolConsole("info", "[SW Tool][PAGE] Nie ma kolejnej dozwolonej postaci.");
                 return;
             }
 
@@ -14401,6 +14422,12 @@
         }
 
         sendAndWait(order, expectedActions, predicate = null, timeoutMs = 15000) {
+            if (Number(order?.a) === 2 && this.isCharacterSkipped(order.char_id)) {
+                return Promise.reject(new Error(
+                    "Zablokowano wybór postaci przeznaczonej do usunięcia: " +
+                    order.char_id
+                ));
+            }
             if (this.responseWaiter) {
                 return Promise.reject(
                     new Error("Trwa już oczekiwanie na odpowiedź serwera.")
@@ -14515,6 +14542,10 @@
             const targetId = Number(charId);
             if (targetId <= 0) {
                 throw new Error("Nieprawidłowe ID postaci.");
+            }
+            if (this.isCharacterSkipped(targetId)) {
+                throw new Error("Postać ID " + targetId +
+                    " jest oznaczona do usunięcia — wybór zablokowany.");
             }
 
             if (
@@ -15062,7 +15093,7 @@
                 );
             }
 
-            const characters = [...this.chars];
+            const characters = this.accountActionCharacters();
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
             );
@@ -15438,7 +15469,7 @@
         }
 
         async runAccountTrainings() {
-            const characters = [...this.chars];
+            const characters = this.accountActionCharacters();
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
             );
@@ -15579,7 +15610,7 @@
         }
 
         async runAccountArenaPvp() {
-            const characters = [...this.chars];
+            const characters = this.accountActionCharacters();
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
             );
@@ -15676,7 +15707,7 @@
         }
 
         async runAccountSoulAbyss() {
-            const characters = [...this.chars];
+            const characters = this.accountActionCharacters();
             const originalId = Number(
                 GAME.char_id || this.lastCharacterId || this.currentCharacterId || 0
             );
@@ -15731,7 +15762,7 @@
         }
 
         async runAccountMissions() {
-            const characters = [...this.chars];
+            const characters = this.accountActionCharacters();
             const originalId = Number(
                 GAME.char_id ||
                 this.lastCharacterId ||
@@ -15857,7 +15888,7 @@
         }
 
         async runAccountRonin() {
-            const characters = [...this.chars];
+            const characters = this.accountActionCharacters();
             const originalId = Number(
                 GAME.char_id ||
                 this.lastCharacterId ||
@@ -16240,7 +16271,7 @@
         }
 
         async runAccountAll() {
-            const characters = [...this.chars];
+            const characters = this.accountActionCharacters();
             const originalId = Number(
                 GAME.char_id ||
                 this.lastCharacterId ||
@@ -17118,7 +17149,8 @@
                     normalized[String(id)] = {
                         afterAll: config.afterAll === "training" || config.afterAll === "mission"
                             ? config.afterAll : "default",
-                        trainingSkill: validSkills.has(skill) ? skill : 0
+                        trainingSkill: validSkills.has(skill) ? skill : 0,
+                        skip: id === 51052 || config.skip === true
                     };
                 }
                 tool.characterPreferences = normalized;
