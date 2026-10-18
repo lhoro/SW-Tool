@@ -222,10 +222,11 @@ async function switchAccountViaApi(account, tabId) {
     throw new Error("Przełączanie konta już trwa.");
   }
   accountSwitchInProgress = true;
-  const savedTab = await chrome.tabs.get(tabId);
-  const originalUrl = savedTab.url;
+  let originalUrl = "";
 
   try {
+    const savedTab = await chrome.tabs.get(tabId);
+    originalUrl = savedTab.url || "";
     // Główna domena jest źródłem /main_page_ajax. Zapewnia to
     // wysyłanie i zapisywanie ciasteczek w kontekście właściwej witryny.
     await navigateTabToAuthPage(tabId, "https://shinobiworld.pl/");
@@ -248,6 +249,9 @@ async function switchAccountViaApi(account, tabId) {
     }
     toolConsole("info", "[SW Tool][AUTH] Autoryzacja OK; wejście na S1.");
 
+    await chrome.storage.local.set({
+      swAccountSwitchStatus: { state: "started", at: Date.now() }
+    });
     await chrome.tabs.update(tabId, { url: authUrl });
     return { started: true, server: 1, pid: auth.pid };
   } catch (error) {
@@ -261,7 +265,11 @@ async function switchAccountViaApi(account, tabId) {
     } catch (_) { /* Strona może być już zamknięta. */ }
 
     const detail = error instanceof Error ? error.message : String(error);
-    throw new Error("Zmiana konta nie powiodła się: " + detail);
+    const failure = "Zmiana konta nie powiodła się: " + detail;
+    await chrome.storage.local.set({
+      swAccountSwitchStatus: { state: "failed", error: failure, at: Date.now() }
+    }).catch(() => {});
+    throw new Error(failure);
   } finally {
     accountSwitchInProgress = false;
   }
