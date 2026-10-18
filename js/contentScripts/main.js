@@ -5591,6 +5591,9 @@
         }
 
         togglePickupQuest() {
+            if (this.autoQuestRunning) {
+                throw new Error("Trwa Auto Quest. Użyj jego przycisku STOP.");
+            }
             if (this.pickupQuestRunning) {
                 this.pickupQuestStop = true;
                 this.setQuickPanelStatus("Pickup Quest: zatrzymuję i wracam na start...");
@@ -7304,6 +7307,7 @@
         async runQuestKills({
             allowQuickAction = false,
             allowAccountOperation = false,
+            allowAutoQuest = false,
             requireQuestWindow = true,
             allowedWantTypes = [1],
             initialStep = null,
@@ -7315,6 +7319,7 @@
                 this.pickupQuestRunning ||
                 this.respawnRunning ||
                 this.expRunning ||
+                (this.autoQuestRunning && !allowAutoQuest) ||
                 (
                     this.quickActionRunning &&
                     !allowQuickAction
