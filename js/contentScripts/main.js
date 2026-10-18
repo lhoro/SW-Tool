@@ -7197,6 +7197,7 @@
         } = {}) {
             if (
                 this.questKillRunning ||
+                this.pickupQuestRunning ||
                 this.respawnRunning ||
                 this.expRunning ||
                 (
@@ -7999,6 +8000,7 @@
                     !this.respawnRunning &&
                     (
                         this.questKillRunning ||
+                this.pickupQuestRunning ||
                         this.expRunning
                     );
 
@@ -8017,6 +8019,7 @@
                     !this.expRunning &&
                     (
                         this.questKillRunning ||
+                this.pickupQuestRunning ||
                         this.respawnRunning
                     );
 
@@ -13907,6 +13910,7 @@
                     !allowAccountOperation
                 ) ||
                 this.questKillRunning ||
+                this.pickupQuestRunning ||
                 this.respawnRunning ||
                 this.expRunning ||
                 this.dailyRewardClaimStage !== 0 ||
@@ -14121,6 +14125,7 @@
                 this.quickActionRunning ||
                 this.accountOperationRunning ||
                 this.questKillRunning ||
+                this.pickupQuestRunning ||
                 this.respawnRunning ||
                 this.expRunning ||
                 this.dailyRewardClaimStage !== 0 ||
@@ -16478,6 +16483,7 @@
             if (
                 this.quickActionRunning ||
                 this.questKillRunning ||
+                this.pickupQuestRunning ||
                 this.respawnRunning ||
                 this.expRunning ||
                 this.mapSolver?.active
