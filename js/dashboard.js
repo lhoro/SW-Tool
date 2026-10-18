@@ -321,7 +321,8 @@
           name: String(char?.name || ""),
           level: Math.max(0, Math.floor(Number(char?.level || 0))),
           afterAll: ["training", "mission"].includes(char?.afterAll) ? char.afterAll : DEFAULT_CHARACTER_MODE,
-          trainingSkill: skillValid(char?.trainingSkill) ? Number(char.trainingSkill) : 0
+          trainingSkill: skillValid(char?.trainingSkill) ? Number(char.trainingSkill) : 0,
+          skip: id === 51052 || char?.skip === true
         };
       }).filter(Boolean)
     };
@@ -368,9 +369,15 @@
           (char.afterAll === value ? " selected" : "") + '>' + label + '</option>').join("");
         const skillOptions = TRAINING_SKILLS.map(([id,label]) => '<option value="' + id + '"' +
           (char.trainingSkill === id ? " selected" : "") + '>' + label + '</option>').join("");
-        return '<div class="character-card">' +
+        const excluded = char.id === 51052 || char.skip === true;
+        return '<div class="character-card' + (excluded ? ' character-skipped' : '') + '">' +
           '<div class="character-heading"><strong>' + escapeText(char.name || "#" + char.id) + '</strong>' +
           '<span>Lv. ' + char.level + ' · ID ' + char.id + '</span></div>' +
+          '<label class="character-skip" title="Bot nie wybierze tej postaci przez skróty ani podczas automatyzacji całego konta">' +
+          '<input type="checkbox" data-character-skip="' + key + '"' +
+          (excluded ? ' checked' : '') + (char.id === 51052 ? ' disabled' : '') + '>' +
+          '<span>' + (char.id === 51052 ? 'Do usunięcia — blokada stała' :
+            'Pomiń postać (do usunięcia)') + '</span></label>' +
           '<label class="character-field">Po zakończeniu ALL' +
           '<select data-character-mode="' + key + '">' + afterOptions + '</select></label>' +
           '<label class="character-field">Trenuj' +
@@ -426,20 +433,25 @@
   }
 
   async function saveCharacterSelection(input) {
-    const raw = input.dataset.characterMode || input.dataset.characterSkill;
+    const raw = input.dataset.characterMode || input.dataset.characterSkill ||
+      input.dataset.characterSkip;
     const match = /^([0-4]):([1-9]\d*)$/.exec(raw || "");
     if (!match) return;
     const slot = Number(match[1]);
     const id = Number(match[2]);
     const character = state.accountCharacters[slot]?.characters.find(char => char.id === id);
     if (!character) return;
-    if (input.dataset.characterMode) {
+    if (input.dataset.characterSkip) {
+      character.skip = id === 51052 || input.checked === true;
+    } else if (input.dataset.characterMode) {
       character.afterAll = ["training", "mission"].includes(input.value) ? input.value : "default";
     } else {
       character.trainingSkill = skillValid(input.value) ? Number(input.value) : 0;
     }
-    await chrome.storage.local.set({ swAccountCharacters: state.accountCharacters });
+    // Najpierw aktualizujemy blokadę w działającym bocie.
     await applyCurrentCharacterPreferences();
+    await chrome.storage.local.set({ swAccountCharacters: state.accountCharacters });
+    if (input.dataset.characterSkip) renderAccounts();
     notice("Zapisano preferencje: " + (character.name || "#" + id));
   }
 
@@ -448,7 +460,8 @@
     const characters = slot >= 0 ? state.accountCharacters[slot]?.characters || [] : [];
     const preferences = Object.fromEntries(characters.map(char => [
       String(char.id),
-      { afterAll: char.afterAll, trainingSkill: char.trainingSkill }
+      { afterAll: char.afterAll, trainingSkill: char.trainingSkill,
+        skip: char.id === 51052 || char.skip === true }
     ]));
     const signature = JSON.stringify([slot, preferences]);
     if (signature === state.preferencesSignature) return;
@@ -482,7 +495,8 @@
         name: String(raw.name || ""),
         level: Math.max(0, Math.floor(Number(raw.level || 0))),
         afterAll: old?.afterAll || "default",
-        trainingSkill: skillValid(old?.trainingSkill) ? Number(old.trainingSkill) : 0
+        trainingSkill: skillValid(old?.trainingSkill) ? Number(old.trainingSkill) : 0,
+        skip: id === 51052 || old?.skip === true
       };
     }).filter(Boolean);
     if (!next.length) return false;
@@ -701,7 +715,8 @@
     });
     shadow.addEventListener("change", async event => {
       const input = event.target;
-      if (input.dataset.characterMode || input.dataset.characterSkill) {
+      if (input.dataset.characterMode || input.dataset.characterSkill ||
+          input.dataset.characterSkip) {
         try { await saveCharacterSelection(input); }
         catch (error) { notice("Nie udało się zapisać preferencji: " + error.message, true); }
         return;
