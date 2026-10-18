@@ -46,6 +46,14 @@
                 this.autoQuestStop = true;
                 this.questKillStopRequested = true;
                 this.pickupQuestStop = true;
+                // Nie da się cofnąć wysłanego TX, ale można natychmiast
+                // odrzucić oczekiwanie na RX i zapobiec dalszym żądaniom.
+                const waiter = this.responseWaiter;
+                if (waiter) {
+                    this.responseWaiter = null;
+                    clearTimeout(waiter.timeoutId);
+                    waiter.reject(new Error("Auto Quest przerwany przez STOP."));
+                }
                 // Przerwij własną trasę, nie inicjuj już żadnego kolejnego TX.
                 if (this.mapSolver?.active) {
                     this.mapSolver.stop("Auto Quest STOP");
