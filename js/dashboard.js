@@ -568,7 +568,7 @@
     $("#resp-button").textContent = s.respawnRunning ? "■ Zatrzymaj respiarkę" : "▶ Start respiarki";
     $("#pickup-button").innerHTML = s.pickupRunning ?
       "<strong>■</strong>Stop Pickup" : "<strong>▤</strong>Pickup Quest";
-    $("#pickup-button").disabled = !active || (busy && !s.pickupRunning);
+    $("#pickup-button").disabled = !active || s.autoQuestRunning || (busy && !s.pickupRunning);
     const autoQuestButton = $("#auto-quest-button");
     autoQuestButton.textContent = s.autoQuestRunning ? "■ Stop Auto Quest" : "▶ Start Auto Quest";
     autoQuestButton.classList.toggle("auto-quest-stop", Boolean(s.autoQuestRunning));
