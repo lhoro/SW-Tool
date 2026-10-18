@@ -85,54 +85,6 @@ async function getStoredAccounts() {
   return normalizeAccounts(stored.accounts);
 }
 
-async function authPost(payload) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000);
-
-  try {
-    const response = await fetch("https://shinobiworld.pl/main_page_ajax", {
-      method: "POST",
-      credentials: "include",
-      cache: "no-store",
-      headers: {
-        "Accept": "application/json",
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      throw new Error("Żądanie autoryzacji HTTP " + response.status + ".");
-    }
-
-    let data;
-    try {
-      data = await response.json();
-    } catch {
-      throw new Error("Serwer zwrócił nieprawidłową odpowiedź JSON.");
-    }
-
-    if (!data || typeof data !== "object" || Array.isArray(data)) {
-      throw new Error("Serwer zwrócił nieprawidłową odpowiedź autoryzacji.");
-    }
-
-    const errorCode = Number(data.e || 0);
-    if (Number.isFinite(errorCode) && errorCode > 0) {
-      throw new Error("Kod błędu serwera: " + errorCode + ".");
-    }
-
-    return data;
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error("Przekroczono czas oczekiwania na serwer.");
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
 function isTrustedAuthUrl(value) {
   try {
     const url = new URL(String(value || ""));
@@ -149,75 +101,170 @@ function isTrustedAuthUrl(value) {
   }
 }
 
-async function switchAccountViaApi(account, tabId) {
-  toolConsole("info", "[SW Tool][AUTH] Wylogowanie konta przez API.");
+// W Chrome żądania z service workera mogą pracować w innym kontekście
+// cookies niż sesja otwarta w grze. Przełączanie kont wykonujemy więc
+// z pierwszoplanowej strony logowania, w izolowanym świecie rozszerzenia.
+let accountSwitchInProgress = false;
 
-  const logout = await authPost({ c: 5 });
+function navigateTabToAuthPage(tabId, url, timeoutMs = 25000) {
+  return new Promise((resolve, reject) => {
+    const expectedOrigin = new URL(url).origin;
+    let finished = false;
+    let timeoutId;
 
-  if (!Object.prototype.hasOwnProperty.call(logout, "e")) {
-    throw new Error("Serwer nie potwierdził wylogowania.");
+    const cleanup = () => {
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      clearTimeout(timeoutId);
+    };
+    const settle = (error) => {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const matchesOrigin = (tab) => {
+      try { return new URL(tab?.url || "").origin === expectedOrigin; }
+      catch { return false; }
+    };
+    const onUpdated = (id, change, tab) => {
+      if (id === tabId && change.status === "complete" && matchesOrigin(tab)) {
+        settle();
+      }
+    };
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    timeoutId = setTimeout(() => {
+      settle(new Error("Strona logowania nie załadowała się w wymaganym czasie."));
+    }, timeoutMs);
+
+    chrome.tabs.update(tabId, { url }).then(() =>
+      chrome.tabs.get(tabId).then((tab) => {
+        if (tab.status === "complete" && matchesOrigin(tab)) settle();
+      }, settle)
+    ).catch(settle);
+  });
+}
+
+// Funkcja wykonywana przez chrome.scripting w ISOLATED world na
+// https://shinobiworld.pl. Credentials pozostają poza kontekstem strony.
+async function authenticateOnShinobiWorld(account) {
+  if (location.origin !== "https://shinobiworld.pl") {
+    return { ok: false, error: "Niewłaściwa strona logowania." };
   }
 
-  toolConsole("info", "[SW Tool][AUTH] Logowanie wybranego profilu przez API.");
-
-  const login = await authPost({
-    c: 4,
-    f: {
-      login: account.login,
-      pass: account.password,
-      memory: false,
-      nick: account.login
+  const post = async (payload, stage) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+      const response = await fetch("/main_page_ajax", {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("Nieprawidłowy JSON.");
+      }
+      const e = Number(data.e || 0);
+      if (Number.isFinite(e) && e > 0) {
+        throw new Error("Kod odpowiedzi serwera: " + e);
+      }
+      return data;
+    } catch (err) {
+      const message = err?.name === "AbortError"
+        ? "Przekroczono czas odpowiedzi serwera."
+        : err instanceof Error ? err.message : String(err);
+      throw new Error(stage + ": " + message);
+    } finally {
+      clearTimeout(timer);
     }
-  });
-
-  if (login.n === true) {
-    throw new Error("Konto wymaga dodatkowego kroku aktywacji.");
-  }
-
-  const pid = Number(login.pid || 0);
-  if (!Number.isFinite(pid) || pid <= 0) {
-    throw new Error("Serwer nie zwrócił prawidłowego PID.");
-  }
-
-  toolConsole("info", "[SW Tool][AUTH] Wybór serwera 1 przez API.");
-
-  const server = await authPost({
-    c: 8,
-    s: 1,
-    f: false
-  });
-
-  const confirmation = server.d;
-  if (
-    confirmation === null ||
-    confirmation === undefined ||
-    confirmation === false ||
-    confirmation === 0 ||
-    confirmation === ""
-  ) {
-    throw new Error("Serwer nie potwierdził wyboru serwera 1.");
-  }
-
-  const authUrl = String(server.url || "").trim();
-
-  if (!isTrustedAuthUrl(authUrl)) {
-    throw new Error("Serwer nie zwrócił poprawnego adresu wejścia.");
-  }
-
-  const parsed = new URL(authUrl);
-  if (parsed.hostname !== "s1.shinobiworld.pl") {
-    throw new Error("Serwer zwrócił adres inny niż S1.");
-  }
-
-  toolConsole("info", "[SW Tool][AUTH] Przejście na S1. Oczekiwanie na listę postaci.");
-
-  await chrome.tabs.update(tabId, { url: authUrl });
-
-  return {
-    started: true,
-    server: 1,
-    pid
   };
+
+  try {
+    await post({ c: 5 }, "Wylogowanie");
+    const login = await post({
+      c: 4,
+      f: {
+        login: account.login,
+        pass: account.password,
+        memory: false,
+        nick: account.login
+      }
+    }, "Logowanie");
+
+    if (login.n === true) throw new Error("Logowanie: konto wymaga aktywacji.");
+    const pid = Number(login.pid || 0);
+    if (!Number.isFinite(pid) || pid <= 0) {
+      throw new Error("Logowanie: brak prawidłowego PID.");
+    }
+
+    const server = await post({ c: 8, s: 1, f: false }, "Wybór serwera S1");
+    if (!server.d) throw new Error("Wybór serwera: brak potwierdzenia.");
+    return { ok: true, pid, url: String(server.url || "") };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+
+async function switchAccountViaApi(account, tabId) {
+  if (accountSwitchInProgress) {
+    throw new Error("Przełączanie konta już trwa.");
+  }
+  accountSwitchInProgress = true;
+  const savedTab = await chrome.tabs.get(tabId);
+  const originalUrl = savedTab.url;
+
+  try {
+    // Główna domena jest źródłem /main_page_ajax. Zapewnia to
+    // wysyłanie i zapisywanie ciasteczek w kontekście właściwej witryny.
+    await navigateTabToAuthPage(tabId, "https://shinobiworld.pl/");
+    toolConsole("info", "[SW Tool][AUTH] Strona logowania gotowa.");
+
+    const frames = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "ISOLATED",
+      func: authenticateOnShinobiWorld,
+      args: [{ login: account.login, password: account.password }]
+    });
+    const auth = frames?.[0]?.result;
+    if (!auth || auth.ok !== true) {
+      throw new Error(auth?.error || "Brak wyniku uwierzytelniania.");
+    }
+
+    const authUrl = String(auth.url || "").trim();
+    if (!isTrustedAuthUrl(authUrl) || new URL(authUrl).hostname !== "s1.shinobiworld.pl") {
+      throw new Error("Serwer zwrócił nieprawidłowy adres wejścia na S1.");
+    }
+    toolConsole("info", "[SW Tool][AUTH] Autoryzacja OK; wejście na S1.");
+
+    await chrome.tabs.update(tabId, { url: authUrl });
+    return { started: true, server: 1, pid: auth.pid };
+  } catch (error) {
+    // Przy błędzie nie zostawiaj użytkownika bez informacji na pustym ekranie
+    // logowania; wróć do gry, gdzie dashboard może pokazać komunikat.
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (new URL(tab.url || "").hostname === "shinobiworld.pl" && originalUrl) {
+        await chrome.tabs.update(tabId, { url: originalUrl });
+      }
+    } catch (_) { /* Strona może być już zamknięta. */ }
+
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error("Zmiana konta nie powiodła się: " + detail);
+  } finally {
+    accountSwitchInProgress = false;
+  }
 }
 
 async function getActiveGameTab() {
