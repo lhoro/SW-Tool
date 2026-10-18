@@ -14,7 +14,7 @@
     debugLogs: false, preferTraining: true
   };
   const state = { config: { ...DEFAULTS }, accounts: [], ui: {}, lastLog: "", game: null, loading: false };
-  let shadow, host, panel, statusLine, timer, polling = false;
+  let shadow, host, panel, statusLine, timer, noticeTimer, polling = false;
   let configQueue = Promise.resolve();
 
   function requestPage(action, payload = {}, timeoutMs = 11000) {
@@ -48,8 +48,13 @@
 
   function notice(message, error = false) {
     if (!statusLine) return;
+    clearTimeout(noticeTimer);
     statusLine.textContent = String(message || "");
     statusLine.classList.toggle("error", error);
+    statusLine.hidden = !message;
+    if (message) {
+      noticeTimer = setTimeout(() => { statusLine.hidden = true; }, error ? 8500 : 4200);
+    }
   }
   const $ = (selector) => shadow.querySelector(selector);
   const $$ = (selector) => [...shadow.querySelectorAll(selector)];
@@ -63,9 +68,8 @@
     '<section id="panel" aria-label="SW Tool - panel na grze">',
       '<div class="top">',
         '<div class="head" id="drag-handle">',
-          '<div class="logo">SW</div>',
-          '<div><div class="title">SW TOOL <span style="color:#fff;font-weight:400">EXT</span></div>',
-          '<div class="subtitle">CONTROL CENTER · PURPLE & GOLD</div></div>',
+          '<div class="logo"><img id="logo-icon" alt="SW Tool"></div>',
+          '<div class="title">SW TOOL</div>',
           '<div class="head-actions">',
             '<button type="button" class="icon" id="restore-position" title="Przywróć pozycję">⌖</button>',
             '<button type="button" class="icon" id="minimize" title="Zwiń panel">−</button>',
@@ -86,16 +90,8 @@
         '<div class="page" data-page="pulpit">',
           '<div class="section">Stan bieżącej sesji</div>',
           '<div class="stats">',
-            '<div class="stat"><div class="value" id="char-count">—</div><div class="label">Postacie</div></div>',
             '<div class="stat"><div class="value" id="current-char">—</div><div class="label">Aktywna postać</div></div>',
-            '<div class="stat"><div class="value" id="task-status">Gotowy</div><div class="label">Stan automatu</div></div>',
-          '</div>',
-          '<div class="section">Instancje</div>',
-          '<div class="card feature">',
-            '<div class="row"><div class="card-title">⚔ Quick Ronin</div><span class="chip" id="ronin-status">Gotowy</span></div>',
-            '<div class="muted" id="ronin-desc">Dwa podejścia na postać, z oczekiwaniem na powrót z instancji.</div>',
-            '<button class="primary" data-quick="ronin">▶ Quick Ronin · ta postać</button>',
-            '<button class="secondary" data-account-action="accountRonin">Ronin · całe konto</button>',
+            '<div class="stat"><div class="value state-ready" id="task-status">Gotowy</div><div class="label">Stan automatu</div></div>',
           '</div>',
           '<div class="section">Szybkie akcje postaci</div>',
           '<div class="quick">',
@@ -105,6 +101,13 @@
             '<button class="action" data-quick="mission"><strong>▤</strong>Misje</button>',
             '<button class="action" data-quick="all"><strong>✦</strong>Quick ALL</button>',
             '<button class="action" data-command="quest"><strong>◎</strong>Quest Kille</button>',
+          '</div>',
+          '<div class="section">Instancje</div>',
+          '<div class="card feature">',
+            '<div class="row"><div class="card-title">⚔ Quick Ronin</div><span class="chip" id="ronin-status">Gotowy</span></div>',
+            '<div class="muted" id="ronin-desc">Dwa podejścia na postać, z oczekiwaniem na powrót z instancji.</div>',
+            '<button class="primary" data-quick="ronin">▶ Quick Ronin · ta postać</button>',
+            '<button class="secondary" data-account-action="accountRonin">Ronin · całe konto</button>',
           '</div>',
         '</div>',
         '<div class="page" data-page="pve" hidden>',
@@ -160,13 +163,14 @@
           boolOption("mapClickMovement","Chodzenie kliknięciem po mapie"),
           boolOption("acceleratedH","Przyspieszone H"),
           boolOption("improvedX","Ulepszony X"),
-          '<button class="secondary" id="reset-config">Przywróć domyślne ustawienia</button></div>',
-          '<div class="section">Panel i układ gry</div>',
-          '<div class="card">',
-          boolOption("debugLogs","Szczegółowe logi w konsoli"),
+          '<button class="secondary" id="reset-config">Przywróć domyślne ustawienia</button>',
           '<button class="secondary" id="reset-position">Reset pozycji dashboardu</button></div>',
         '</div>',
         '<div class="page" data-page="debug" hidden>',
+          '<div class="section">Konsola</div>',
+          '<div class="card">',
+          boolOption("debugLogs","Szczegółowe logi w konsoli"),
+          '</div>',
           '<div class="section">Bieżący log automatyzacji</div>',
           '<div class="card"><div class="row"><div class="card-title">Ostatnie zdarzenia</div><span class="chip" id="log-count">0</span></div>',
           '<div class="log" id="log-box" style="margin-top:10px"><div class="muted">Łączenie z grą...</div></div>',
@@ -182,7 +186,7 @@
           '<button class="secondary" id="portal-clear">Wyczyść rejestr portali</button></div>',
         '</div>',
       '</div>',
-      '<div class="status" id="status" role="status" aria-live="polite">Inicjalizacja dashboardu...</div>',
+      '<div class="toast" id="status" role="status" aria-live="polite" hidden></div>',
       '<div class="footer"><span><span class="dot"></span>SW EXT · gra</span><span>PURPLE & GOLD</span></div>',
     '</section>'
   ].join("");
@@ -322,12 +326,16 @@
   function renderGame(s) {
     state.game = s;
     const active = Number(s.characterId || 0) > 0;
-    $("#char-count").textContent = String(s.characters || 0);
     $("#current-char").textContent = active ? String(s.character || "—") : "Brak";
     $("#current-char").style.fontSize = "12px";
-    const busy = Boolean(s.accountRunning || s.quickRunning || s.questRunning || s.roninRunning);
-    $("#task-status").textContent = busy ? "Pracuje" : (s.expRunning || s.respawnRunning ? "PVE" : "Gotowy");
-    $("#task-status").style.fontSize = "13px";
+    const busy = Boolean(s.accountRunning || s.quickRunning || s.questRunning ||
+      s.roninRunning || s.expRunning || s.respawnRunning);
+    const taskStatus = $("#task-status");
+    taskStatus.textContent = busy ? (String(s.automationLabel || "Pracuje")) : "Gotowy";
+    taskStatus.classList.toggle("state-ready", !busy);
+    taskStatus.classList.toggle("state-running", busy);
+    taskStatus.title = busy ? String(s.latestLog || taskStatus.textContent) : "Brak aktywnej automatyzacji";
+    taskStatus.style.fontSize = "12px";
     $("#ronin-status").textContent = s.roninRunning ? "W trakcie" : (s.accountRunning ? "Operacja konta" : "Gotowy");
     $("#ronin-desc").textContent = (s.roninRunning || s.accountRunning) && s.latestLog
       ? String(s.latestLog).slice(0,190)
@@ -530,6 +538,7 @@
     document.body.appendChild(host);
     panel = $("#panel");
     statusLine = $("#status");
+    $("#logo-icon").src = chrome.runtime.getURL("images/icon_48x48.png");
     setTab(["pulpit","pve","pvp","konto","ustawienia","debug"].includes(state.ui.tab) ? state.ui.tab : "pulpit");
     renderAccounts();
     syncConfig();
