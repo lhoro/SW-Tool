@@ -324,10 +324,10 @@
   }
 
   function syncConfig() {
-    $("[data-config]").forEach(input => {
+    $$("[data-config]").forEach(input => {
       input.checked = state.config[input.dataset.config] === true;
     });
-    $("[data-config-toggle]").forEach(button => {
+    $$("[data-config-toggle]").forEach(button => {
       const on = state.config[button.dataset.configToggle] === true;
       button.classList.toggle("toggle-on", on);
       button.classList.toggle("toggle-off", !on);
