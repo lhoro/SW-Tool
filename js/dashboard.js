@@ -154,6 +154,12 @@
             '<button class="action" data-account-action="accountTournaments"><strong>♛</strong>Turnieje</button>',
             '<button class="action" data-account-action="accountAll"><strong>★</strong>ALL</button>',
           '</div>',
+          '<div class="section">Auto Quest — eksperymentalny</div>',
+          '<div class="card auto-quest-card">',
+            '<div class="muted">Stań na polu questa. Bot analizuje etapy i wykonuje rozpoznane akcje. Nieznane lub niejednoznaczne kroki zatrzymują automat.</div>',
+            '<button type="button" class="primary" id="auto-quest-button" data-command="autoQuest" aria-pressed="false">▶ Start Auto Quest</button>',
+            '<div class="muted auto-quest-feedback" id="auto-quest-status" aria-live="polite">Gotowy do analizy questa na bieżącym polu.</div>',
+          '</div>',
         '</div>',
         '<div class="page" data-page="pve" hidden>',
           '<div class="section">Questy</div>',
@@ -426,7 +432,7 @@
   async function ensureAccountSwitchAllowed() {
     const game = await requestPage("dashboard.state", {}, 9000);
     if (game.accountRunning || game.quickRunning || game.roninRunning ||
-        game.questRunning || game.pickupRunning ||
+        game.questRunning || game.pickupRunning || game.autoQuestRunning ||
         game.expRunning || game.respawnRunning) {
       throw new Error("Zatrzymaj aktywną automatyzację przed zmianą konta.");
     }
@@ -551,7 +557,8 @@
     state.game = s;
     const active = Number(s.characterId || 0) > 0;
     const busy = Boolean(s.accountRunning || s.quickRunning || s.questRunning ||
-      s.roninRunning || s.expRunning || s.respawnRunning || s.pickupRunning);
+      s.roninRunning || s.expRunning || s.respawnRunning || s.pickupRunning ||
+      s.autoQuestRunning);
     const taskStatus = $("#task-status");
     taskStatus.textContent = busy ? String(s.automationLabel || "Pracuje") : "Gotowy";
     taskStatus.classList.toggle("state-ready", !busy);
@@ -562,6 +569,13 @@
     $("#pickup-button").innerHTML = s.pickupRunning ?
       "<strong>■</strong>Stop Pickup" : "<strong>▤</strong>Pickup Quest";
     $("#pickup-button").disabled = !active || (busy && !s.pickupRunning);
+    const autoQuestButton = $("#auto-quest-button");
+    autoQuestButton.textContent = s.autoQuestRunning ? "■ Stop Auto Quest" : "▶ Start Auto Quest";
+    autoQuestButton.classList.toggle("auto-quest-stop", Boolean(s.autoQuestRunning));
+    autoQuestButton.disabled = !s.autoQuestRunning && (!active || busy);
+    autoQuestButton.setAttribute("aria-pressed", s.autoQuestRunning ? "true" : "false");
+    $("#auto-quest-status").textContent = s.autoQuestStatus ||
+      "Gotowy do analizy questa na bieżącym polu.";
     $$("[data-quick],[data-account-action]").forEach(btn => {
       btn.disabled = !active || busy;
     });
