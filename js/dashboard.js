@@ -590,6 +590,11 @@
 
   function bind() {
     shadow.addEventListener("click", async event => {
+      // Kliknięcie ikony pomocy ma pokazywać tooltip, a nie zmieniać checkbox.
+      if (event.target.closest(".option-help")) {
+        event.preventDefault();
+        return;
+      }
       const btn = event.target.closest("button");
       if (!btn) return;
       if (btn.dataset.tab) return setTab(btn.dataset.tab);
@@ -597,7 +602,7 @@
       if (btn.id === "minimize") return minimize(!state.ui.minimized);
       if (btn.id === "close") return setHidden(true);
       if (btn.id === "launcher") return setHidden(false);
-      if (btn.id === "restore-position" || btn.id === "reset-position") return resetPosition();
+      if (btn.id === "restore-position") return resetPosition();
       if (btn.dataset.configToggle) {
         const key = btn.dataset.configToggle;
         await changeConfig(key, state.config[key] !== true);
