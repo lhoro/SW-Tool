@@ -50,7 +50,10 @@
   function notice(message, error = false) {
     const value = String(message || "").trim();
     if (!value) return;
+    if (state.uiLogs.length && state.uiLogs[state.uiLogs.length - 1].message === value &&
+        Date.now() - (state.uiLogs[state.uiLogs.length - 1].timestamp || 0) < 30000) return;
     state.uiLogs.push({
+      timestamp: Date.now(),
       time: new Date().toLocaleTimeString("pl-PL", { hour12: false }),
       message: value,
       type: error ? "error" : ""
