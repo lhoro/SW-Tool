@@ -5488,7 +5488,8 @@
                 const resource = positive(node.item_id) ||
                     positive(node.itemId) || positive(node.resource_id) ||
                     positive(node.resourceId);
-                if (px && py && id && (!resource || resource === itemId)) {
+                // Nie zbieramy nieznanych surowców, tylko potwierdzony przedmiot z questa.
+                if (px && py && id && resource === itemId) {
                     const cell = map.cells?.get(px + "_" + py);
                     if (cell?.movable) {
                         targets.set(px + "_" + py + "_" + id, {
