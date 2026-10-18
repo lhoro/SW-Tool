@@ -590,6 +590,10 @@
             // a nie wyłącznie w a=22.
             this.handleQuestKillResponse(response);
             this.handlePickupQuestResponse(response);
+            if (this.autoQuestRunning && action === 22 &&
+                this._int(response.quest_end) === this.autoQuestQuestId) {
+                this.autoQuestCompleted = true;
+            }
 
             if (
                 action === 998 &&
@@ -5731,7 +5735,7 @@
                         Math.min(30000, expires - Date.now() + 150) :
                         Math.min(30000, durationMs + 150);
                     // Dokończ już rozpoczęte zbieranie przed zatrzymaniem bota.
-                    await this.waitForPickupQuestDelay(remaining, false);
+                    await this.waitForPickupQuestDelay(remaining, !this.autoQuestRunning);
                     // Klient gry sam wysyła a:22/type:8 po mining.expires.
                     // Poczekaj na RX, a dodatkowy TX wykonaj tylko awaryjnie.
                     for (let tries = 0; tries < 50 &&
@@ -5768,7 +5772,7 @@
                 }
             } finally {
                 try {
-                    if (this._int(this.mapSolver?.map?.locationId) === origin.locationId &&
+                    if (!this.autoQuestStop && this._int(this.mapSolver?.map?.locationId) === origin.locationId &&
                         (this._int(map.x) !== origin.x || this._int(map.y) !== origin.y)) {
                         this.setQuickPanelStatus("Pickup Quest: wracam na pole questa...");
                         await this.mapSolver.navigateToLocation(
@@ -6913,7 +6917,8 @@
             while (
                 state.count < state.max &&
                 mobs > 0 &&
-                attempts < 40
+                attempts < 40 &&
+                !this.questKillStopRequested
             ) {
                 this.syncQuestKillProgressFromDom(
                     state
@@ -6926,6 +6931,7 @@
                     break;
                 }
 
+                if (this.questKillStopRequested) break;
                 attempts++;
 
                 const liveField =
@@ -7503,7 +7509,8 @@
                 while (
                     state.count <
                         state.max &&
-                    !this.pveActionPointsExhausted
+                    !this.pveActionPointsExhausted &&
+                    !this.questKillStopRequested
                 ) {
                     if (
                         this._int(
@@ -7725,6 +7732,7 @@
 
                     if (
                         !this.pveActionPointsExhausted &&
+                        !this.questKillStopRequested &&
                         !this.isPveNoActionPointsError(
                             operationError
                         ) &&
@@ -7815,6 +7823,10 @@
 
             if (operationError) {
                 throw operationError;
+            }
+
+            if (this.questKillStopRequested) {
+                return { ...state, done: false, stopped: true };
             }
 
             const endX =
@@ -8162,6 +8174,7 @@
 
             if (
                 otherPveRunning ||
+                this.autoQuestRunning ||
                 this.quickActionRunning ||
                 this.accountOperationRunning ||
                 this.dailyRewardClaimStage !== 0 ||
@@ -14235,6 +14248,7 @@
             if (
                 this.quickActionRunning ||
                 this.accountOperationRunning ||
+                this.autoQuestRunning ||
                 this.questKillRunning ||
                 this.pickupQuestRunning ||
                 this.respawnRunning ||
@@ -16603,6 +16617,7 @@
             }
             if (
                 this.quickActionRunning ||
+                this.autoQuestRunning ||
                 this.questKillRunning ||
                 this.pickupQuestRunning ||
                 this.respawnRunning ||
@@ -17014,6 +17029,11 @@
         return BOT;
     };
 
+    // Wtyczka korzysta z istniejących metod TOOL, bez dodatkowego połączenia.
+    if (typeof window.SW_TOOL_INSTALL_AUTO_QUEST === "function") {
+        window.SW_TOOL_INSTALL_AUTO_QUEST(TOOL);
+    }
+
     const toolReadyPromise = initTool().catch((error) => {
         toolConsole("error", "[SW Tool][PAGE] Inicjalizacja TOOL nie powiodła się.", error);
         throw error;
@@ -17107,7 +17127,7 @@
             if (data.action === "dashboard.characters.refresh") {
                 const tool = await toolReadyPromise;
                 if (tool.accountOperationRunning || tool.quickActionRunning ||
-                    tool.questKillRunning || tool.pickupQuestRunning ||
+                    tool.questKillRunning || tool.pickupQuestRunning || tool.autoQuestRunning ||
                     tool.expRunning || tool.respawnRunning ||
                     tool.roninRunning || tool.characterSwitch || tool.responseWaiter) {
                     throw new Error("Nie można pobierać listy postaci podczas automatyzacji.");
@@ -17197,6 +17217,7 @@
                     ronin: "Ronin"
                 };
                 const automationLabel =
+                    tool.autoQuestRunning ? "Auto Quest" :
                     tool.pickupQuestRunning ? "Pickup Quest" :
                     tool.expRunning ? "Expiarka" :
                     tool.respawnRunning ? "Respiarka" :
@@ -17220,6 +17241,10 @@
                     accountRunning: tool.accountOperationRunning === true,
                     quickRunning: tool.quickActionRunning === true,
                     roninRunning: tool.roninRunning === true,
+                    autoQuestRunning: tool.autoQuestRunning === true,
+                    autoQuestQuestId: tool.autoQuestQuestId || 0,
+                    autoQuestPhase: String(tool.autoQuestPhase || ""),
+                    autoQuestStatus: String(tool.autoQuestStatus || ""),
                     questRunning: tool.questKillRunning === true,
                     pickupRunning: tool.pickupQuestRunning === true,
                     expRunning: tool.expRunning === true,
@@ -17237,6 +17262,10 @@
                 const kind = String(data.payload?.kind || "");
                 const action = String(data.payload?.action || "");
 
+                if (tool.autoQuestRunning && !(kind === "pve" && action === "autoQuest")) {
+                    throw new Error("Auto Quest pracuje. Zatrzymaj go przyciskiem STOP.");
+                }
+
                 if (kind === "account") {
                     const result = tool.startAccountOperation(action);
                     sendBridgeResponse(data.requestId, true, result);
@@ -17253,6 +17282,7 @@
                         ronin: () => tool.runQuickAction("ronin")
                     },
                     pve: {
+                        autoQuest: () => tool.startAutoQuest(),
                         quest: () => tool.runQuestKills(),
                         pickup: () => tool.togglePickupQuest(),
                         exp: () => tool.toggleExpiarka(),
