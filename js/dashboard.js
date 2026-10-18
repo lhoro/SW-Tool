@@ -728,7 +728,11 @@
           notice("Wyczyszczono mapę portali.");
           return;
         } else return;
-        notice(result && result.started ? "Uruchomiono operację." : "Polecenie wykonane.");
+        if (btn.dataset.command === "autoQuest") {
+          notice(result?.stopping ? "Zatrzymuję Auto Quest..." : "Uruchomiono Auto Quest.");
+        } else {
+          notice(result && result.started ? "Uruchomiono operację." : "Polecenie wykonane.");
+        }
         refreshGame();
       } catch (error) { notice(error.message, true); }
     });
