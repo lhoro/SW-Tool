@@ -79,6 +79,24 @@
                 return;
             }
 
+            if (action === 22 && error === 0 && response.mining && this.map) {
+                const mine = response.mining;
+                const x = this._int(mine.x), y = this._int(mine.y);
+                const id = this._int(mine.mine_id), itemId = this._int(mine.mid);
+                if (x > 0 && y > 0 && id > 0 && itemId > 0) {
+                    const key = x + "_" + y;
+                    const source = this.map.pickupRawMap || {};
+                    const cell = source[key] || {};
+                    const observed = Array.isArray(cell.pickup) ? [...cell.pickup] : [];
+                    if (!observed.some(entry => this._int(entry.mine_id) === id)) {
+                        observed.push({ mine_id: id, item_id: itemId });
+                        this.map.pickupRawMap = {
+                            ...source, [key]: { ...cell, pickup: observed }
+                        };
+                    }
+                }
+            }
+
             if (action === 2 && error === 0) {
                 this.stop("zmiana postaci");
                 this.map = null;
