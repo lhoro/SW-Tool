@@ -91,8 +91,23 @@
   const $$ = (selector) => [...shadow.querySelectorAll(selector)];
   const escapeText = (str) => String(str || "").replace(/[&<>"']/g, c =>
     ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
-  const boolOption = (key, text) =>
-    '<label class="option"><span>' + text + '</span><input type="checkbox" data-config="' + key + '"></label>';
+  const OPTION_HINTS = Object.freeze({
+    dailyReward: "Automatyczne odbieranie dostępnych dziennych nagród na postaciach.",
+    saveTuts: "Automatyczny zapis na dostępne turnieje, gdy postać spełnia wymagania.",
+    hideReports: "Ukrywanie raportów wyświetlanych przez klienta gry.",
+    mapClickMovement: "Umożliwia przemieszczanie po mapie przez klikanie pól.",
+    acceleratedH: "Włącza przyspieszoną obsługę akcji powiązanych ze skrótem H.",
+    improvedX: "Włącza ulepszoną obsługę skrótu klawiszowego X.",
+    debugLogs: "Włącza szczegółowe komunikaty w konsoli przeglądarki. Logi bota pozostają w zakładce Debug."
+  });
+  const boolOption = (key, text) => {
+    const hint = escapeText(OPTION_HINTS[key] || text);
+    return '<label class="option" title="' + hint + '">' +
+      '<span class="option-copy">' + escapeText(text) +
+      '<span class="option-help" role="note" tabindex="0" title="' + hint +
+      '" aria-label="' + hint + '">ⓘ</span></span>' +
+      '<input type="checkbox" data-config="' + key + '" title="' + hint + '"></label>';
+  };
 
   const html = [
     '<button type="button" id="launcher" hidden>⚔ SW TOOL</button>',
