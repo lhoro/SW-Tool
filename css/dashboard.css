@@ -123,3 +123,9 @@ input:focus,button:focus-visible{outline:2px solid #e1bf7a;outline-offset:1px}
 .compact .head{cursor:move}
 .compact .title{font-size:13px}
 @media(max-width:480px){#panel{right:7px;bottom:7px;max-height:calc(100vh - 14px)}.top{padding:9px}.scroller{padding:10px}}
+
+/* Auto Quest: wyróżniony STOP, zawsze dostępny podczas pracy. */
+.auto-quest-card{border-color:#917746}
+.primary.auto-quest-stop{background:#7e2e37;color:#ffe5e8;border-color:#dc7682}
+.primary.auto-quest-stop:hover{background:#9a3540}
+.auto-quest-feedback{margin-top:7px;min-height:15px;overflow-wrap:anywhere}
