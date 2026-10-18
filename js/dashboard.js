@@ -13,8 +13,8 @@
     expKillChampions: false, expKillElites: false, expKillBosses: false,
     debugLogs: false, preferTraining: true
   };
-  const state = { config: { ...DEFAULTS }, accounts: [], ui: {}, lastLog: "", game: null, loading: false };
-  let shadow, host, panel, statusLine, timer, noticeTimer, polling = false;
+  const state = { config: { ...DEFAULTS }, accounts: [], ui: {}, lastLog: "", uiLogs: [], game: null, loading: false };
+  let shadow, host, panel, timer, polling = false;
   let configQueue = Promise.resolve();
 
   function requestPage(action, payload = {}, timeoutMs = 11000) {
@@ -46,16 +46,43 @@
     });
   }
 
+  // Krótkie komunikaty nie pojawiają się nad grą: wszystko trafia do Debug.
   function notice(message, error = false) {
-    if (!statusLine) return;
-    clearTimeout(noticeTimer);
-    statusLine.textContent = String(message || "");
-    statusLine.classList.toggle("error", error);
-    statusLine.hidden = !message;
-    if (message) {
-      noticeTimer = setTimeout(() => { statusLine.hidden = true; }, error ? 8500 : 4200);
-    }
+    const value = String(message || "").trim();
+    if (!value) return;
+    state.uiLogs.push({
+      time: new Date().toLocaleTimeString("pl-PL", { hour12: false }),
+      message: value,
+      type: error ? "error" : ""
+    });
+    if (state.uiLogs.length > 100) state.uiLogs.shift();
+    renderLogs(state.game);
   }
+
+  function renderLogs(gameState) {
+    if (!shadow) return;
+    const logBox = $("#log-box");
+    if (!logBox) return;
+    const gameLogs = Array.isArray(gameState?.logs) ? gameState.logs : [];
+    const logs = [...gameLogs, ...state.uiLogs];
+    const signature = JSON.stringify(logs);
+    if (signature === state.lastLog) return;
+    state.lastLog = signature;
+    logBox.textContent = "";
+    for (const entry of logs) {
+      const line = document.createElement("div");
+      line.className = "log-line " + (entry.type === "error" ? "error" : entry.type === "success" ? "success" : "");
+      const time = document.createElement("span");
+      time.className = "time";
+      time.textContent = String(entry.time || "") + " ";
+      line.append(time, document.createTextNode(String(entry.message || "")));
+      logBox.appendChild(line);
+    }
+    if (!logs.length) logBox.textContent = "Brak zdarzeń.";
+    $("#log-count").textContent = String(Number(gameState?.logCount || gameLogs.length) + state.uiLogs.length);
+    logBox.scrollTop = logBox.scrollHeight;
+  }
+
   const $ = (selector) => shadow.querySelector(selector);
   const $$ = (selector) => [...shadow.querySelectorAll(selector)];
   const escapeText = (str) => String(str || "").replace(/[&<>"']/g, c =>
@@ -182,8 +209,6 @@
           '<button class="secondary" id="portal-clear">Wyczyść rejestr portali</button></div>',
         '</div>',
       '</div>',
-      '<div class="toast" id="status" role="status" aria-live="polite" hidden></div>',
-      '<div class="footer"><span><span class="dot"></span>SW EXT · gra</span><span>PURPLE & GOLD</span></div>',
     '</section>'
   ].join("");
 
@@ -516,7 +541,6 @@
     while (wrapper.firstChild) shadow.appendChild(wrapper.firstChild);
     document.body.appendChild(host);
     panel = $("#panel");
-    statusLine = $("#status");
     $("#logo-icon").src = chrome.runtime.getURL("images/icon_48x48.png");
     setTab(["pulpit","pve","pvp","konto","ustawienia","debug"].includes(state.ui.tab) ? state.ui.tab : "pulpit");
     renderAccounts();
