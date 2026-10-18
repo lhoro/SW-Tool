@@ -14596,8 +14596,9 @@
 
         preferredAfterAll() {
             const mode = this.preferenceForCurrentCharacter()?.afterAll;
-            return mode === "training" ? true :
-                mode === "mission" ? false : this.config.preferTraining === true;
+            // Brak indywidualnej preferencji zawsze oznacza trening,
+            // niezależnie od ustawienia sprzed usunięcia opcji z pulpitu.
+            return mode !== "mission";
         }
 
         defaultTrainingSkill() {
@@ -15932,10 +15933,7 @@
                 "[SW Tool][ACCOUNT ALL] Start.",
                 {
                     characters: characters.length,
-                    preferred:
-                        this.config.preferTraining === true
-                            ? "training"
-                            : "mission"
+                    preferred: "per-character (default: training)"
                 }
             );
 
@@ -16047,10 +16045,7 @@
                     completed,
                     failed,
                     dailyClaimed,
-                    preferred:
-                        this.config.preferTraining === true
-                            ? "training"
-                            : "mission"
+                    preferred: "per-character (default: training)"
                 }
             );
         }
