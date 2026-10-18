@@ -238,6 +238,7 @@
             return Boolean(
                 this.tool.accountOperationRunning ||
                 this.tool.questKillRunning ||
+                this.tool.pickupQuestRunning ||
                 this.tool.respawnRunning ||
                 this.tool.expRunning ||
                 this.tool.dailyRewardClaimStage !== 0 ||
