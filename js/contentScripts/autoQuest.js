@@ -236,6 +236,9 @@
                     if (this._int(step.qb_id) !== id) {
                         throw new Error("Serwer przełączył na inny quest — zatrzymuję.");
                     }
+                    if (this.improvedXQuestActions().length > 1) {
+                        throw new Error("Kilka możliwych akcji w dialogu — zatrzymuję dla bezpieczeństwa.");
+                    }
                     const want = step.want && typeof step.want === "object" ? step.want : null;
                     const type = this._int(want?.type);
                     const met = Boolean(want?.is_met) ||
@@ -258,6 +261,7 @@
                     if (want && !met && type === 1) {
                         const kill = await this.runQuestKills({
                             initialStep: step, requireQuestWindow: false,
+                            allowAutoQuest: true,
                             allowedWantTypes: [1]
                         });
                         this.autoQuestAssertActive();
