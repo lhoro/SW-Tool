@@ -534,6 +534,8 @@
     polling = true;
     try {
       const result = await requestPage("dashboard.state", {}, 9000);
+      await syncAccountCharacterList(result);
+      await applyCurrentCharacterPreferences();
       renderGame(result);
       if (state.loading) {
         state.loading = false;
@@ -581,25 +583,40 @@
         return;
       }
       if (btn.id === "save-accounts") {
-        const accounts = [];
-        for (let i = 0; i < 5; i++) {
-          accounts.push({
-            name: "Konto " + (i + 1),
-            login: $('[data-account-login="' + i + '"]').value.trim(),
-            password: $('[data-account-password="' + i + '"]').value
-          });
-        }
         try {
-          await chrome.storage.local.set({ accounts });
-          state.accounts = accounts;
-          renderAccounts();
-          notice("Zapisano pięć profili kont.");
+          await saveAccountProfilesFromEditor();
+          await applyCurrentCharacterPreferences();
+          notice("Zapisano profile kont.");
+        } catch (error) { notice(error.message, true); }
+        return;
+      }
+      if (btn.dataset.refreshSlot !== undefined) {
+        const slot = Number(btn.dataset.refreshSlot);
+        try {
+          await saveAccountProfilesFromEditor();
+          const account = state.accounts[slot];
+          if (!account?.login || !account?.password) {
+            throw new Error("Najpierw wypełnij login i hasło konta.");
+          }
+          notice("Pobieranie listy postaci konta " + (slot + 1) + "...");
+          if (getActiveProfileIndex() !== slot) {
+            await sendBackground("account.switch", { slot });
+            // Nowe wejście do gry automatycznie zapisze listę postaci.
+          } else {
+            await requestPage("dashboard.characters.refresh", {}, 19000);
+            const current = await requestPage("dashboard.state", {}, 9000);
+            if (!await syncAccountCharacterList(current, true)) {
+              throw new Error("Serwer nie potwierdził listy postaci.");
+            }
+            await applyCurrentCharacterPreferences();
+          }
         } catch (error) { notice(error.message, true); }
         return;
       }
       if (btn.dataset.switchAccount !== undefined) {
         const slot = Number(btn.dataset.switchAccount);
         try {
+          await saveAccountProfilesFromEditor();
           notice("Przełączanie konta...");
           btn.disabled = true;
           await sendBackground("account.switch", { slot });
@@ -652,6 +669,11 @@
     });
     shadow.addEventListener("change", async event => {
       const input = event.target;
+      if (input.dataset.characterMode || input.dataset.characterSkill) {
+        try { await saveCharacterSelection(input); }
+        catch (error) { notice("Nie udało się zapisać preferencji: " + error.message, true); }
+        return;
+      }
       if (input.dataset.config) await changeConfig(input.dataset.config, input.checked);
       if (input.id === "resp-limit")
         input.value = String(Math.max(0, Math.floor(Number(input.value) || 0)));
@@ -668,7 +690,8 @@
       if (document.body) resolve();
       else document.addEventListener("DOMContentLoaded", resolve, { once:true });
     });
-    const stored = await chrome.storage.local.get(["config", "accounts", "swDashboardUI", "swAccountSwitchStatus"]);
+    const stored = await chrome.storage.local.get(["config", "accounts", "swDashboardUI",
+      "swAccountSwitchStatus", "swAccountCharacters", "swActiveAccountSlot"]);
     Object.keys(DEFAULTS).forEach(key => {
       state.config[key] = typeof stored.config?.[key] === "boolean" ? stored.config[key] : DEFAULTS[key];
     });
@@ -677,6 +700,9 @@
       login: typeof stored.accounts?.[i]?.login === "string" ? stored.accounts[i].login : "",
       password: typeof stored.accounts?.[i]?.password === "string" ? stored.accounts[i].password : ""
     }));
+    state.accountCharacters = state.accounts.map((account,i) =>
+      normalizeAccountCharacters(stored.swAccountCharacters?.[i], account.login));
+    state.activeAccount = stored.swActiveAccountSlot || null;
     state.ui = stored.swDashboardUI || {};
     // Migracja zapisanej zakładki z poprzedniej wersji dashboardu.
     if (state.ui.tab === "automaty") state.ui.tab = "pve";
