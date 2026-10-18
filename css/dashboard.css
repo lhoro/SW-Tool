@@ -47,6 +47,9 @@ button{cursor:pointer}
 .primary:disabled,.secondary:disabled,.action:disabled{opacity:.5;cursor:default}
 .quick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;margin:0 0 11px}
 .account-quick .action:last-child{grid-column:1/-1;min-height:36px}
+.quest-actions{grid-template-columns:repeat(2,minmax(0,1fr));margin-bottom:11px}
+.quest-actions .action{width:100%;min-width:0;min-height:40px}
+.quest-actions .action:disabled{opacity:.5;cursor:not-allowed}
 .action{background:#332b46;border:1px solid #67546e;color:#e8deeb;border-radius:8px;padding:7px 3px;min-height:38px;font-size:10px}
 .action strong{display:inline;color:#e8c27c;font-size:14px;margin:0 5px 0 0;vertical-align:middle}
 .quick.options-grid,.quick.resp-options{margin-bottom:5px}
@@ -63,6 +66,9 @@ button{cursor:pointer}
 .limit-action input[type=number]{width:55px;max-width:55px;min-width:0;padding:4px;font-size:11px;text-align:center}
 
 .option{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:7px 0;font-size:10px;color:#eee1f1}
+.option-copy{display:inline-flex;align-items:center;gap:5px;min-width:0}
+.option-help{display:inline-grid;place-items:center;width:16px;height:16px;min-width:16px;border-radius:50%;color:#ecd092;cursor:help;font-size:12px;line-height:1}
+.option-help:focus-visible{outline:2px solid #e1bf7a;outline-offset:2px}
 .option input[type=checkbox]{appearance:none;width:32px;height:18px;flex-shrink:0;border-radius:20px;background:#6c6074;position:relative;cursor:pointer}
 .option input[type=checkbox]:before{content:"";width:12px;height:12px;background:#ddd0e5;border-radius:50%;position:absolute;top:3px;left:3px;transition:transform .15s}
 .option input[type=checkbox]:checked{background:#b38a49}
