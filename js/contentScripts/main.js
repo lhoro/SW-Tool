@@ -5645,15 +5645,22 @@
                         Math.min(30000, durationMs + 150);
                     // Dokończ już rozpoczęte zbieranie przed zatrzymaniem bota.
                     await this.waitForPickupQuestDelay(remaining, false);
-                    const finished = await this.sendAndWait(
-                        { a: 22, type: 8 },
-                        [22, 999],
-                        event => event.done !== undefined ||
-                            event.track !== undefined || this._int(event.e) !== 0,
-                        15000
-                    );
-                    if (this._int(finished.e) !== 0) {
-                        throw new Error("Serwer odrzucił zakończenie zbierania.");
+                    // Klient gry sam wysyła a:22/type:8 po mining.expires.
+                    // Poczekaj na RX, a dodatkowy TX wykonaj tylko awaryjnie.
+                    for (let tries = 0; tries < 50 &&
+                        state.completionSeq === completionBefore; tries++) {
+                        await this.sleep(100);
+                    }
+                    if (state.completionSeq === completionBefore) {
+                        const completed = await this.sendAndWait(
+                            { a: 22, type: 8 }, [22, 999],
+                            event => event.done !== undefined ||
+                                event.track !== undefined || this._int(event.e) !== 0,
+                            15000
+                        );
+                        if (this._int(completed.e) !== 0) {
+                            throw new Error("Serwer odrzucił zakończenie zbierania.");
+                        }
                     }
                     for (let i = 0; i < 12 && state.count === before; i++) {
                         await this.sleep(100);
