@@ -26,7 +26,7 @@ button{cursor:pointer}
 .tabs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));background:#272138;padding:4px 5px 0;gap:2px}
 .tab{border:0;border-bottom:2px solid transparent;border-radius:5px 5px 0 0;color:#c5b7cc;background:transparent;font-size:9px;padding:7px 1px;font-weight:750}
 .tab.active{background:#3b304e;color:#f4d48d;border-bottom-color:#c29e51}
-.scroller{overflow:auto;min-height:0;padding:9px 10px;scrollbar-width:thin;scrollbar-color:#665075 #1d1a2a}
+.scroller{height:500px;flex:0 1 500px;overflow-y:auto;overflow-x:hidden;min-height:0;padding:9px 10px;scrollbar-width:thin;scrollbar-color:#665075 #1d1a2a}
 .page[hidden]{display:none}
 .section{font-size:9px;font-weight:800;letter-spacing:.8px;color:#d0b47c;margin:0 0 6px;text-transform:uppercase}
 .stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;margin-bottom:11px}
