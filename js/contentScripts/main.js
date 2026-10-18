@@ -5504,6 +5504,24 @@
                     }
                 }
             };
+            // Format z RX a=3: mines.coords["7_8"] = [[581,97,0,1]].
+            // Pierwszy element: ID sakiewki, drugi: ID przedmiotu.
+            const mineCoords = map.pickupMines || {};
+            for (const [key, entries] of Object.entries(mineCoords)) {
+                const match = /^(\d+)_(\d+)$/.exec(key);
+                if (!match || !Array.isArray(entries)) continue;
+                const x = positive(match[1]), y = positive(match[2]);
+                if (!map.cells?.get(key)?.movable) continue;
+                for (const entry of entries) {
+                    if (!Array.isArray(entry) || entry.length < 2) continue;
+                    const mineId = positive(entry[0]);
+                    const resourceId = positive(entry[1]);
+                    if (!mineId || resourceId !== itemId) continue;
+                    targets.set(key + "_" + mineId, {
+                        x, y, mineId, itemId: resourceId
+                    });
+                }
+            }
             const rawMap = map.pickupRawMap || {};
             for (const [key, raw] of Object.entries(rawMap)) {
                 const match = /^(\d+)_(\d+)$/.exec(key);
