@@ -412,6 +412,14 @@
     renderAccounts();
   }
 
+  async function ensureAccountSwitchAllowed() {
+    const game = await requestPage("dashboard.state", {}, 9000);
+    if (game.accountRunning || game.quickRunning || game.roninRunning ||
+        game.questRunning || game.expRunning || game.respawnRunning) {
+      throw new Error("Zatrzymaj aktywną automatyzację przed zmianą konta.");
+    }
+  }
+
   async function saveCharacterSelection(input) {
     const raw = input.dataset.characterMode || input.dataset.characterSkill;
     const match = /^([0-4]):([1-9]\d*)$/.exec(raw || "");
@@ -451,6 +459,15 @@
     const account = state.accounts[slot];
     const profile = normalizeAccountCharacters(state.accountCharacters[slot], account.login);
     const previous = new Map(profile.characters.map(char => [char.id, char]));
+    // Jeżeli postacie nie pokrywają się z zapisanym kontem, nie nadpisujemy
+    // jego preferencji. Mogło dojść do ręcznej zmiany konta poza rozszerzeniem.
+    if (previous.size > 0 && !list.some(char => previous.has(Number(char.id)))) {
+      state.activeAccount = null;
+      state.preferencesSignature = "";
+      await chrome.storage.local.remove("swActiveAccountSlot");
+      notice("Lista postaci nie pasuje do profilu. Użyj przycisku aktualizacji konta.", true);
+      return false;
+    }
     const next = list.map(raw => {
       const id = Number(raw.id);
       if (!Number.isSafeInteger(id) || id <= 0) return null;
@@ -600,6 +617,7 @@
           }
           notice("Pobieranie listy postaci konta " + (slot + 1) + "...");
           if (getActiveProfileIndex() !== slot) {
+            await ensureAccountSwitchAllowed();
             await sendBackground("account.switch", { slot });
             // Nowe wejście do gry automatycznie zapisze listę postaci.
           } else {
@@ -617,6 +635,7 @@
         const slot = Number(btn.dataset.switchAccount);
         try {
           await saveAccountProfilesFromEditor();
+          await ensureAccountSwitchAllowed();
           notice("Przełączanie konta...");
           btn.disabled = true;
           await sendBackground("account.switch", { slot });
