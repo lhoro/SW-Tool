@@ -265,6 +265,7 @@
         isBusy() {
             return Boolean(
                 this.tool.accountOperationRunning ||
+                this.tool.autoQuestRunning ||
                 this.tool.questKillRunning ||
                 this.tool.pickupQuestRunning ||
                 this.tool.respawnRunning ||
