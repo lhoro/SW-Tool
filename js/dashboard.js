@@ -76,7 +76,8 @@
       '</div>',
       '<nav class="tabs" aria-label="Zakładki dashboardu">',
         '<button class="tab active" data-tab="pulpit">Pulpit</button>',
-        '<button class="tab" data-tab="automaty">Automaty</button>',
+        '<button class="tab" data-tab="pve">PVE</button>',
+        '<button class="tab" data-tab="pvp">PVP</button>',
         '<button class="tab" data-tab="konto">Konto</button>',
         '<button class="tab" data-tab="ustawienia">Ustawienia</button>',
         '<button class="tab" data-tab="debug">Debug</button>',
@@ -105,12 +106,8 @@
             '<button class="action" data-quick="all"><strong>✦</strong>Quick ALL</button>',
             '<button class="action" data-command="quest"><strong>◎</strong>Quest Kille</button>',
           '</div>',
-          '<div class="card"><div class="row"><div class="card-title">Automaty PVE</div>',
-          '<span class="chip" id="pve-status">Gotowe</span></div>',
-          '<div class="muted">Expiarka i respiarka oraz ustawienia typów mobów.</div>',
-          '<button class="secondary" data-jump="automaty">Przejdź do automatów →</button></div>',
         '</div>',
-        '<div class="page" data-page="automaty" hidden>',
+        '<div class="page" data-page="pve" hidden>',
           '<div class="section">Automaty PVE</div>',
           '<div class="card feature"><div class="row"><div class="card-title">⚡ Expiarka</div><span class="chip" id="exp-status">Wyłączona</span></div>',
           '<div class="muted">Automatyczna walka zgodnie z filtrami.</div>',
@@ -125,6 +122,15 @@
           '<div class="card"><div class="card-title">Quest Kille</div>',
           '<div class="muted">Automatyczne wykonywanie etapu zabijania przeciwników.</div>',
           '<button class="secondary" data-command="quest">▶ Uruchom Quest Kille</button></div>',
+        '</div>',
+        '<div class="page" data-page="pvp" hidden>',
+          '<div class="section">Walka PVP</div>',
+          '<div class="card feature">',
+            '<div class="row"><div class="card-title">⚔ Arena PvP</div><span class="chip" id="pvp-status">Gotowa</span></div>',
+            '<div class="muted">Wykonaj dostępne walki arenowe na bieżącej postaci.</div>',
+            '<button class="primary" data-quick="arena">▶ Arena PvP · ta postać</button>',
+            '<button class="secondary" data-account-action="accountArenaPvp">Arena PvP · całe konto</button>',
+          '</div>',
         '</div>',
         '<div class="page" data-page="konto" hidden>',
           '<div class="section">Automatyzacja całego konta</div>',
@@ -158,7 +164,6 @@
           '<div class="section">Panel i układ gry</div>',
           '<div class="card">',
           boolOption("debugLogs","Szczegółowe logi w konsoli"),
-          '<label class="option"><span>Kompaktowy układ panelu</span><input id="dense-layout" type="checkbox"></label>',
           '<button class="secondary" id="reset-position">Reset pozycji dashboardu</button></div>',
         '</div>',
         '<div class="page" data-page="debug" hidden>',
@@ -196,15 +201,6 @@
     state.ui.hidden = Boolean(hidden);
     panel.hidden = hidden;
     $("#launcher").hidden = !hidden;
-    persistUI();
-  }
-  function setDenseMode(enabled) {
-    const dense = Boolean(enabled);
-    state.ui.dense = dense;
-    panel.classList.toggle("dense", dense);
-    $("#dense-layout").checked = dense;
-    // Jeśli panel był przesuwany, pilnujemy widoczności po zmianie szerokości.
-    if (state.ui.position) positionPanel(state.ui.position);
     persistUI();
   }
   function minimize(value) {
@@ -338,7 +334,7 @@
       : "Dwa podejścia na postać, z oczekiwaniem na powrót z instancji.";
     $("#exp-status").textContent = s.expRunning ? "Aktywna" : "Wyłączona";
     $("#resp-status").textContent = s.respawnRunning ? "Aktywna" : "Wyłączona";
-    $("#pve-status").textContent = s.expRunning ? "Expiarka" : (s.respawnRunning ? "Respiarka" : "Gotowe");
+    $("#pvp-status").textContent = s.accountRunning || s.quickRunning ? "Trwa operacja" : "Gotowa";
     $("#exp-button").textContent = s.expRunning ? "■ Zatrzymaj expiarkę" : "▶ Start expiarki";
     $("#resp-button").textContent = s.respawnRunning ? "■ Zatrzymaj respiarkę" : "▶ Start respiarki";
     $$("[data-quick],[data-account-action]").forEach(btn => {
@@ -490,7 +486,6 @@
     shadow.addEventListener("change", async event => {
       const input = event.target;
       if (input.dataset.config) await changeConfig(input.dataset.config, input.checked);
-      if (input.id === "dense-layout") setDenseMode(input.checked);
       if (input.id === "resp-limit")
         input.value = String(Math.max(0, Math.floor(Number(input.value) || 0)));
     });
@@ -516,6 +511,10 @@
       password: typeof stored.accounts?.[i]?.password === "string" ? stored.accounts[i].password : ""
     }));
     state.ui = stored.swDashboardUI || {};
+    // Migracja zapisanej zakładki z poprzedniej wersji dashboardu.
+    if (state.ui.tab === "automaty") state.ui.tab = "pve";
+    // Stary przełącznik szerokiego widoku nie jest już używany.
+    delete state.ui.dense;
     host = document.createElement("div");
     host.id = HOST_ID;
     host.style.cssText = "position:fixed;inset:0;z-index:2147483100;pointer-events:none;";
@@ -531,10 +530,9 @@
     document.body.appendChild(host);
     panel = $("#panel");
     statusLine = $("#status");
-    setTab(["pulpit","automaty","konto","ustawienia","debug"].includes(state.ui.tab) ? state.ui.tab : "pulpit");
+    setTab(["pulpit","pve","pvp","konto","ustawienia","debug"].includes(state.ui.tab) ? state.ui.tab : "pulpit");
     renderAccounts();
     syncConfig();
-    setDenseMode(state.ui.dense !== false);
     bind();
     if (state.ui.position) positionPanel(state.ui.position);
     minimize(state.ui.minimized === true);
