@@ -5445,6 +5445,77 @@
             };
         }
 
+        handlePickupQuestResponse(response) {
+            const state = this.pickupQuestState;
+            if (!state || !response || Number(response.a) !== 22) return;
+            if (response.track !== undefined &&
+                this._int(response.track) === state.questId) {
+                state.count = Math.min(state.max,
+                    state.count + Math.max(0, this._int(response.amount)));
+                this.setQuickPanelStatus("Pickup Quest: " +
+                    state.count + "/" + state.max + " ✓");
+            }
+            const step = response.q_step;
+            if (step && this._int(step.qb_id) === state.questId &&
+                this._int(step.want?.type) === 22) {
+                state.count = Math.min(state.max, Math.max(state.count,
+                    this._int(step.want.count)));
+            }
+        }
+
+        pickupQuestTargets(map, itemId) {
+            const targets = new Map();
+            const positive = value => {
+                const n = Number(value);
+                return Number.isSafeInteger(n) && n > 0 ? n : 0;
+            };
+            const record = (node, x, y, allowPlainId = false, depth = 0) => {
+                if (!node || typeof node !== "object" || depth > 3) return;
+                if (Array.isArray(node)) {
+                    node.slice(0, 200).forEach(v => record(v, x, y, allowPlainId, depth + 1));
+                    return;
+                }
+                const px = positive(node.x) || x;
+                const py = positive(node.y) || y;
+                const id = positive(node.mine_id) ||
+                    positive(node.mineId) || positive(node.mid) ||
+                    (allowPlainId ? positive(node.id) : 0);
+                const resource = positive(node.item_id) ||
+                    positive(node.itemId) || positive(node.resource_id) ||
+                    positive(node.resourceId);
+                if (px && py && id && (!resource || resource === itemId)) {
+                    const cell = map.cells?.get(px + "_" + py);
+                    if (cell?.movable) {
+                        targets.set(px + "_" + py + "_" + id, {
+                            x: px, y: py, mineId: id, itemId: resource
+                        });
+                    }
+                }
+                for (const [key, child] of Object.entries(node)) {
+                    if (/^(mines?|mining|pickups?|bags?|finds?|resources?|res)$/i.test(key) &&
+                        child && typeof child === "object") {
+                        record(child, px, py, true, depth + 1);
+                    }
+                }
+            };
+            const rawMap = map.pickupRawMap || {};
+            for (const [key, raw] of Object.entries(rawMap)) {
+                const match = /^(\d+)_(\d+)$/.exec(key);
+                if (match && raw && typeof raw === "object") {
+                    record(raw, positive(match[1]), positive(match[2]));
+                }
+            }
+            return [...targets.values()];
+        }
+
+        async waitForPickupQuestDelay(durationMs) {
+            const end = Date.now() + Math.max(0, durationMs);
+            while (Date.now() < end) {
+                if (this.pickupQuestStop) throw new Error("Pickup Quest zatrzymany.");
+                await this.sleep(Math.min(500, end - Date.now()));
+            }
+        }
+
         questKillWantState(
             want,
             questId = 0,
