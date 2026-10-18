@@ -143,6 +143,7 @@
             this.accountOperationAction = null;
             this.quickActionRunning = false;
             this.quickActionName = null;
+            this.characterPreferences = {};
             this.roninRunning = false;
             this.quickPanelButtons = [];
             this.quickPanelStatus = null;
@@ -5388,7 +5389,7 @@
                 );
             }
 
-            if (this.config.preferTraining === true) {
+            if (this.preferredAfterAll()) {
                 const training = await runStep(
                     "Trening",
                     "Quick ALL: Trening...",
@@ -5434,10 +5435,7 @@
             return {
                 summary,
                 warnings,
-                preferred:
-                    this.config.preferTraining === true
-                        ? "training"
-                        : "mission"
+                preferred: this.preferredAfterAll() ? "training" : "mission"
             };
         }
 
@@ -14588,6 +14586,18 @@
             ).length;
         }
 
+        preferenceForCurrentCharacter() {
+            const id = Number(GAME.char_id || this.currentCharacterId || 0);
+            if (!Number.isSafeInteger(id) || id <= 0) return null;
+            return this.characterPreferences[String(id)] || null;
+        }
+
+        preferredAfterAll() {
+            const mode = this.preferenceForCurrentCharacter()?.afterAll;
+            return mode === "training" ? true :
+                mode === "mission" ? false : this.config.preferTraining === true;
+        }
+
         defaultTrainingSkill() {
             const character = this.characterData();
             if (!character) return null;
@@ -14598,6 +14608,12 @@
                 [4, "nin_wind"], [5, "nin_thunder"], [6, "gen"],
                 [7, "kin"], [13, "sen"], [12, "fuin"]
             ];
+
+            // Preferencja jest przypisana do ID postaci, a nie do sesji.
+            // Dla niedostępnej umiejętności pozostaje stary wybór automatyczny.
+            const selected = Number(this.preferenceForCurrentCharacter()?.trainingSkill || 0);
+            const field = skills.find(([id]) => id === selected)?.[1];
+            if (field && this._int(character[field]) > 0) return selected;
 
             let bestId = null;
             let bestValue = -1;
@@ -16735,6 +16751,31 @@
             // Dashboard żyje w isolated world. Nie udostępniamy mu
             // GAME ani BOT; przez bridge przekazujemy tylko prosty status
             // i jawnie dozwolone akcje istniejących automatów.
+            if (data.action === "dashboard.preferences") {
+                const tool = await toolReadyPromise;
+                const preferences = data.payload?.characters;
+                if (!preferences || typeof preferences !== "object" ||
+                    Array.isArray(preferences)) {
+                    throw new Error("Brak poprawnej mapy preferencji postaci.");
+                }
+                const validSkills = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+                const normalized = {};
+                for (const [rawId, config] of Object.entries(preferences).slice(0, 100)) {
+                    const id = Number(rawId);
+                    if (!Number.isSafeInteger(id) || id <= 0 || !config ||
+                        typeof config !== "object") continue;
+                    const skill = Number(config.trainingSkill || 0);
+                    normalized[String(id)] = {
+                        afterAll: config.afterAll === "training" || config.afterAll === "mission"
+                            ? config.afterAll : "default",
+                        trainingSkill: validSkills.has(skill) ? skill : 0
+                    };
+                }
+                tool.characterPreferences = normalized;
+                sendBridgeResponse(data.requestId, true, { count: Object.keys(normalized).length });
+                return;
+            }
+
             if (data.action === "dashboard.state") {
                 const tool = await toolReadyPromise;
                 const charId = Number(
@@ -16772,6 +16813,13 @@
                     characterId: charId,
                     character: charId > 0 ? tool.currentCharacterLabel() : "",
                     characters: Array.isArray(tool.chars) ? tool.chars.length : 0,
+                    characterList: Array.isArray(tool.chars)
+                        ? tool.chars.map(char => ({
+                            id: Number(char.id || 0),
+                            name: String(char.name || ""),
+                            level: Number(char.level || 0)
+                        })).filter(char => char.id > 0)
+                        : [],
                     accountRunning: tool.accountOperationRunning === true,
                     quickRunning: tool.quickActionRunning === true,
                     roninRunning: tool.roninRunning === true,
