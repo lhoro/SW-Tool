@@ -55,3 +55,20 @@ questowa**. Po każdym etapie pobiera aktualny stan zadania. Nieznane typy,
 kilka questów na jednym polu, kilka akcji w dialogu, brak postępu lub
 brak mapy powodują zatrzymanie z komunikatem. To nie jest jeszcze
 uniwersalny solver dowolnego zadania; funkcja wymaga prób w grze.
+
+## Treningi: godzina graniczna i Mistrz Treningu II (EXT `dev`)
+
+W **Konta → Ustawienia postaci** każda postać ma pole **Preferuj trening do godziny**,
+domyślnie **Maksymalny**. Przy ustawionej godzinie (np. 18:00) automat wybiera
+najdłuższy możliwy trening, który skończy się przed tą godziną (60 sekund zapasu).
+Do przeliczenia służy serwerowa prędkość `tren_speed`; w razie braku tej wartości
+automat nie zgaduje długości i pomija start. Godziny 01:00–23:00 dotyczą
+bieżącego dnia (po upłynięciu godziny automat pomija trening),
+a 00:00 oznacza następną północ.
+
+Bonus **Mistrz Treningu I** nadal zwiększa maksymalny czas treningu z 6 do
+12 jednostek. Bonus **Mistrz Treningu II** umożliwia dwa aktywne sloty:
+Quick Trening, Quick ALL i Treningi całego konta uruchamiają tyle nowych
+treningów, ile jest wolnych miejsc (maksymalnie dwa). Każdy nowy slot osobno
+pobiera dane serwera i przechodzi wymaganą weryfikację Turnstile. Podsumowania
+podają liczbę faktycznie uruchomionych treningów.
