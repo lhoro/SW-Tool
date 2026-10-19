@@ -15600,6 +15600,10 @@
                     break;
                 }
             }
+            // Nawet gdy drugi slot został pominięty (brak czasu, brak miejsca
+            // lub serwer odmówił), pierwszy zatwierdzony start nadal liczy
+            // się jako uruchomiony trening.
+            if (result.count > 0) result.status = "started";
             return result;
         }
 
