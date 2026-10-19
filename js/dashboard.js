@@ -308,7 +308,8 @@
   ];
   const DEFAULT_CHARACTER_MODE = "default";
   const DEFAULT_TRAINING_UNTIL = -1; // Maksymalny czas treningu
-  const trainingUntilValid = value => Number.isInteger(Number(value)) &&
+  const trainingUntilValid = value => value !== null && value !== undefined &&
+    value !== "" && Number.isInteger(Number(value)) &&
     Number(value) >= 0 && Number(value) <= 23;
   const trainingUntilOptions = [
     [-1, "Maksymalny"],
