@@ -307,6 +307,16 @@
     [7, "Kinjutsu"], [13, "Senjutsu"], [12, "Fuinjutsu"]
   ];
   const DEFAULT_CHARACTER_MODE = "default";
+  const DEFAULT_TRAINING_UNTIL = -1; // Maksymalny czas treningu
+  const trainingUntilValid = value => Number.isInteger(Number(value)) &&
+    Number(value) >= 0 && Number(value) <= 23;
+  const trainingUntilOptions = [
+    [-1, "Maksymalny"],
+    ...Array.from({ length: 24 }, (_, hour) => [
+      hour, String(hour).padStart(2, "0") + ":00" +
+        (hour === 0 ? " (następnego dnia)" : "")
+    ])
+  ];
   const skillValid = (value) => TRAINING_SKILLS.some(([id]) => id === Number(value));
   const createAccountCharacters = (login) => ({ login: String(login || "").trim(), characters: [] });
 
@@ -328,6 +338,8 @@
           level: Math.max(0, Math.floor(Number(char?.level || 0))),
           afterAll: ["training", "mission"].includes(char?.afterAll) ? char.afterAll : DEFAULT_CHARACTER_MODE,
           trainingSkill: skillValid(char?.trainingSkill) ? Number(char.trainingSkill) : 0,
+          trainingUntilHour: trainingUntilValid(char?.trainingUntilHour)
+            ? Number(char.trainingUntilHour) : DEFAULT_TRAINING_UNTIL,
           skip: id === 51052 || char?.skip === true
         };
       }).filter(Boolean)
@@ -375,6 +387,10 @@
           (char.afterAll === value ? " selected" : "") + '>' + label + '</option>').join("");
         const skillOptions = TRAINING_SKILLS.map(([id,label]) => '<option value="' + id + '"' +
           (char.trainingSkill === id ? " selected" : "") + '>' + label + '</option>').join("");
+        const trainingUntilOptionsHtml = trainingUntilOptions.map(([hour, label]) =>
+          '<option value="' + hour + '"' +
+          (char.trainingUntilHour === hour ? " selected" : "") + '>' +
+          label + '</option>').join("");
         const excluded = char.id === 51052 || char.skip === true;
         return '<div class="character-card' + (excluded ? ' character-skipped' : '') + '">' +
           '<div class="character-heading"><strong>' + escapeText(char.name || "#" + char.id) + '</strong>' +
@@ -388,6 +404,10 @@
           '<select data-character-mode="' + key + '">' + afterOptions + '</select></label>' +
           '<label class="character-field">Trenuj' +
           '<select data-character-skill="' + key + '">' + skillOptions + '</select></label>' +
+          '<label class="character-field" title="Trening zakończy się przed wybraną godziną. Maksymalny = najdłuższy dostępny.">' +
+          'Preferuj trening do godziny' +
+          '<select data-character-training-until="' + key + '">' +
+          trainingUntilOptionsHtml + '</select></label>' +
           '</div>';
       }).join("");
       const expandedNow = hasPrevious ? expanded.has(i) : i === (activeIndex >= 0 ? activeIndex : 0);
@@ -440,7 +460,7 @@
 
   async function saveCharacterSelection(input) {
     const raw = input.dataset.characterMode || input.dataset.characterSkill ||
-      input.dataset.characterSkip;
+      input.dataset.characterTrainingUntil || input.dataset.characterSkip;
     const match = /^([0-4]):([1-9]\d*)$/.exec(raw || "");
     if (!match) return;
     const slot = Number(match[1]);
@@ -451,6 +471,9 @@
       character.skip = id === 51052 || input.checked === true;
     } else if (input.dataset.characterMode) {
       character.afterAll = ["training", "mission"].includes(input.value) ? input.value : "default";
+    } else if (input.dataset.characterTrainingUntil) {
+      character.trainingUntilHour = trainingUntilValid(input.value)
+        ? Number(input.value) : DEFAULT_TRAINING_UNTIL;
     } else {
       character.trainingSkill = skillValid(input.value) ? Number(input.value) : 0;
     }
@@ -467,6 +490,7 @@
     const preferences = Object.fromEntries(characters.map(char => [
       String(char.id),
       { afterAll: char.afterAll, trainingSkill: char.trainingSkill,
+        trainingUntilHour: char.trainingUntilHour,
         skip: char.id === 51052 || char.skip === true }
     ]));
     // Globalna lista pomijanych postaci obejmuje wszystkie zapisane konta.
@@ -507,6 +531,8 @@
         level: Math.max(0, Math.floor(Number(raw.level || 0))),
         afterAll: old?.afterAll || "default",
         trainingSkill: skillValid(old?.trainingSkill) ? Number(old.trainingSkill) : 0,
+        trainingUntilHour: trainingUntilValid(old?.trainingUntilHour)
+          ? Number(old.trainingUntilHour) : DEFAULT_TRAINING_UNTIL,
         skip: id === 51052 || old?.skip === true
       };
     }).filter(Boolean);
@@ -739,7 +765,7 @@
     shadow.addEventListener("change", async event => {
       const input = event.target;
       if (input.dataset.characterMode || input.dataset.characterSkill ||
-          input.dataset.characterSkip) {
+          input.dataset.characterTrainingUntil || input.dataset.characterSkip) {
         try { await saveCharacterSelection(input); }
         catch (error) { notice("Nie udało się zapisać preferencji: " + error.message, true); }
         return;
