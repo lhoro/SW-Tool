@@ -5443,13 +5443,8 @@
 
                 if (training.ok) {
                     const result = training.result;
-                    if (result === "started") {
-                        summary.push("Trening uruchomiony");
-                    } else if (result === "timed") {
-                        summary.push("Akcja czasowa już trwa");
-                    } else {
-                        summary.push("Brak treningu");
-                    }
+                    summary.push(this.trainingResultLabel(result) +
+                        (result.warning ? " (następny slot: " + result.warning + ")" : ""));
                 } else {
                     summary.push("Trening błąd");
                 }
@@ -14302,20 +14297,11 @@
                             { trustServerTimedState: true }
                         );
 
-                    if (result === "started") {
-                        this.setQuickPanelStatus(
-                            "Trening uruchomiony.",
-                            "success"
-                        );
-                    } else if (result === "timed") {
-                        this.setQuickPanelStatus(
-                            "Akcja czasowa już trwa."
-                        );
-                    } else {
-                        this.setQuickPanelStatus(
-                            "Brak umiejętności do treningu."
-                        );
-                    }
+                    this.setQuickPanelStatus(
+                        this.trainingResultLabel(result) +
+                            (result.warning ? " • " + result.warning : "."),
+                        result.count > 0 ? "success" : ""
+                    );
                     return;
                 }
 
@@ -14957,6 +14943,46 @@
             );
         }
 
+        // Granica dotyczy lokalnej godziny bieżącego dnia.
+        // 00:00 oznacza najbliższą przyszłą północ.
+        trainingCutoffForCurrentCharacter(nowMs = Date.now()) {
+            const value = this.preferenceForCurrentCharacter()?.trainingUntilHour;
+            if (value === null || value === undefined ||
+                !Number.isInteger(Number(value)) ||
+                Number(value) < 0 || Number(value) > 23) {
+                return null; // Maksymalny
+            }
+            const hour = Number(value);
+            const deadline = new Date(nowMs);
+            deadline.setHours(hour, 0, 0, 0);
+            if (hour === 0) deadline.setDate(deadline.getDate() + 1);
+            return deadline.getTime();
+        }
+
+        trainingDurationWithinCutoff(speedSeconds, maxDuration, nowMs = Date.now()) {
+            const deadline = this.trainingCutoffForCurrentCharacter(nowMs);
+            if (deadline === null) return Math.max(1, maxDuration);
+            const speed = Number(speedSeconds);
+            if (!Number.isFinite(speed) || speed <= 0) return 0;
+            // Zapas na opóźnienie połączenia/serwera: trening ma skończyć
+            // się PRZED wybraną godziną, a nie równo o tej godzinie.
+            const remainingMs = deadline - nowMs - 60000;
+            const possibleUnits = Math.floor(remainingMs / (speed * 1000));
+            return Math.max(0, Math.min(maxDuration, possibleUnits));
+        }
+
+        trainingResultLabel(result) {
+            if (result?.status === "started") {
+                return result.count === 1 ? "Trening uruchomiony" :
+                    "Uruchomiono " + result.count + " treningi";
+            }
+            if (result?.status === "timed") return "Wszystkie sloty czasowe zajęte";
+            if (result?.status === "deadline") return "Za mało czasu do wybranej godziny";
+            if (result?.status === "speed") return "Brak czasu treningu w danych serwera";
+            if (result?.status === "skill") return "Brak umiejętności do treningu";
+            return "Nie uruchomiono treningu";
+        }
+
         activeTimedActionsCount() {
             const timed = this.currentCharacterSnapshot?.char_tables?.timed_actions;
             if (!Array.isArray(timed)) return 0;
@@ -15407,92 +15433,174 @@
             { trustServerTimedState = false } = {}
         ) {
             const maxActions = this.snapshotBonusActive(2) ? 2 : 1;
-
-            // W operacjach całego konta snapshot po a:2 jest świeży, więc
-            // możemy oszczędzić request. W Quick akcjach klient WWW potrafi
-            // mieć przestarzałe timed_actions — wtedy pytamy serwer.
-            if (
-                !trustServerTimedState &&
-                this.activeTimedActionsCount() >= maxActions
-            ) {
-                return "timed";
-            }
-
+            const maxDuration = this.snapshotBonusActive(1) ? 12 : 6;
             const skillId = this.defaultTrainingSkill();
-            if (!skillId) return "skill";
+            const result = {
+                status: "timed",
+                count: 0,
+                maxActions,
+                warning: ""
+            };
+            if (!skillId) return { ...result, status: "skill" };
 
-            const trainingData = await this.sendAndWait(
-                { a: 8, type: 1 },
-                8,
-                (event) =>
-                    this._int(event.type) === 1 ||
-                    (event.train_res && typeof event.train_res === "object") ||
-                    this._int(event.e) !== 0
-            );
+            // Trening jest powtarzany dla każdego wolnego slotu:
+            // Mistrz Treningu II = 2 sloty, standardowo = 1 slot.
+            // Każdy start wymaga OSOBNEGO a:8/type:1 i (jeśli trzeba)
+            // nowego jednorazowego Turnstile.
+            let confirmedSlots = this.activeTimedActionsCount();
+            for (let attempt = 0; attempt < maxActions; attempt++) {
+                try {
+                    // W Account Trainings mamy świeży snapshot po a:2;
+                    // w Quick ALL pobieramy stan ponownie z serwera.
+                    if (!trustServerTimedState &&
+                        Math.max(confirmedSlots, this.activeTimedActionsCount()) >= maxActions) {
+                        result.status = "timed";
+                        break;
+                    }
 
-            if (this._int(trainingData.e) !== 0) {
-                throw new Error("Serwer odrzucił dane treningu.");
+                    const trainingData = await this.sendAndWait(
+                        { a: 8, type: 1 },
+                        8,
+                        event => this._int(event.type) === 1 ||
+                            (event.train_res && typeof event.train_res === "object") ||
+                            this._int(event.e) !== 0,
+                        15000
+                    );
+                    if (this._int(trainingData.e) !== 0) {
+                        throw new Error("Serwer odrzucił dane treningu.");
+                    }
+
+                    // Nie ufamy tylko stanowi z wejścia na postać: serwer może
+                    // odesłać nowszą listę timed już w danych formularza.
+                    if (Array.isArray(trainingData.timed) &&
+                        this.currentCharacterSnapshot?.char_tables) {
+                        this.currentCharacterSnapshot.char_tables.timed_actions = trainingData.timed;
+                    }
+                    confirmedSlots = Math.max(
+                        confirmedSlots,
+                        this.activeTimedActionsCount()
+                    );
+                    if (confirmedSlots >= maxActions) {
+                        result.status = "timed";
+                        break;
+                    }
+
+                    const deadline = this.trainingCutoffForCurrentCharacter();
+                    const speedSeconds = this._int(trainingData.tren_speed);
+                    if (deadline !== null && speedSeconds <= 0) {
+                        result.status = "speed";
+                        break;
+                    }
+
+                    let duration = this.trainingDurationWithinCutoff(
+                        speedSeconds, maxDuration
+                    );
+                    if (duration < 1) {
+                        result.status = "deadline";
+                        this.setQuickPanelStatus(
+                            "Trening — " + characterName +
+                            ": za mało czasu do godziny granicznej."
+                        );
+                        break;
+                    }
+
+                    let captchaToken = null;
+                    const captchaRequired = this._enabled(trainingData.captcha);
+                    if (captchaRequired) {
+                        this.setQuickPanelStatus(
+                            "Trening " + (confirmedSlots + 1) + "/" + maxActions +
+                            " — weryfikacja Turnstile dla " + characterName + "..."
+                        );
+                        captchaToken = await this.waitForTrainingCaptcha(characterName);
+                    }
+
+                    // Użytkownik mógł czekać z weryfikacją: obliczamy długość
+                    // JESZCZE RAZ tuż przed TX rozpoczynającym trening.
+                    duration = this.trainingDurationWithinCutoff(
+                        speedSeconds, maxDuration
+                    );
+                    if (duration < 1) {
+                        result.status = "deadline";
+                        break;
+                    }
+
+                    this.setQuickPanelStatus(
+                        "Trening " + (confirmedSlots + 1) + "/" + maxActions +
+                        " — " + characterName + ", " + duration + " jednostek..."
+                    );
+                    await this.sleep(100);
+                    // Wybrane godziny mogą minąć w trakcie opóźnienia sieciowego.
+                    duration = this.trainingDurationWithinCutoff(
+                        speedSeconds, maxDuration
+                    );
+                    if (duration < 1) {
+                        result.status = "deadline";
+                        break;
+                    }
+
+                    const started = await this.sendAndWait(
+                        {
+                            a: 8,
+                            type: 2,
+                            stat: String(skillId),
+                            duration: String(duration),
+                            ...(captchaToken ? { captchaResponse: captchaToken } : {})
+                        },
+                        8,
+                        event => this._int(event.type) === 2 ||
+                            Array.isArray(event.timed) ||
+                            event.done !== undefined ||
+                            this._int(event.e) !== 0,
+                        20000
+                    );
+                    if (this._int(started.e) !== 0) {
+                        throw new Error(
+                            "Serwer odrzucił rozpoczęcie treningu " +
+                            (confirmedSlots + 1) + "/" + maxActions +
+                            " (e=" + this._int(started.e) + ")."
+                        );
+                    }
+
+                    if (Array.isArray(started.timed) &&
+                        this.currentCharacterSnapshot?.char_tables) {
+                        this.currentCharacterSnapshot.char_tables.timed_actions = started.timed;
+                    }
+                    result.count++;
+                    result.status = "started";
+                    // Brak timed w RX nie pozwala bezpiecznie ponowić
+                    // tej samej akcji: rezerwujemy właśnie użyty slot lokalnie.
+                    confirmedSlots = Math.max(
+                        confirmedSlots + 1, this.activeTimedActionsCount()
+                    );
+                    toolConsole("info",
+                        "[SW Tool][TRAINING] Trening rozpoczęty:", {
+                            character: characterName,
+                            slot: confirmedSlots,
+                            maxActions,
+                            duration,
+                            speedSeconds,
+                            deadline: deadline === null
+                                ? "maksymalny"
+                                : new Date(deadline).toLocaleTimeString("pl-PL", {
+                                    hour: "2-digit", minute: "2-digit"
+                                })
+                        }
+                    );
+                    if (confirmedSlots >= maxActions) break;
+                    await this.sleep(180);
+                } catch (error) {
+                    if (result.count === 0) throw error;
+                    // Jeśli drugi slot się nie powiedzie, nie gubimy informacji
+                    // o tym, że pierwszy trening został już uruchomiony.
+                    result.warning = error instanceof Error ? error.message : String(error);
+                    toolConsole("warn",
+                        "[SW Tool][TRAINING] Kolejny slot nie został uruchomiony:",
+                        result.warning
+                    );
+                    break;
+                }
             }
-
-            let captchaToken = null;
-            const captchaRequired = this._enabled(trainingData.captcha);
-
-            toolConsole("info", "[SW Tool][ACCOUNT] Sprawdzenie Turnstile:", {
-                character: characterName,
-                required: captchaRequired
-            });
-
-            if (captchaRequired) {
-                toolConsole("info", 
-                    "[SW Tool][ACCOUNT] Trening wymaga Turnstile:",
-                    characterName
-                );
-
-                // Token jest jednorazowy i dotyczy wyłącznie tej postaci.
-                // Kolejna postać zawsze wykonuje własne a:8/type:1
-                // i ponownie sprawdza pole captcha.
-                captchaToken = await this.waitForTrainingCaptcha(
-                    characterName
-                );
-            }
-
-            const duration = this.snapshotBonusActive(1) ? 12 : 6;
-
-            // Po odpowiedzi a:8/type:1 (i ewentualnym Turnstile) zostawiamy
-            // klientowi WWW 100 ms przed wysłaniem właściwego startu treningu.
-            await this.sleep(100);
-
-            const started = await this.sendAndWait(
-                {
-                    a: 8,
-                    type: 2,
-                    stat: String(skillId),
-                    duration: String(duration),
-                    ...(captchaToken
-                        ? { captchaResponse: captchaToken }
-                        : {})
-                },
-                8,
-                (event) =>
-                    this._int(event.type) === 2 ||
-                    Array.isArray(event.timed) ||
-                    event.done !== undefined ||
-                    this._int(event.e) !== 0,
-                20000
-            );
-
-            if (this._int(started.e) !== 0) {
-                throw new Error("Serwer odrzucił rozpoczęcie treningu.");
-            }
-
-            if (
-                Array.isArray(started.timed) &&
-                this.currentCharacterSnapshot?.char_tables
-            ) {
-                this.currentCharacterSnapshot.char_tables.timed_actions = started.timed;
-            }
-
-            return "started";
+            return result;
         }
 
         async runAccountTrainings() {
@@ -15529,8 +15637,16 @@
                                 label
                             );
 
-                        if (result === "started") started++;
-                        else skipped++;
+                        if (result.count > 0) {
+                            started += result.count;
+                            this.setQuickPanelStatus(label + ": " +
+                                this.trainingResultLabel(result) +
+                                (result.warning ? " • " + result.warning : "."));
+                        } else {
+                            skipped++;
+                            this.setQuickPanelStatus(label + ": " +
+                                this.trainingResultLabel(result) + ".");
+                        }
                     } catch (error) {
                         if (this.isFatalAccountError(error)) {
                             throw error;
@@ -17176,6 +17292,12 @@
                         afterAll: config.afterAll === "training" || config.afterAll === "mission"
                             ? config.afterAll : "default",
                         trainingSkill: validSkills.has(skill) ? skill : 0,
+                        trainingUntilHour: Number.isInteger(Number(config.trainingUntilHour)) &&
+                            config.trainingUntilHour !== null &&
+                            config.trainingUntilHour !== undefined &&
+                            Number(config.trainingUntilHour) >= 0 &&
+                            Number(config.trainingUntilHour) <= 23
+                            ? Number(config.trainingUntilHour) : -1,
                         skip: id === 51052 || config.skip === true
                     };
                 }
