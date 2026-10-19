@@ -15589,7 +15589,11 @@
                     if (confirmedSlots >= maxActions) break;
                     await this.sleep(180);
                 } catch (error) {
-                    if (result.count === 0) throw error;
+                    // Krytyczny błąd sesji musi zatrzymać operację nawet wtedy,
+                    // gdy pierwszy trening zdążył zostać uruchomiony.
+                    if (this.isFatalAccountError?.(error) || result.count === 0) {
+                        throw error;
+                    }
                     // Jeśli drugi slot się nie powiedzie, nie gubimy informacji
                     // o tym, że pierwszy trening został już uruchomiony.
                     result.warning = error instanceof Error ? error.message : String(error);
