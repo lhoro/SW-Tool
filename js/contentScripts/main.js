@@ -8967,6 +8967,9 @@
                 }
             }
 
+            // Wyłączone zabijanie = sam cykl odświeżania dwóch pól.
+            if (this.config?.killRespawnedMobs !== true) return;
+
             const key =
                 point.x +
                 "_" +
@@ -9031,12 +9034,12 @@
                         ) <=
                         state.paLimit;
 
-            // Na każdym z dwóch pól najpierw odblokowujemy multi.
-            // Robimy maksymalnie jedną zwykłą walkę na wizytę, żeby nie stać
-            // w miejscu i nie blokować samego respienia.
+            // Normale bijemy także PO odblokowaniu multi, jeśli nie uzbierał
+            // się jeszcze sensowny pakiet do walki grupowej.
+            // Maksymalnie jedna zwykła walka podczas pojedynczej wizyty.
             if (
-                !multiAvailable &&
-                mobInfo.count > 0
+                mobInfo.count > 0 &&
+                (!multiAvailable || mobInfo.count < state.multiThreshold)
             ) {
                 if (!canSpend(1)) {
                     state.limitReached =
