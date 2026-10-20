@@ -224,6 +224,87 @@
                 if (this._int(response.quest_end) === id) this.autoQuestCompleted = true;
             },
 
+
+            async autoQuestRunH(step) {
+                this.autoQuestAssertActive();
+                const want = step?.want;
+                const questId = this._int(step?.qb_id);
+                const max = Math.max(0, this._int(want?.maxv));
+                const count = Math.max(0, this._int(want?.count));
+                if (!questId || max <= 0 || count >= max) {
+                    throw new Error("H: brak poprawnego licznika etapu.");
+                }
+                const current = this.currentHTracked;
+                // Wysyłamy tylko brakującą liczbę H dla aktualnego qb_id.
+                // Wspólna metoda interpretuje postęp potwierdzony przez tracker.
+                this.currentHQuest = current &&
+                    this._int(current.id) === questId &&
+                    this._int(current.max) === max
+                    ? { ...current }
+                    : { id: questId, count, max, isMet: false };
+                const missing = Math.max(0,
+                    this.currentHQuest.max - this.currentHQuest.count);
+                if (missing <= 0) return;
+                this.autoQuestLog("H: wykonuję " + missing + " pozostałych naciśnięć...");
+                await this.sendHQuestCount(missing, { waitForResponse: true });
+                this.autoQuestAssertActive();
+                await this.autoQuestWait(300);
+            },
+
+            async autoQuestRunTimedStep(step) {
+                const questId = this._int(step?.qb_id);
+                if (questId <= 0) throw new Error("Czekajka: nie znam ID questa.");
+                this.autoQuestLog("etap czasowy — czekam min. 31 sekund...");
+                await this.autoQuestWait(31000);
+                // Sam upływ czasu nie zawsze aktualizuje okno klienta,
+                // dlatego otwieramy je ponownie klawiszem X.
+                this.roninPressKey("x");
+                await this.autoQuestWait(300);
+                const refreshed = await this.autoQuestRefreshStep();
+                this.autoQuestAssertActive();
+                if (this.autoQuestCompleted) return;
+                if (refreshed &&
+                    this._int(refreshed.want?.type) !== 6) return;
+                if (Boolean(refreshed?.want?.is_met)) return;
+                // Timery pokroju Ronina nie ustawiają is_met przed "Dalej".
+                // Nie zgadujemy wyboru: tylko jedna widoczna akcja albo
+                // znane protokołowe "Dalej" po wymaganym czekaniu.
+                const actions = this.improvedXQuestActions();
+                if (actions.length > 1) {
+                    throw new Error("Czekajka ma kilka akcji — wybór gracza.");
+                }
+                if (actions.length === 1) {
+                    if (this.questActionType(actions[0]) !== "next") {
+                        throw new Error("Czekajka: nieznana akcja w dialogu.");
+                    }
+                    const { response } = await this.clickQuestActionAndWaitForSocket(
+                        actions[0], { label: "Auto Quest — czasowe Dalej", timeoutMs: 12000 }
+                    );
+                    this.autoQuestAssertActive();
+                    if (this._int(response?.quest_end) === questId) {
+                        this.autoQuestCompleted = true;
+                    }
+                    return;
+                }
+                const answer = await this.sendAndWait(
+                    { a: 22, type: 2, button: 1, id: questId },
+                    [22, 999],
+                    event => this._int(event.e) !== 0 ||
+                        (this._int(event.a) === 22 &&
+                         (this._int(event.quest_end) === questId ||
+                          this._int(event.q_step?.qb_id) === questId ||
+                          this._int(event.quest_move?.qb_id) === questId)),
+                    12000
+                );
+                this.autoQuestAssertActive();
+                if (this._int(answer.e) !== 0) {
+                    throw new Error("Czekajka: serwer nie pozwolił przejść Dalej po 31 s.");
+                }
+                if (this._int(answer.quest_end) === questId) {
+                    this.autoQuestCompleted = true;
+                }
+            },
+
             async autoQuestExecute() {
                 let step = await this.autoQuestOpenStep();
                 if (this.autoQuestCompleted) {
@@ -287,6 +368,13 @@
                             this.pickupQuestState = null;
                         }
                         this.autoQuestAssertActive();
+                    } else if (want && !met && type === 39) {
+                        await this.autoQuestRunH(step);
+                        this.autoQuestAssertActive();
+                    } else if (want && !met && type === 6) {
+                        await this.autoQuestRunTimedStep(step);
+                        this.autoQuestAssertActive();
+                        if (this.autoQuestCompleted) break;
                     } else if (want && !met && type === 7) {
                         const response = await this.sendAndWait(
                             { a: 22, type: 6, id }, [22, 999],
