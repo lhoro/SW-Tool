@@ -72,3 +72,31 @@ Quick Trening, Quick ALL i Treningi całego konta uruchamiają tyle nowych
 treningów, ile jest wolnych miejsc (maksymalnie dwa). Każdy nowy slot osobno
 pobiera dane serwera i przechodzi wymaganą weryfikację Turnstile. Podsumowania
 podają liczbę faktycznie uruchomionych treningów.
+
+## PVE: Normal, Respiarka, Pickup, Quest Kille, Auto Quest (EXT `dev`)
+
+- **Expiarka → Normal** jest domyślnie włączony. Wyłączenie pomija
+  walki i multiwalki normalnych mobów, ale pozostawia patrol i zaznaczone
+  klasy wyższe (Champion/Elita/Boss).
+- **Respiarka → Zabijaj zrespione moby**: ON bije również normalne moby
+  po odblokowaniu multi, nie tylko przy progu 10, i używa właściwego indeksu
+  `mob_num` z `mobs[*].ranks[0]`; OFF wyłącza walki Respiarki.
+- **Pickup Quest**: przechodzi kolejne pola zasobów, po niepowodzeniu
+  próbuje następnego, zapamiętuje cooldown każdej sakiewki od zakończenia
+  próby, czeka na pierwszą sakiewkę przed kolejnym obiegiem i wraca na
+  pole questa po osiągnięciu 100%. Pętla trwa do sukcesu, STOP lub błędu.
+- **Quest Kille**: odwiedza osiągalne pola pasami (od okolicy X:1 Y:1),
+  a nie metodą najbliższego nieodwiedzonego pola. Rejestr portali przechowuje
+  dodatkowo **mobSightings** (mob ID/nazwa, mapa, pozycja) zaobserwowane
+  w poprawnych RX `a:602`. Jeśli dla konkretnego celu znamy mapę, pole
+  i dostępną trasę portalami, bot przechodzi do tej mapy i po patrolu
+  próbuje wrócić do punktu rozpoczęcia. Niezbadanych lokalizacji nie
+  zgaduje; do pierwszego znalezienia nowego moba potrzebne są rzeczywiste
+  obserwacje na danej mapie.
+- **Auto Quest**: rozpoznaje H `want.type=39` przez istniejącą obsługę
+  trackera i czekajkę `want.type=6` (przebieg 31 s, odświeżenie okna,
+  próba przejścia z potwierdzeniem serwera). Czasy innych etapów czasowych
+  mogą wymagać dopasowania do danych konkretnego questa.
+- **ALL konta**: timeout potwierdzenia wyboru postaci `a:2` wrócił
+  z 20 sekund do 10 sekund; pozostałe zabezpieczenia ponawiania i
+  synchronizacji zostały zachowane.
