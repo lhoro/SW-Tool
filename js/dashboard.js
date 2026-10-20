@@ -10,7 +10,7 @@
   const DEFAULTS = {
     dailyReward: true, saveTuts: true, hideReports: false, mapClickMovement: true,
     acceleratedH: false, improvedX: false, killRespawnedMobs: false,
-    expKillChampions: false, expKillElites: false, expKillBosses: false,
+    expKillNormals: true, expKillChampions: false, expKillElites: false, expKillBosses: false,
     debugLogs: false, preferTraining: true
   };
   const state = { config: { ...DEFAULTS }, accounts: [], accountCharacters: [], activeAccount: null,
@@ -170,6 +170,7 @@
           '<div class="section">Expiarka</div>',
           '<div class="card feature">',
             '<div class="quick options-grid">',
+              '<button class="action toggle-action" type="button" data-config-toggle="expKillNormals" aria-pressed="true">Normal</button>',
               '<button class="action toggle-action" type="button" data-config-toggle="expKillChampions" aria-pressed="false">Championy</button>',
               '<button class="action toggle-action" type="button" data-config-toggle="expKillElites" aria-pressed="false">Elity</button>',
               '<button class="action toggle-action" type="button" data-config-toggle="expKillBosses" aria-pressed="false">Bossowie</button>',
