@@ -425,6 +425,9 @@
 
             const action = Number(response.a);
             const error = Number(response.e || 0);
+            if (action === 602 && error === 0) {
+                this.recordQuestMobSightings(response);
+            }
 
             if (
                 action === 602 &&
@@ -6782,6 +6785,112 @@
             return null;
         }
 
+
+        // Pasy: zaczynamy od skrajnego osiągalnego pola najbliższego 1|1
+        // i przeczesujemy kolejne rzędy w kierunku naprzemiennym.
+        questKillSweepOrder(map, x, y) {
+            const reachable = this.questKillPatrolOrder(map, x, y);
+            const rows = new Map();
+            for (const point of reachable) {
+                if (!rows.has(point.y)) rows.set(point.y, []);
+                rows.get(point.y).push(point);
+            }
+            const route = [];
+            const sortedRows = [...rows.keys()].sort((a, b) => a - b);
+            sortedRows.forEach((row, index) => {
+                const points = rows.get(row).sort((a, b) => a.x - b.x);
+                if (index % 2) points.reverse();
+                route.push(...points);
+            });
+            return route;
+        }
+
+        // Uczymy się występowania mobów z autentycznego a:602.
+        // Dane trafiają do tego samego lokalnego rejestru co mapa portali.
+        recordQuestMobSightings(response) {
+            if (this._int(response?.a) !== 602 ||
+                this._int(response?.e) !== 0) return;
+            const locationId = this._int(this.mapSolver?.map?.locationId);
+            const x = this._int(response.x), y = this._int(response.y);
+            const entries = response.mobs?.mobs;
+            if (!locationId || !x || !y || !Array.isArray(entries)) return;
+            const registry = this.getPortalMap();
+            const key = String(locationId);
+            const previous = registry.locations[key] || {};
+            const sightings = Array.isArray(previous.mobSightings)
+                ? [...previous.mobSightings] : [];
+            let changed = false;
+            entries.forEach((mob, mobNum) => {
+                if (!mob || typeof mob !== "object") return;
+                const count = Array.isArray(mob.ranks)
+                    ? mob.ranks.reduce((sum, n) => sum + Math.max(0, this._int(n)), 0)
+                    : 0;
+                if (count <= 0) return;
+                const mobId = this._int(mob.mob_id || mob.id);
+                const name = String(mob.pl || mob.en || mob.name || "").trim();
+                if (!mobId && !name) return;
+                const oldIndex = sightings.findIndex(item =>
+                    this._int(item.mobId) === mobId &&
+                    (mobId > 0 || String(item.name) === name));
+                const found = {
+                    mobId, name, x, y, mobNum,
+                    observedAt: Date.now()
+                };
+                if (oldIndex >= 0) {
+                    if (sightings[oldIndex].x === x && sightings[oldIndex].y === y) return;
+                    sightings.splice(oldIndex, 1);
+                }
+                sightings.push(found);
+                changed = true;
+            });
+            if (!changed) return;
+            registry.locations[key] = {
+                ...previous,
+                id: locationId,
+                name: this.mapSolver?.map?.locationName || previous.name || "",
+                portals: Array.isArray(previous.portals) ? previous.portals : [],
+                mobSightings: sightings.slice(-120)
+            };
+            registry.updatedAt = new Date().toISOString();
+            storageSetItem("portalMap", registry);
+        }
+
+        findQuestMobDestination(parsed, step) {
+            const here = this._int(this.mapSolver?.map?.locationId);
+            const names = [parsed?.targetName, step?.want?.name2]
+                .map(s => String(s || "").trim().toLocaleLowerCase("pl-PL"))
+                .filter(s => s.length >= 3);
+            const targetId = this._int(parsed?.targetId);
+            if (!targetId && !names.length) return null;
+            const registry = this.getPortalMap();
+            const matches = [];
+            for (const location of Object.values(registry.locations || {})) {
+                const locationId = this._int(location?.id);
+                if (!locationId) continue;
+                for (const sighting of location.mobSightings || []) {
+                    const exactId = targetId > 0 &&
+                        this._int(sighting.mobId) === targetId;
+                    const exactName = names.includes(
+                        String(sighting.name || "").trim().toLocaleLowerCase("pl-PL")
+                    );
+                    if (!exactId && !exactName) continue;
+                    const route = this.mapSolver?.findPortalRoute(here, locationId);
+                    if (locationId !== here && !route) continue;
+                    matches.push({
+                        locationId,
+                        locationName: String(location.name || ""),
+                        x: this._int(sighting.x),
+                        y: this._int(sighting.y),
+                        hops: locationId === here ? 0 : route.length
+                    });
+                }
+            }
+            // Jeśli cel jest znany na aktualnej mapie, nie teleportujemy się.
+            if (matches.some(item => item.locationId === here)) return null;
+            matches.sort((a, b) => a.hops - b.hops);
+            return matches[0] || null;
+        }
+
         questKillPatrolOrder(
             map,
             startX,
@@ -7453,8 +7562,26 @@
                 );
             }
 
-            const map =
-                this.mapSolver?.map;
+            const initialMap = this.mapSolver?.map;
+            const returnOrigin = initialMap && {
+                locationId: this._int(initialMap.locationId),
+                x: this._int(initialMap.x),
+                y: this._int(initialMap.y)
+            };
+            const destination = this.findQuestMobDestination(parsed, step);
+            if (destination &&
+                destination.locationId !== this._int(initialMap?.locationId)) {
+                this.setQuickPanelStatus(
+                    "Quest Kille: mob " + (parsed.targetName || parsed.targetId) +
+                    " rozpoznany w " + (destination.locationName || destination.locationId) +
+                    " • idę portalami..."
+                );
+                await this.mapSolver.navigateToLocation(
+                    destination.locationId, destination.x, destination.y,
+                    { source: "quest-kills-mob-portal", allowBusy: true }
+                );
+            }
+            const map = this.mapSolver?.map;
 
             if (
                 !map ||
@@ -7479,7 +7606,7 @@
             };
 
             const reachable =
-                this.questKillPatrolOrder(
+                this.questKillSweepOrder(
                     map,
                     start.x,
                     start.y
@@ -7637,13 +7764,13 @@
                         }
                     }
 
-                    const path =
-                        this.questKillPathToNearestUnvisited(
-                            map,
-                            currentX,
-                            currentY,
-                            visited
-                        );
+                    const goal = reachable.find(point =>
+                        !visited.has(point.x + "_" + point.y));
+                    const path = goal
+                        ? this.mapSolver.findShortestPath(
+                            map, { x: currentX, y: currentY }, goal
+                        )
+                        : null;
 
                     if (
                         !path ||
@@ -7798,26 +7925,26 @@
                         ) &&
                         (
                             currentLocation !==
-                                start.locationId ||
+                                returnOrigin.locationId ||
                             currentX !==
-                                start.x ||
+                                returnOrigin.x ||
                             currentY !==
-                                start.y
+                                returnOrigin.y
                         )
                     ) {
                         this.setQuickPanelStatus(
-                            "Quest Kille: wracam na pole startowe " +
-                            start.x +
+                            "Quest Kille: wracam na pole questa " +
+                            returnOrigin.x +
                             "|" +
-                            start.y +
+                            returnOrigin.y +
                             "..."
                         );
 
                         await this.mapSolver
                             .navigateToLocation(
-                                start.locationId,
-                                start.x,
-                                start.y,
+                                returnOrigin.locationId,
+                                returnOrigin.x,
+                                returnOrigin.y,
                                 {
                                     source:
                                         "quest-kills-return",
