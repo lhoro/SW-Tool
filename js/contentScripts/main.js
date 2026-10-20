@@ -5598,6 +5598,10 @@
             }
             if (this.pickupQuestRunning) {
                 this.pickupQuestStop = true;
+                if (this.mapSolver?.active &&
+                    String(this.mapSolver.source || "").startsWith("quest-pickup")) {
+                    this.mapSolver.stop("Pickup Quest STOP");
+                }
                 this.setQuickPanelStatus("Pickup Quest: STOP — przerywam trasę...");
                 return { stopping: true };
             }
@@ -5807,7 +5811,11 @@
                         }
                     }
                     if (this.pickupQuestStop || state.count >= state.max) break;
-                    const nextReady = Math.min(...route.map(p => cooldowns.get(p.mineId) || 0));
+                    // Po ostatniej sakiewce kolejny obieg czeka na pierwszą.
+                    // Jeśli pierwsza już gotowa, bez zbędnej pauzy wracamy do trasy.
+                    const firstReady = cooldowns.get(route[0].mineId) || 0;
+                    const nextReady = firstReady > Date.now() ? firstReady :
+                        Math.min(...route.map(p => cooldowns.get(p.mineId) || 0));
                     const pause = Math.max(0, nextReady - Date.now());
                     if (pause > 0) {
                         this.setQuickPanelStatus(
