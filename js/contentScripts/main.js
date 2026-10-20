@@ -8,6 +8,7 @@
         acceleratedH: false,
         improvedX: false,
         killRespawnedMobs: false,
+        expKillNormals: true,
         expKillChampions: false,
         expKillElites: false,
         expKillBosses: false,
@@ -70,6 +71,9 @@
             killRespawnedMobs: typeof source.killRespawnedMobs === "boolean"
                 ? source.killRespawnedMobs
                 : DEFAULT_CONFIG.killRespawnedMobs,
+            expKillNormals: typeof source.expKillNormals === "boolean"
+                ? source.expKillNormals
+                : DEFAULT_CONFIG.expKillNormals,
             expKillChampions: typeof source.expKillChampions === "boolean"
                 ? source.expKillChampions
                 : DEFAULT_CONFIG.expKillChampions,
@@ -9856,6 +9860,19 @@
                 };
             }
 
+            // Tryb bez normali zachowuje patrol i walki z rangami wyższymi.
+            if (this.config?.expKillNormals === false) {
+                return {
+                    fights: 0, singleFights: 0, removed: 0,
+                    advancedFights: this._int(advanced?.fights),
+                    advancedRemoved: this._int(advanced?.removed),
+                    champions: this._int(advanced?.champions),
+                    elites: this._int(advanced?.elites),
+                    bosses: this._int(advanced?.bosses),
+                    skipped: false
+                };
+            }
+
             let mobs =
                 this.respawnNormalMobCount(
                     field
@@ -14696,7 +14713,7 @@
                             typeof event.char_data ===
                                 "object"
                         ),
-                    20000
+                    10000
                 );
             } catch (error) {
                 this.accountSwitchDiagnostic.error =
