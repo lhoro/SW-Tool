@@ -16473,6 +16473,7 @@
             let completed = 0;
             let failed = 0;
             let dailyClaimed = 0;
+            let switchFailed = false;
 
             toolConsole("info", 
                 "[SW Tool][ACCOUNT ALL] Start.",
@@ -16489,6 +16490,7 @@
                     const label =
                         String(char?.name || "").trim() ||
                         ("#" + id);
+                    let waitingForSwitch = true;
 
                     try {
                         this.setQuickPanelStatus(
@@ -16503,9 +16505,10 @@
 
                         await this.switchCharacterForAccountAction(
                             id,
-                            0,
+                            350,
                             true
                         );
+                        waitingForSwitch = false;
 
                         if (
                             await this.claimDailyRewardForAccountAction(
@@ -16557,10 +16560,11 @@
                         );
                         // Uszkodzone przełączanie postaci nie powinno
                         // powodować kolejnych wielu prób na reszcie konta.
-                        if (error?.swToolSwitchFailure) {
+                        if (waitingForSwitch || error?.swToolSwitchFailure) {
+                            switchFailed = true;
                             this.setQuickPanelStatus(
-                                "ALL konto STOP — nie udało się wczytać " +
-                                label + ". Szczegóły w Debug.",
+                                "ALL konto STOP — błąd zmiany na " +
+                                label + ". Nie ponawiam akcji na następnych postaciach.",
                                 "error"
                             );
                             break;
@@ -16580,18 +16584,21 @@
                 this.stopNavigation(
                     "koniec operacji ALL konta"
                 );
-                await this.restoreAccountCharacter(
-                    originalId
-                );
+                // Gdy sam wybór postaci nie został potwierdzony przez serwer,
+                // dalsze a:5/a:2 (również przywrócenie) byłoby zgadywaniem.
+                if (!switchFailed) {
+                    await this.restoreAccountCharacter(originalId);
+                }
             }
 
             this.setQuickPanelStatus(
-                "ALL konto zakończone: " +
+                (switchFailed ? "ALL konto PRZERWANE: " : "ALL konto zakończone: ") +
                 completed +
                 " OK, " +
                 failed +
-                " błędów.",
-                failed > 0 ? "" : "success"
+                " błędów." +
+                (switchFailed ? " Niepotwierdzona zmiana postaci — sprawdź Debug." : ""),
+                switchFailed || failed > 0 ? "error" : "success"
             );
 
             toolConsole("info", 
@@ -16600,6 +16607,8 @@
                     completed,
                     failed,
                     dailyClaimed,
+                    switchFailed,
+                    lastSwitchDiagnostic: this.accountSwitchDiagnostic || null,
                     preferred: "per-character (default: training)"
                 }
             );
