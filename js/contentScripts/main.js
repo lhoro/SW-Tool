@@ -8642,70 +8642,42 @@
             return null;
         }
 
-        respawnNormalMobCount(
-            field
-        ) {
-            const entries =
-                Array.isArray(
-                    field?.mobs?.entries
-                )
-                    ? field.mobs.entries
-                    : [];
-
-            const normalEntry =
-                entries[0];
-
-            if (
-                normalEntry &&
-                typeof normalEntry ===
-                    "object" &&
-                Array.isArray(
-                    normalEntry.ranks
-                )
-            ) {
-                return {
-                    count:
-                        Math.max(
-                            0,
-                            this._int(
-                                normalEntry.ranks[0]
-                            )
-                        ),
-                    source:
-                        "mobs[0].ranks[0]",
-                    raw:
-                        normalEntry
-                };
+        respawnNormalMobCount(field) {
+            const entries = Array.isArray(field?.mobs?.entries) ? field.mobs.entries : [];
+            // Normale mogą być także w innych slotach niż mobs[0].
+            let count = 0, selectedCount = 0, mobNum = 0, raw = null;
+            let ranksKnown = false;
+            entries.forEach((entry, index) => {
+                if (!entry || !Array.isArray(entry.ranks)) return;
+                ranksKnown = true;
+                const amount = Math.max(0, this._int(entry.ranks[0]));
+                count += amount;
+                if (amount > selectedCount) {
+                    selectedCount = amount;
+                    mobNum = index;
+                    raw = entry;
+                }
+            });
+            if (ranksKnown) {
+                return { count, selectedCount, mobNum,
+                    source: "mobs[*].ranks[0]", raw };
             }
-
-            // Fallback dla starszej/niepełnej odpowiedzi a:602.
-            // mobs.suma może obejmować także wyższe rangi, dlatego
-            // używamy go wyłącznie gdy ranks[0] nie istnieje.
-            return {
-                count:
-                    Math.max(
-                        0,
-                        this._int(
-                            field?.mobs?.count
-                        )
-                    ),
-                source:
-                    "mobs.suma-fallback",
-                raw:
-                    normalEntry
-            };
+            const fallback = Math.max(0, this._int(field?.mobs?.count));
+            return { count: fallback, selectedCount: fallback,
+                mobNum: 0, source: "mobs.suma-fallback", raw: entries[0] || null };
         }
 
         async respawnFight(
             multi,
-            point
+            point,
+            mobNum = 0
         ) {
             const response =
                 multi
                     ? await this.sendAndWait(
                         {
                             a: 13,
-                            mob_num: 0,
+                            mob_num: this._int(mobNum),
                             fo: [
                                 1,
                                 1,
@@ -8741,7 +8713,7 @@
                     : await this.sendAndWait(
                         {
                             a: 7,
-                            mob_num: 0,
+                            mob_num: this._int(mobNum),
                             rank: 0,
                             quick: 1
                         },
@@ -9162,12 +9134,8 @@
                     field
                 );
             const multiAvailable =
-                Array.isArray(
-                    field.multiFight
-                ) &&
-                field.multiFight.includes(
-                    0
-                );
+                Array.isArray(field.multiFight) &&
+                field.multiFight.includes(mobInfo.mobNum);
 
             if (
                 multiAvailable
@@ -9221,8 +9189,8 @@
             // się jeszcze sensowny pakiet do walki grupowej.
             // Maksymalnie jedna zwykła walka podczas pojedynczej wizyty.
             if (
-                mobInfo.count > 0 &&
-                (!multiAvailable || mobInfo.count < state.multiThreshold)
+                mobInfo.selectedCount > 0 &&
+                (!multiAvailable || mobInfo.selectedCount < state.multiThreshold)
             ) {
                 if (!canSpend(1)) {
                     state.limitReached =
@@ -9234,7 +9202,8 @@
 
                 await this.respawnFight(
                     false,
-                    point
+                    point,
+                    mobInfo.mobNum
                 );
 
                 state.paSpent++;
@@ -9259,7 +9228,7 @@
             // i wracamy do oscylowania między polami.
             if (
                 multiAvailable &&
-                mobInfo.count >=
+                mobInfo.selectedCount >=
                     state.multiThreshold
             ) {
                 // Multiwalka kosztuje tyle PA, ile mobów bierze udział
@@ -9269,7 +9238,7 @@
                     Math.max(
                         1,
                         this._int(
-                            mobInfo.count
+                            mobInfo.selectedCount
                         )
                     );
 
@@ -9300,7 +9269,8 @@
                 const response =
                     await this.respawnFight(
                         true,
-                        point
+                        point,
+                        mobInfo.mobNum
                     );
 
                 const removedByMulti =
@@ -10059,10 +10029,8 @@
                 };
             }
 
-            let mobs =
-                this.respawnNormalMobCount(
-                    field
-                ).count;
+            let normalInfo = this.respawnNormalMobCount(field);
+            let mobs = normalInfo.count;
             let fights = 0;
             let singleFights = 0;
             let removed = 0;
@@ -10087,10 +10055,8 @@
                 ) {
                     field =
                         liveField;
-                    mobs =
-                        this.respawnNormalMobCount(
-                            field
-                        ).count;
+                    normalInfo = this.respawnNormalMobCount(field);
+                    mobs = normalInfo.count;
                 }
 
                 if (
@@ -10105,7 +10071,7 @@
                         field.multiFight
                     ) &&
                     field.multiFight.includes(
-                        0
+                        normalInfo.mobNum
                     );
                 const fieldBeforeFight =
                     field;
@@ -10116,7 +10082,7 @@
                         await this.sendAndWait(
                             {
                                 a: 13,
-                                mob_num: 0,
+                                mob_num: normalInfo.mobNum,
                                 fo: [
                                     1,
                                     1,
@@ -10194,7 +10160,7 @@
                         await this.sendAndWait(
                             {
                                 a: 7,
-                                mob_num: 0,
+                                mob_num: normalInfo.mobNum,
                                 rank: 0,
                                 quick: 1
                             },
@@ -10266,10 +10232,8 @@
                 ) {
                     field =
                         liveAfterFight;
-                    mobs =
-                        this.respawnNormalMobCount(
-                            field
-                        ).count;
+                    normalInfo = this.respawnNormalMobCount(field);
+                    mobs = normalInfo.count;
                 } else {
                     mobs =
                         Math.max(
