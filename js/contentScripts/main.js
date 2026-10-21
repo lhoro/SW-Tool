@@ -425,6 +425,24 @@
 
             const action = Number(response.a);
             const error = Number(response.e || 0);
+            const switchDiag = this.accountSwitchDiagnostic;
+            if (switchDiag && [1, 2, 999].includes(action) &&
+                switchDiag.phase !== "ready" && switchDiag.phase !== "failed") {
+                // Zapisujemy jedynie metadane RX, nigdy char_data ani tokeny.
+                const meta = {
+                    a: action,
+                    e: error,
+                    charId: this._int(response.char_id || response.char_data?.id),
+                    hasCharData: Boolean(response.char_data &&
+                        typeof response.char_data === "object"),
+                    hasChars: Array.isArray(response.chars)
+                };
+                switchDiag.lastResponse = meta;
+                if (action === 2) {
+                    switchDiag.receivedA2++;
+                    switchDiag.lastA2 = meta;
+                }
+            }
             if (action === 602 && error === 0) {
                 this.recordQuestMobSightings(response);
             }
@@ -14750,236 +14768,218 @@
         async switchCharacterForAccountAction(
             charId,
             settleMs = 150,
-            forceRefresh = false,
-            retryAttempt = 0
+            forceRefresh = false
         ) {
             const targetId = Number(charId);
-            if (targetId <= 0) {
+            if (!Number.isSafeInteger(targetId) || targetId <= 0) {
                 throw new Error("Nieprawidłowe ID postaci.");
             }
             if (this.isCharacterSkipped(targetId)) {
                 throw new Error("Postać ID " + targetId +
                     " jest oznaczona do usunięcia — wybór zablokowany.");
             }
-
-            if (
-                !forceRefresh &&
-                Number(
-                    GAME.char_id ||
-                    this.currentCharacterId ||
-                    0
-                ) === targetId &&
-                this.currentCharacterSnapshot?.char_data
-            ) {
-                return this.currentCharacterSnapshot;
-            }
-
-            const maxAttempts = 3;
-            const attempt = Math.max(
-                0,
-                this._int(retryAttempt)
-            ) + 1;
-
-            this.setQuickPanelStatus(
-                "Zmiana postaci: " +
-                targetId +
-                " — próba " +
-                attempt +
-                "/" +
-                maxAttempts +
-                "..."
-            );
-
-            // Operacje całego konta naśladują synchronizację z APP:
-            // a:5 -> lista a:1 -> wybór a:2 -> pełne char_data.
-            // Zachowujemy ostatni etap, aby diagnozować błąd bez logów TX/RX.
-            this.accountSwitchDiagnostic = {
-                targetId, attempt, phase: "waiting-list", error: ""
-            };
-            const listResponse = await this.sendAndWait(
-                { a: 5 },
-                [1, 999],
-                (event) =>
-                    this._int(event.e) !== 0 ||
-                    (
-                        this._int(event.a) === 1 &&
-                        Array.isArray(event.chars)
-                    ),
-                15000
-            );
-
-            if (this._int(listResponse.e) !== 0) {
-                throw new Error(
-                    "Serwer odrzucił synchronizację listy postaci."
-                );
-            }
-
-            if (!Array.isArray(listResponse.chars)) {
-                throw new Error(
-                    "Serwer nie zwrócił listy postaci."
-                );
-            }
-
-            const targetExists = listResponse.chars.some(
-                (char) =>
-                    this._int(char?.id) === targetId
-            );
-
-            if (!targetExists) {
-                throw new Error(
-                    "Wybranej postaci nie ma na liście zwróconej przez serwer."
-                );
-            }
-
-            this.accountSwitchDiagnostic.phase = "list-ready";
-            this.setQuickPanelStatus(
-                "Zmiana postaci " + targetId + ": lista potwierdzona, czekam na klienta..."
-            );
-            // Klient WWW asynchronicznie przebudowuje ekran postaci po a:1.
-            // Natychmiastowe a:2 potrafi zostać bez pełnego char_data.
-            await this.sleep(attempt === 1 ? 650 : 1100);
             if (!GAME.socket?.connected) {
-                const error = new Error("Połączenie z grą przerwane po liście postaci.");
+                const error = new Error("Brak połączenia z serwerem gry.");
                 error.swToolSwitchFailure = true;
                 throw error;
             }
 
-            this.currentCharacterSnapshot = null;
-            this.currentQuickOptions = null;
-            this.currentQuickOptionsCharacterId = targetId;
-            this.currentQuickOptionsFresh = false;
+            const currentId = this._int(GAME.char_id || this.currentCharacterId);
+            if (!forceRefresh && currentId === targetId &&
+                this.accountSwitchSnapshot(targetId)) {
+                return this.currentCharacterSnapshot;
+            }
 
-            let response;
-            this.accountSwitchDiagnostic.phase = "waiting-character";
-            this.setQuickPanelStatus(
-                "Zmiana postaci " + targetId + ": wczytuję dane (" +
-                attempt + "/" + maxAttempts + ")..."
-            );
+            // Gdy zmieniamy na INNĄ postać, korzystamy z protokołu
+            // bezpośredniego a:2 — tego samego co działające skróty , / .
+            // a:5 jest przeznaczone do "relog" i wymusza ekran listy
+            // postaci. Przed każdym a:2 jest zbędne i może zakłócać
+            // przełączanie po skończeniu Quick ALL / treningów.
+            // Gdy odświeżamy tę samą postać, zachowujemy a:5 -> a:1
+            // ponieważ serwer może ignorować powtórny wybór bieżącej.
+            const requiresList = currentId === targetId;
+            const strategies = requiresList
+                ? ["list"]
+                : ["direct", "list"];
+            const diagnostic = {
+                targetId,
+                fromId: currentId,
+                phase: "start",
+                strategy: "",
+                attempt: 0,
+                receivedA2: 0,
+                lastA2: null,
+                lastResponse: null,
+                error: ""
+            };
+            this.accountSwitchDiagnostic = diagnostic;
+            let lastError = null;
 
-            try {
-                response = await this.sendAndWait(
-                    { a: 2, char_id: targetId },
-                    [2, 999],
-                    (event) =>
-                        this._int(event.e) !== 0 ||
-                        (
-                            this._int(event.a) === 2 &&
-                            this._int(
-                                event.char_id || event.char_data?.id || targetId
-                            ) === targetId &&
-                            event.char_data &&
-                            typeof event.char_data ===
-                                "object"
-                        ),
-                    10000
+            for (const strategy of strategies) {
+                if (!GAME.socket?.connected) break;
+                diagnostic.attempt++;
+                diagnostic.strategy = strategy;
+                diagnostic.phase = strategy === "list" ? "waiting-list" : "direct";
+                diagnostic.error = "";
+
+                this.setQuickPanelStatus(
+                    "Zmiana postaci " + targetId + ": " +
+                    (strategy === "direct" ? "bezpośrednie a:2" : "synchronizacja listy a:5") +
+                    " (" + diagnostic.attempt + "/" + strategies.length + ")..."
                 );
-            } catch (error) {
-                this.accountSwitchDiagnostic.error =
-                    error instanceof Error ? error.message : String(error);
-                if (this.isFatalAccountError(error)) throw error;
-                // Jeżeli serwer zwrócił dane na granicy timeoutu,
-                // nie wysyłamy drugi raz a:2 (duplikacja wejścia w postać).
-                const recovered = await this.waitForAccountSwitchSnapshot(
-                    targetId, 2500
-                );
-                if (recovered) {
-                    response = recovered;
+
+                try {
+                    // W razie opóźnionego a:2 z poprzedniej próby nie
+                    // emitujemy drugiego wejścia w już gotową postać.
+                    if (diagnostic.attempt > 1) {
+                        const recovered = await this.waitForAccountSwitchSnapshot(
+                            targetId, 700
+                        );
+                        if (recovered) {
+                            await this.waitForCharacterSettled(
+                                targetId, 8500, Math.max(250, settleMs)
+                            );
+                            diagnostic.phase = "ready";
+                            return recovered;
+                        }
+                    }
+
+                    if (strategy === "list") {
+                        const listResponse = await this.sendAndWait(
+                            { a: 5 },
+                            [1, 999],
+                            event => this._int(event.e) !== 0 ||
+                                (this._int(event.a) === 1 &&
+                                 Array.isArray(event.chars)),
+                            15000
+                        );
+                        if (this._int(listResponse.e) !== 0 ||
+                            !Array.isArray(listResponse.chars)) {
+                            throw new Error("Serwer nie potwierdził listy postaci a:1.");
+                        }
+                        if (!listResponse.chars.some(char =>
+                            this._int(char?.id) === targetId)) {
+                            throw new Error("Postaci " + targetId +
+                                " nie ma na liście zwróconej przez serwer.");
+                        }
+                        diagnostic.phase = "list-ready";
+                        // Wymuszone relogowanie przebudowuje widok gry.
+                        await this.sleep(450);
+                    }
+
+                    if (!GAME.socket?.connected) {
+                        throw new Error("Socket.IO rozłączone przed wyborem postaci.");
+                    }
+
+                    this.currentCharacterSnapshot = null;
+                    this.currentQuickOptions = null;
+                    this.currentQuickOptionsCharacterId = targetId;
+                    this.currentQuickOptionsFresh = false;
+                    diagnostic.phase = "waiting-character";
                     this.setQuickPanelStatus(
-                        "Zmiana postaci " + targetId +
-                        ": spóźnione a:2 potwierdzone stanem gry."
+                        "Zmiana postaci " + targetId + ": wybieram postać przez a:2" +
+                        (strategy === "direct" ? " (bez relogowania)" : " po a:5") +
+                        "..."
                     );
-                } else if (
-                    attempt < maxAttempts &&
-                    GAME.socket?.connected &&
-                    /Timeout odpowiedzi serwera/.test(
-                        this.accountSwitchDiagnostic.error
-                    )
-                ) {
-                    const message =
-                        error instanceof Error
-                            ? error.message
-                            : String(error);
 
-                    toolConsole("warn", 
-                        "[SW Tool][ACCOUNT] Zmiana postaci nie została potwierdzona — ponawiam synchronizację.",
-                        {
-                            char_id: targetId,
-                            attempt,
-                            error: message
+                    const response = await this.sendAndWait(
+                        { a: 2, char_id: targetId },
+                        [2, 999],
+                        event => this._int(event.e) !== 0 ||
+                            (this._int(event.a) === 2 &&
+                             this._int(event.char_id ||
+                                 event.char_data?.id || targetId) === targetId &&
+                             event.char_data &&
+                             typeof event.char_data === "object"),
+                        10000 // nie wydłużamy timeoutu ALL
+                    );
+
+                    if (this._int(response.e) !== 0) {
+                        throw new Error("Serwer odrzucił wybór postaci a:2 " +
+                            "(e=" + this._int(response.e) + ").");
+                    }
+                    if (!response.char_data ||
+                        typeof response.char_data !== "object") {
+                        throw new Error("Serwer nie zwrócił char_data po a:2.");
+                    }
+
+                    this.currentCharacterSnapshot = response;
+                    this.lastCharacterId = targetId;
+                    this.currentCharacterId = targetId;
+                    this.currentCharacterIndex = this.chars.findIndex(
+                        char => Number(char.id) === targetId
+                    );
+                    diagnostic.phase = "waiting-client";
+                    await this.waitForCharacterSettled(
+                        targetId, 8500, Math.max(250, settleMs)
+                    );
+                    diagnostic.phase = "ready";
+                    diagnostic.error = "";
+
+                    toolConsole("info",
+                        "[SW Tool][ACCOUNT] Postać gotowa:", {
+                            targetId, strategy, attempt: diagnostic.attempt
+                        }
+                    );
+                    return response;
+                } catch (error) {
+                    if (this.isFatalAccountError(error)) throw error;
+                    lastError = error;
+                    diagnostic.error =
+                        error instanceof Error ? error.message : String(error);
+                    toolConsole("warn",
+                        "[SW Tool][ACCOUNT] Wybór postaci niepotwierdzony:", {
+                            ...diagnostic,
+                            connected: Boolean(GAME.socket?.connected),
+                            gameCharId: this._int(GAME.char_id)
                         }
                     );
 
-                    this.setQuickPanelStatus(
-                        "Zmiana postaci " +
-                        targetId +
-                        ": brak odpowiedzi, ponawiam...",
-                        "error"
+                    const recovered = await this.waitForAccountSwitchSnapshot(
+                        targetId, 1700
                     );
+                    if (recovered) {
+                        await this.waitForCharacterSettled(
+                            targetId, 8500, Math.max(250, settleMs)
+                        );
+                        diagnostic.phase = "ready";
+                        diagnostic.error = "";
+                        this.setQuickPanelStatus(
+                            "Zmiana postaci " + targetId +
+                            ": odpowiedź przyszła z opóźnieniem."
+                        );
+                        return recovered;
+                    }
 
-                    await this.sleep(950 + (attempt - 1) * 500);
-
-                    return this.switchCharacterForAccountAction(
-                        targetId,
-                        settleMs,
-                        true,
-                        attempt
-                    );
-                } else {
-                    const failure = new Error(
-                        "Zmiana postaci " + targetId +
-                        " niepotwierdzona po " + attempt +
-                        "/" + maxAttempts + " próbach. Etap: " +
-                        this.accountSwitchDiagnostic.phase +
-                        ". Ostatni błąd: " +
-                        this.accountSwitchDiagnostic.error
-                    );
-                    failure.swToolSwitchFailure = true;
-                    throw failure;
+                    // Fallback na a:5 wyłącznie raz, kiedy bezpośrednie a:2
+                    // nie zostało potwierdzone. Nie powtarzamy ślepo
+                    // a:5 trzy razy z rzędu jak w poprzedniej wersji.
+                    if (strategy === "direct" && GAME.socket?.connected) {
+                        this.setQuickPanelStatus(
+                            "Zmiana postaci " + targetId +
+                            ": brak potwierdzenia a:2, próbuję przez listę..."
+                        );
+                        await this.sleep(500);
+                        continue;
+                    }
+                    break;
                 }
             }
 
-            if (this._int(response.e) !== 0) {
-                throw new Error(
-                    "Serwer odrzucił zmianę postaci."
-                );
-            }
-
-            if (
-                !response.char_data ||
-                typeof response.char_data !== "object"
-            ) {
-                throw new Error(
-                    "Serwer nie zwrócił pełnych danych postaci."
-                );
-            }
-
-            this.currentCharacterSnapshot = response;
-            this.lastCharacterId = targetId;
-            this.currentCharacterId = targetId;
-            this.currentCharacterIndex =
-                this.chars.findIndex(
-                    (char) =>
-                        Number(char.id) === targetId
-                );
-
-            this.accountSwitchDiagnostic.phase = "waiting-client";
-            await this.waitForCharacterSettled(
-                targetId,
-                8500,
-                Math.max(250, settleMs)
+            diagnostic.phase = "failed";
+            const failure = new Error(
+                "Nie udało się przełączyć na postać " + targetId +
+                ". Tryb: " + diagnostic.strategy +
+                "; RX a:2: " + diagnostic.receivedA2 +
+                "; ostatnie a:2: " +
+                (diagnostic.lastA2 ? JSON.stringify(diagnostic.lastA2) : "brak") +
+                "; GAME.char_id=" + this._int(GAME.char_id) +
+                "; błąd: " +
+                (diagnostic.error ||
+                 (lastError instanceof Error ? lastError.message : String(lastError || "")))
             );
-            this.accountSwitchDiagnostic.phase = "ready";
-            this.accountSwitchDiagnostic.error = "";
-
-            toolConsole("info", 
-                "[SW Tool][ACCOUNT] Postać gotowa:",
-                {
-                    char_id: targetId,
-                    attempt
-                }
-            );
-
-            return response;
+            failure.swToolSwitchFailure = true;
+            throw failure;
         }
 
         characterData() {
