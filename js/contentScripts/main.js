@@ -9,6 +9,7 @@
         improvedX: false,
         killRespawnedMobs: false,
         expKillNormals: true,
+        pvpAutoAttack: false,
         expKillChampions: false,
         expKillElites: false,
         expKillBosses: false,
@@ -71,6 +72,8 @@
             killRespawnedMobs: typeof source.killRespawnedMobs === "boolean"
                 ? source.killRespawnedMobs
                 : DEFAULT_CONFIG.killRespawnedMobs,
+            pvpAutoAttack: typeof source.pvpAutoAttack === "boolean"
+                ? source.pvpAutoAttack : DEFAULT_CONFIG.pvpAutoAttack,
             expKillNormals: typeof source.expKillNormals === "boolean"
                 ? source.expKillNormals
                 : DEFAULT_CONFIG.expKillNormals,
@@ -212,10 +215,214 @@
             this.currentQuickOptionsCharacterId = 0;
             this.currentQuickOptionsFresh = false;
             this.config = { ...DEFAULT_CONFIG };
+            this.pvpAutoPendingMove = null;
+            this.pvpAutoQueuedField = null;
+            this.pvpAutoGeneration = 0;
+            this.pvpAutoRunning = false;
+            this.pvpAutoSelfVillage = 0;
+            this.pvpAutoCooldowns = new Map();
+            this.pvpAutoTotalAttacks = 0;
             this.mapSolver =
                 typeof window.SWMapClickSolver === "function"
                     ? new window.SWMapClickSolver(this)
                     : null;
+        }
+
+
+        // Autoataki PvP działają wyłącznie po potwierdzonym kroku gracza.
+        pvpAutoReset() {
+            this.pvpAutoGeneration++;
+            this.pvpAutoPendingMove = null;
+            this.pvpAutoQueuedField = null;
+        }
+
+        pvpAutoBusy() {
+            return Boolean(
+                this.accountOperationRunning || this.quickActionRunning ||
+                this.autoQuestRunning || this.questKillRunning ||
+                this.pickupQuestRunning || this.respawnRunning ||
+                this.expRunning || this.roninRunning ||
+                this.characterSwitch || this.dailyRewardClaimStage !== 0
+            );
+        }
+
+        pvpAutoRememberVillage(response) {
+            const selfId = this._int(GAME.char_id || this.currentCharacterId);
+            const self = Array.isArray(response?.players)
+                ? response.players.find(player =>
+                    this._int(player?.id || player?.data?.id) === selfId)
+                : null;
+            const village = this._int(self?.village_id || self?.data?.village_id);
+            if (village > 0) this.pvpAutoSelfVillage = village;
+        }
+
+        pvpAutoOnMove(response) {
+            if (this.config?.pvpAutoAttack !== true || this.pvpAutoBusy()) {
+                return;
+            }
+            const selfId = this._int(GAME.char_id || this.currentCharacterId);
+            const movedId = this._int(response?.char_id);
+            const map = this.mapSolver?.map;
+            const x = this._int(response?.x);
+            const y = this._int(response?.y);
+            if (!selfId || movedId !== selfId || !map ||
+                this._int(map.charId) !== selfId || !x || !y) return;
+            const locationId = this._int(map.locationId);
+            if (!locationId) return;
+            // Nowy krok unieważnia niedokończone ataki z poprzedniego pola.
+            this.pvpAutoGeneration++;
+            this.pvpAutoPendingMove = {
+                selfId, locationId, x, y, at: Date.now(),
+                generation: this.pvpAutoGeneration
+            };
+            this.pvpAutoQueuedField = null;
+        }
+
+        pvpAutoTargets(response, selfId) {
+            if (!Array.isArray(response?.players)) return [];
+            const selfVillage = this._int(
+                this.characterData()?.village_id ||
+                GAME.char_data?.village_id ||
+                this.pvpAutoSelfVillage
+            );
+            if (selfVillage <= 0) {
+                toolConsole("warn",
+                    "[SW Tool][PVP] Nie ustalono wioski aktywnej postaci. Wstrzymuję automatyczne ataki.");
+                return [];
+            }
+            const now = Math.floor(Date.now() / 1000);
+            const found = new Set(), targets = [];
+            for (const entry of response.players) {
+                const player = entry?.data || entry;
+                if (!player || typeof player !== "object") continue;
+                const id = this._int(player.id || player.char_id);
+                const village = this._int(player.village_id);
+                if (!id || id === selfId || found.has(id) ||
+                    !village || village === selfVillage) continue;
+                // 0 = brak CD; większe wartości oznaczają blokadę lub czas UNIX.
+                if (this._int(entry?.cd) > 0 ||
+                    this._int(this.pvpAutoCooldowns.get(id)) > now) continue;
+                found.add(id);
+                targets.push({
+                    id,
+                    name: [player.name, player.surname].filter(Boolean).join(" ")
+                });
+            }
+            return targets;
+        }
+
+        pvpAutoOnField(response) {
+            if (this.config?.pvpAutoAttack !== true ||
+                this.pvpAutoBusy() || this._int(response?.e) !== 0) return;
+            const pending = this.pvpAutoPendingMove;
+            const map = this.mapSolver?.map;
+            if (!pending || !map ||
+                pending.generation !== this.pvpAutoGeneration ||
+                Date.now() - pending.at > 7000 ||
+                this._int(map.locationId) !== pending.locationId ||
+                this._int(map.charId) !== pending.selfId ||
+                this._int(map.x) !== pending.x ||
+                this._int(map.y) !== pending.y ||
+                this._int(response.x) !== pending.x ||
+                this._int(response.y) !== pending.y) return;
+            this.pvpAutoPendingMove = null; // ponowne a:602 nie ponawia ataków
+            const targets = this.pvpAutoTargets(response, pending.selfId);
+            if (!targets.length) return;
+            this.pvpAutoQueuedField = { ...pending, targets };
+            if (!this.pvpAutoRunning) {
+                Promise.resolve().then(() => this.pvpAutoDrain()).catch(error => {
+                    this.setQuickPanelStatus(
+                        "PVP Autoataki: " +
+                        (error instanceof Error ? error.message : String(error)), "error"
+                    );
+                });
+            }
+        }
+
+        async pvpAutoDrain() {
+            if (this.pvpAutoRunning) return;
+            this.pvpAutoRunning = true;
+            try {
+                while (this.pvpAutoQueuedField &&
+                    this.config?.pvpAutoAttack === true) {
+                    const field = this.pvpAutoQueuedField;
+                    this.pvpAutoQueuedField = null;
+                    const token = field.generation;
+                    // Kliknięcie mapy może być trasą wielopolową: atak
+                    // dopiero na jej ostatnim polu i po zatrzymaniu solvera.
+                    for (let i = 0; i < 15 && this.mapSolver?.active &&
+                        String(this.mapSolver.source || "") === "map-click" &&
+                        token === this.pvpAutoGeneration; i++) {
+                        await this.sleep(100);
+                    }
+                    if (this.mapSolver?.active || this.responseWaiter ||
+                        this.pvpAutoBusy() ||
+                        token !== this.pvpAutoGeneration) continue;
+                    let attacked = 0, failed = 0, skipped = 0;
+                    this.setQuickPanelStatus(
+                        "PVP Autoataki: " + field.targets.length +
+                        " wrogów na polu " + field.x + "|" + field.y + "..."
+                    );
+                    for (const target of field.targets) {
+                        const map = this.mapSolver?.map;
+                        if (this.config?.pvpAutoAttack !== true ||
+                            this.pvpAutoBusy() ||
+                            token !== this.pvpAutoGeneration ||
+                            this._int(GAME.char_id) !== field.selfId ||
+                            this._int(map?.locationId) !== field.locationId ||
+                            this._int(map?.x) !== field.x ||
+                            this._int(map?.y) !== field.y) break;
+                        if (this._int(this.pvpAutoCooldowns.get(target.id)) >
+                            Math.floor(Date.now() / 1000)) {
+                            skipped++;
+                            continue;
+                        }
+                        try {
+                            const answer = await this.sendAndWait(
+                                { a: 24, char_id: target.id },
+                                [7, 24, 999],
+                                event => {
+                                    if (this._int(event.e) !== 0) return true;
+                                    return this._int(event.a) === 7 &&
+                                        this._int(event.pvp_cd?.target) === target.id;
+                                },
+                                5000
+                            );
+                            if (this._int(answer.e) !== 0) {
+                                failed++;
+                                toolConsole("info", "[SW Tool][PVP] Atak odrzucony:",
+                                    target.id, answer.e);
+                                continue;
+                            }
+                            if (this._int(answer.pvp_cd?.target) === target.id) {
+                                this.pvpAutoCooldowns.set(
+                                    target.id, this._int(answer.pvp_cd.cd)
+                                );
+                            }
+                            attacked++;
+                            this.pvpAutoTotalAttacks++;
+                        } catch (error) {
+                            if (this.isFatalAccountError(error)) throw error;
+                            failed++;
+                            toolConsole("warn",
+                                "[SW Tool][PVP] Atak niepotwierdzony, bez ponowienia:",
+                                target.id, error);
+                            if (!GAME.socket?.connected) break;
+                        }
+                        if (this.config?.pvpAutoAttack === true) {
+                            await this.sleep(120);
+                        }
+                    }
+                    this.setQuickPanelStatus(
+                        "PVP Autoataki: " + field.x + "|" + field.y +
+                        " • ataki " + attacked +
+                        (failed ? " • błędy " + failed : "") +
+                        (skipped ? " • cooldown " + skipped : "") + "."
+                    );
+                }
+            } finally {
+                this.pvpAutoRunning = false;
+            }
         }
 
         getLocalData() {
@@ -229,10 +436,14 @@
         }
 
         applyConfig(config) {
+            const autoPvpWasOn = this.config?.pvpAutoAttack === true;
             this.config = normalizeConfig({
                 ...this.config,
                 ...config
             });
+            if (autoPvpWasOn && this.config.pvpAutoAttack !== true) {
+                this.pvpAutoReset();
+            }
 
             window.SW_TOOL_DEBUG_LOGS =
                 this.config.debugLogs ===
@@ -499,6 +710,22 @@
             ) {
                 this.currentCharacterSnapshot.char_tables.timed_actions =
                     response.timed;
+            }
+
+            if (action === 2 && error === 0) {
+                this.pvpAutoReset();
+                this.pvpAutoSelfVillage = 0;
+                this.pvpAutoCooldowns.clear();
+            }
+            if (action === 3 && error === 0 && response.map && response.loc) {
+                this.pvpAutoReset();
+                this.pvpAutoRememberVillage(response);
+            }
+            if (action === 4 && error === 0) {
+                this.pvpAutoOnMove(response);
+            }
+            if (action === 602 && error === 0) {
+                this.pvpAutoOnField(response);
             }
 
             if (action === 3 && error === 0) {
