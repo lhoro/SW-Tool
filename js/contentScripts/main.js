@@ -325,10 +325,12 @@
             // Oficjalny klient używa .more_players na bieżącym polu.
             // Nie rozwijamy globalnej listy wszystkich graczy z mapy.
             const moreButton = document.querySelector(".more_players");
+            // W niektórych wersjach klienta napis "Więcej graczy"
+            // nie zawiera liczby; sama obecność przycisku oznacza
+            // możliwość pobrania kolejnej porcji.
             return Boolean(moreButton &&
                 moreButton.isConnected !== false &&
-                this._int(String(moreButton.textContent || "")
-                    .replace(/[^0-9]/g, "")) > 0);
+                moreButton.hidden !== true);
         }
 
         pvpAutoFieldValid(field) {
