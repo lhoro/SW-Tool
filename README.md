@@ -100,3 +100,21 @@ podają liczbę faktycznie uruchomionych treningów.
 - **ALL konta**: timeout potwierdzenia wyboru postaci `a:2` wrócił
   z 20 sekund do 10 sekund; pozostałe zabezpieczenia ponawiania i
   synchronizacji zostały zachowane.
+
+## PVP — Autoataki podczas ręcznego chodzenia (EXT `dev`)
+
+W zakładce **PVP** znajduje się przełącznik **Autoataki PvP** (domyślnie OFF).
+Przy **ON** bot **nie chodzi sam**: po potwierdzonym kroku `RX a:4`
+czeka na opis docelowego pola `RX a:602` i atakuje kolejno znajdujących
+się na nim przeciwników z **innych wiosek**. Do ataku używa znanego
+`TX a:24, char_id` oraz potwierdzenia `RX a:7` z `pvp_cd.target`.
+Pomija własną postać, graczy z tej samej wioski, osoby o nieznanej
+przynależności oraz cele z aktywnym cooldownem. Brak możliwości ustalenia
+wioski aktywnej postaci blokuje automatyczne ataki (zamiast zgadywania).
+Każdy przeciwnik jest atakowany najwyżej raz na wejście na dane pole.
+
+`a:3.more_players` służy do szerszej listy postaci i **nie** jest używane
+jako lista graczy na polu. OFF, zmiana postaci, kolejny krok i rozpoczęcie
+innej automatyzacji blokują dalsze ataki ze starego pola (bieżącego,
+wysłanego już żądania nie da się cofnąć). Przy odmowie serwera lub
+timeoutcie nie ponawia automatycznie pojedynczego ataku.
