@@ -112,6 +112,15 @@ Pomija własną postać, graczy z tej samej wioski, osoby o nieznanej
 przynależności oraz cele z aktywnym cooldownem. Brak możliwości ustalenia
 wioski aktywnej postaci blokuje automatyczne ataki (zamiast zgadywania).
 Każdy przeciwnik jest atakowany najwyżej raz na wejście na dane pole.
+Przed atakami, jeżeli aktualne pole ma przycisk **Więcej graczy**
+(lub znacznik paginacji w `a:602`), bot pobiera kolejne strony
+`TX a:3, type:1, start:20/40/…, vo:[1,1,1]` i scala unikalne
+`char_id`, filtrując zwrócone rekordy po `loc/x/y`. Dane z innych
+pól nie są używane. Paginacja kończy się po `more=0`, błędzie
+odpowiedzi lub utracie aktualnego pola; liczba pobrań jest ograniczona.
+Po `RX a:7` z `pvp_cd.target` kolejny `TX a:24` wysyłany jest
+bez sztywnego `sleep(120)`. Serwer nadal ustala rzeczywisty
+czas walki, jej dostępność i cooldowny.
 
 `a:3.more_players` służy do szerszej listy postaci i **nie** jest używane
 jako lista graczy na polu. OFF, zmiana postaci, kolejny krok i rozpoczęcie
