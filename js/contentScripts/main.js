@@ -311,6 +311,110 @@
             return targets;
         }
 
+
+        pvpAutoMorePlayersAvailable(field) {
+            const entries = Array.isArray(field?.players)
+                ? field.players : [];
+            const marker = entries.find(entry =>
+                entry && typeof entry === "object" &&
+                this._int(entry.more) > 0 &&
+                this._int(entry.next_from) > 0
+            );
+            if (marker) return true;
+
+            // Oficjalny klient używa .more_players na bieżącym polu.
+            // Nie rozwijamy globalnej listy wszystkich graczy z mapy.
+            const moreButton = document.querySelector(".more_players");
+            return Boolean(moreButton &&
+                moreButton.isConnected !== false &&
+                this._int(String(moreButton.textContent || "")
+                    .replace(/[^0-9]/g, "")) > 0);
+        }
+
+        pvpAutoFieldValid(field) {
+            const map = this.mapSolver?.map;
+            return this.config?.pvpAutoAttack === true &&
+                !this.pvpAutoBusy() &&
+                !this.mapSolver?.active &&
+                field?.generation === this.pvpAutoGeneration &&
+                this._int(GAME.char_id) === field.selfId &&
+                this._int(map?.charId) === field.selfId &&
+                this._int(map?.locationId) === field.locationId &&
+                this._int(map?.x) === field.x &&
+                this._int(map?.y) === field.y;
+        }
+
+        async pvpAutoExpandTargets(field) {
+            const results = [...field.targets];
+            if (!field.moreAvailable) return results;
+
+            const seen = new Set(results.map(target => target.id));
+            let offset = Math.max(20, this._int(field.nextFrom));
+            let fetched = 0;
+            for (let page = 0; page < 15; page++) {
+                if (!this.pvpAutoFieldValid(field) ||
+                    this.responseWaiter || !GAME.socket?.connected) break;
+
+                // TX potwierdzony w eksporcie z gry: a:3/type:1/start/vo.
+                // Pobieramy wszystkie dostępne strony PRZED pierwszą walką.
+                // Każdy RX a:3.more_players ma do 20 rekordów i ewentualny
+                // znacznik {more, next_from}.
+                let reply;
+                try {
+                    reply = await this.sendAndWait(
+                        { a: 3, type: 1, start: offset, vo: [1, 1, 1] },
+                        [3, 999],
+                        rx => this._int(rx.e) !== 0 ||
+                            (this._int(rx.a) === 3 &&
+                                Array.isArray(rx.more_players)),
+                        5000
+                    );
+                } catch (error) {
+                    if (this.isFatalAccountError(error)) throw error;
+                    toolConsole("warn",
+                        "[SW Tool][PVP] Więcej graczy: brak odpowiedzi, używam zebranej listy.",
+                        error);
+                    break;
+                }
+                if (this._int(reply.e) !== 0 ||
+                    !Array.isArray(reply.more_players) ||
+                    !this.pvpAutoFieldValid(field)) break;
+
+                const rows = reply.more_players;
+                const marker = rows.find(entry =>
+                    entry && typeof entry === "object" &&
+                    this._int(entry.next_from) > 0
+                );
+                // RX a:3 zawiera loc/x/y. Nie przyjmujemy graczy z
+                // innych pól ani lokacji, nawet gdy serwer je zwróci.
+                const onField = rows.filter(entry => {
+                    const player = entry?.data;
+                    return player && typeof player === "object" &&
+                        this._int(player.loc) === field.locationId &&
+                        this._int(player.x) === field.x &&
+                        this._int(player.y) === field.y;
+                });
+                fetched += onField.length;
+                for (const target of this.pvpAutoTargets(
+                    { players: onField }, field.selfId
+                )) {
+                    if (seen.has(target.id)) continue;
+                    seen.add(target.id);
+                    results.push(target);
+                }
+                const more = this._int(marker?.more);
+                const next = this._int(marker?.next_from);
+                if (more <= 0 || next <= offset || next > 5000) break;
+                offset = next;
+            }
+            this.setQuickPanelStatus(
+                "PVP Autoataki: lista graczy rozwinięta (" +
+                fetched + " dodatkowych na polu " +
+                field.x + "|" + field.y + ")."
+            );
+            return results;
+        }
+
         pvpAutoOnField(response) {
             if (this.config?.pvpAutoAttack !== true ||
                 this.pvpAutoBusy() || this._int(response?.e) !== 0) return;
@@ -327,8 +431,14 @@
                 this._int(response.y) !== pending.y) return;
             this.pvpAutoPendingMove = null; // ponowne a:602 nie ponawia ataków
             const targets = this.pvpAutoTargets(response, pending.selfId);
-            if (!targets.length) return;
-            this.pvpAutoQueuedField = { ...pending, targets };
+            const moreAvailable = this.pvpAutoMorePlayersAvailable(response);
+            if (!targets.length && !moreAvailable) return;
+            const marker = (response.players || []).find(entry =>
+                this._int(entry?.next_from) > 0);
+            this.pvpAutoQueuedField = {
+                ...pending, targets, moreAvailable,
+                nextFrom: this._int(marker?.next_from) || 20
+            };
             if (!this.pvpAutoRunning) {
                 Promise.resolve().then(() => this.pvpAutoDrain()).catch(error => {
                     this.setQuickPanelStatus(
@@ -358,12 +468,17 @@
                     if (this.mapSolver?.active || this.responseWaiter ||
                         this.pvpAutoBusy() ||
                         token !== this.pvpAutoGeneration) continue;
+                    // Dopiero po pełnej liście rozpoczynamy ataki.
+                    const allTargets = await this.pvpAutoExpandTargets(field);
+                    if (!this.pvpAutoFieldValid(field)) continue;
                     let attacked = 0, failed = 0, skipped = 0;
-                    this.setQuickPanelStatus(
-                        "PVP Autoataki: " + field.targets.length +
-                        " wrogów na polu " + field.x + "|" + field.y + "..."
-                    );
-                    for (const target of field.targets) {
+                    if (allTargets.length) {
+                        this.setQuickPanelStatus(
+                            "PVP Autoataki: " + allTargets.length +
+                            " wrogów na polu " + field.x + "|" + field.y + "..."
+                        );
+                    }
+                    for (const target of allTargets) {
                         const map = this.mapSolver?.map;
                         if (this.config?.pvpAutoAttack !== true ||
                             this.pvpAutoBusy() ||
@@ -408,9 +523,6 @@
                                 "[SW Tool][PVP] Atak niepotwierdzony, bez ponowienia:",
                                 target.id, error);
                             if (!GAME.socket?.connected) break;
-                        }
-                        if (this.config?.pvpAutoAttack === true) {
-                            await this.sleep(120);
                         }
                     }
                     this.setQuickPanelStatus(
