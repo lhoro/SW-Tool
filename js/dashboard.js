@@ -193,7 +193,11 @@
             '<div class="quick options-grid">',
               '<button class="action toggle-action" type="button" data-config-toggle="pvpAutoAttack" aria-pressed="false">Autoataki PvP</button>',
             '</div>',
-            '<div class="muted">ON: po kroku atakuje dostępnych wrogów z innej wioski na polu docelowym. Chodzenie pozostaje ręczne, cooldowny PvP są respektowane. OFF: automatyczne ataki wyłączone.</div>',
+            '<div class="muted">ON: po kroku atakuje dostępnych wrogów z innej wioski na polu docelowym. Chodzenie pozostaje ręczne, cooldowny PvP są respektowane.</div>',
+          '</div>',
+          '<div class="card feature">',
+            '<button class="primary" data-command="pvpExp" id="pvp-exp-button">▶ Start expiarki PVP</button>',
+            '<div class="muted">Przechodzi po osiągalnych polach obecnej mapy i po każdym kroku atakuje dostępnych graczy z innej wioski. Respektuje cooldowny. Kliknij ponownie, aby zatrzymać.</div>',
           '</div>',
         '</div>',
         '<div class="page" data-page="konto" hidden>',
@@ -594,7 +598,7 @@
     state.game = s;
     const active = Number(s.characterId || 0) > 0;
     const busy = Boolean(s.accountRunning || s.quickRunning || s.questRunning ||
-      s.roninRunning || s.expRunning || s.respawnRunning || s.pickupRunning ||
+      s.roninRunning || s.expRunning || s.pvpExpRunning || s.respawnRunning || s.pickupRunning ||
       s.autoQuestRunning);
     const taskStatus = $("#task-status");
     taskStatus.textContent = busy ? String(s.automationLabel || "Pracuje") : "Gotowy";
@@ -603,6 +607,7 @@
     taskStatus.title = busy ? String(s.latestLog || taskStatus.textContent) : "Brak aktywnej automatyzacji";
     $("#exp-button").textContent = s.expRunning ? "■ Zatrzymaj expiarkę" : "▶ Start expiarki";
     $("#resp-button").textContent = s.respawnRunning ? "■ Zatrzymaj respiarkę" : "▶ Start respiarki";
+    $("#pvp-exp-button").textContent = s.pvpExpRunning ? "■ Zatrzymaj expiarkę PVP" : "▶ Start expiarki PVP";
     $("#pickup-button").innerHTML = s.pickupRunning ?
       "<strong>■</strong>Stop Pickup" : "<strong>▤</strong>Pickup Quest";
     $("#pickup-button").disabled = !active || s.autoQuestRunning || (busy && !s.pickupRunning);
@@ -620,7 +625,8 @@
       btn.disabled = !active || busy;
     });
     $("#exp-button").disabled = !active || (busy && !s.expRunning) || s.respawnRunning;
-    $("#resp-button").disabled = !active || (busy && !s.respawnRunning) || s.expRunning;
+    $("#resp-button").disabled = !active || (busy && !s.respawnRunning) || s.expRunning || s.pvpExpRunning;
+    $("#pvp-exp-button").disabled = !active || (busy && !s.pvpExpRunning);
     renderLogs(s);
   }
 

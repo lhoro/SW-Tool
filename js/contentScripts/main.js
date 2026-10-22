@@ -218,7 +218,9 @@
             this.pvpAutoPendingMove = null;
             this.pvpAutoQueuedField = null;
             this.pvpAutoGeneration = 0;
+            this.pvpAutoCompletedGeneration = 0;
             this.pvpAutoRunning = false;
+            this.pvpExpRunning = false;
             this.pvpAutoSelfVillage = 0;
             this.pvpAutoCooldowns = new Map();
             this.pvpAutoTotalAttacks = 0;
@@ -256,8 +258,12 @@
             if (village > 0) this.pvpAutoSelfVillage = village;
         }
 
+        pvpAutoEnabled() {
+            return this.config?.pvpAutoAttack === true || this.pvpExpRunning === true;
+        }
+
         pvpAutoOnMove(response) {
-            if (this.config?.pvpAutoAttack !== true || this.pvpAutoBusy()) {
+            if (!this.pvpAutoEnabled() || this.pvpAutoBusy()) {
                 return;
             }
             const selfId = this._int(GAME.char_id || this.currentCharacterId);
@@ -335,7 +341,7 @@
 
         pvpAutoFieldValid(field) {
             const map = this.mapSolver?.map;
-            return this.config?.pvpAutoAttack === true &&
+            return this.pvpAutoEnabled() &&
                 !this.pvpAutoBusy() &&
                 !this.mapSolver?.active &&
                 field?.generation === this.pvpAutoGeneration &&
@@ -418,7 +424,7 @@
         }
 
         pvpAutoOnField(response) {
-            if (this.config?.pvpAutoAttack !== true ||
+            if (!this.pvpAutoEnabled() ||
                 this.pvpAutoBusy() || this._int(response?.e) !== 0) return;
             const pending = this.pvpAutoPendingMove;
             const map = this.mapSolver?.map;
@@ -434,7 +440,10 @@
             this.pvpAutoPendingMove = null; // ponowne a:602 nie ponawia ataków
             const targets = this.pvpAutoTargets(response, pending.selfId);
             const moreAvailable = this.pvpAutoMorePlayersAvailable(response);
-            if (!targets.length && !moreAvailable) return;
+            if (!targets.length && !moreAvailable) {
+                this.pvpAutoCompletedGeneration = pending.generation;
+                return;
+            }
             const marker = (response.players || []).find(entry =>
                 this._int(entry?.next_from) > 0);
             this.pvpAutoQueuedField = {
@@ -455,15 +464,15 @@
             if (this.pvpAutoRunning) return;
             this.pvpAutoRunning = true;
             try {
-                while (this.pvpAutoQueuedField &&
-                    this.config?.pvpAutoAttack === true) {
+                while (this.pvpAutoQueuedField && this.pvpAutoEnabled()) {
                     const field = this.pvpAutoQueuedField;
                     this.pvpAutoQueuedField = null;
                     const token = field.generation;
                     // Kliknięcie mapy może być trasą wielopolową: atak
                     // dopiero na jej ostatnim polu i po zatrzymaniu solvera.
-                    for (let i = 0; i < 15 && this.mapSolver?.active &&
-                        String(this.mapSolver.source || "") === "map-click" &&
+                    for (let i = 0; i < 80 && this.mapSolver?.active &&
+                        ["map-click", "pvp-exp"].some(source =>
+                            String(this.mapSolver.source || "").startsWith(source)) &&
                         token === this.pvpAutoGeneration; i++) {
                         await this.sleep(100);
                     }
@@ -482,7 +491,7 @@
                     }
                     for (const target of allTargets) {
                         const map = this.mapSolver?.map;
-                        if (this.config?.pvpAutoAttack !== true ||
+                        if (!this.pvpAutoEnabled() ||
                             this.pvpAutoBusy() ||
                             token !== this.pvpAutoGeneration ||
                             this._int(GAME.char_id) !== field.selfId ||
@@ -527,8 +536,11 @@
                             if (!GAME.socket?.connected) break;
                         }
                     }
+                    this.pvpAutoCompletedGeneration = Math.max(
+                        this.pvpAutoCompletedGeneration, field.generation
+                    );
                     this.setQuickPanelStatus(
-                        "PVP Autoataki: " + field.x + "|" + field.y +
+                        (this.pvpExpRunning ? "Expiarka PVP: " : "PVP Autoataki: ") + field.x + "|" + field.y +
                         " • ataki " + attacked +
                         (failed ? " • błędy " + failed : "") +
                         (skipped ? " • cooldown " + skipped : "") + "."
@@ -555,7 +567,7 @@
                 ...this.config,
                 ...config
             });
-            if (autoPvpWasOn && this.config.pvpAutoAttack !== true) {
+            if (autoPvpWasOn && this.config.pvpAutoAttack !== true && !this.pvpExpRunning) {
                 this.pvpAutoReset();
             }
 
@@ -8713,6 +8725,7 @@
         pveModeStartGuard(mode) {
             const otherPveRunning =
                 this.pickupQuestRunning ||
+                this.pvpExpRunning ||
                 (
                     mode !== "quest-kills" &&
                     this.questKillRunning
@@ -12198,12 +12211,117 @@
         toggleExpiarka() {
             if (this.expRunning) {
                 this.stopExpiarka();
-                return Promise.resolve({
-                    stopped: true
-                });
+                return Promise.resolve({ stopped: true });
             }
-
             return this.runExpiarka();
+        }
+
+        async waitForPvpExpField(generation, x, y) {
+            const startedAt = Date.now();
+            while (this.pvpExpRunning && Date.now() - startedAt < 12000) {
+                if (this.pvpAutoCompletedGeneration >= generation) return true;
+                await this.sleep(50);
+            }
+            if (!this.pvpExpRunning) return false;
+            throw new Error("Expiarka PVP: brak zakończenia walki/potwierdzenia pola " + x + "|" + y + ".");
+        }
+
+        stopPvpExpiarka() {
+            if (!this.pvpExpRunning) return;
+            this.pvpExpRunning = false;
+            this.pvpAutoReset();
+            if (this.mapSolver?.active &&
+                String(this.mapSolver.source || "").startsWith("pvp-exp")) {
+                this.mapSolver.stop("Expiarka PVP STOP");
+            }
+            this.setQuickPanelStatus("Expiarka PVP zatrzymana — pozostaję na aktualnym polu.");
+        }
+
+        async runPvpExpiarka() {
+            if (this.pvpExpRunning) {
+                this.stopPvpExpiarka();
+                return { stopped: true };
+            }
+            if (this.pvpAutoBusy() || this.mapSolver?.active || this.responseWaiter) {
+                throw new Error("Expiarka PVP: poczekaj na zakończenie bieżącej automatyzacji.");
+            }
+            const map = this.mapSolver?.map;
+            if (!map || this._int(map.locationId) <= 0 ||
+                this._int(map.x) <= 0 || this._int(map.y) <= 0) {
+                throw new Error("Expiarka PVP: brak gotowej mapy/pozycji.");
+            }
+            const locationId = this._int(map.locationId);
+            const start = { x: this._int(map.x), y: this._int(map.y) };
+            const plan = this.expSweepSegmentPlan(map, start.x, start.y);
+            if (!plan?.segments?.length) throw new Error("Expiarka PVP: brak osiągalnych pól.");
+
+            const seen = new Set();
+            const route = [];
+            for (const segment of plan.segments) {
+                for (const cell of segment.cells || []) {
+                    const key = this._int(cell.x) + "_" + this._int(cell.y);
+                    if (!seen.has(key)) {
+                        seen.add(key);
+                        route.push({ x: this._int(cell.x), y: this._int(cell.y) });
+                    }
+                }
+            }
+            // Wróć na pole startowe na końcu, by odebrać jego a:602.
+            const startKey = start.x + "_" + start.y;
+            route.splice(0, route.length, ...route.filter(cell => cell.x + "_" + cell.y !== startKey));
+            route.push(start);
+
+            this.pvpExpRunning = true;
+            this.pvpAutoCompletedGeneration = 0;
+            this.setQuickPanelStatus("Expiarka PVP START • pola " + plan.reachableCount + ".");
+            const visited = new Set();
+            let attackedFields = 0;
+            try {
+                for (const target of route) {
+                    if (!this.pvpExpRunning) break;
+                    if (this._int(this.mapSolver?.map?.locationId) !== locationId) {
+                        throw new Error("Expiarka PVP: postać opuściła mapę patrolu.");
+                    }
+                    const current = {
+                        x: this._int(this.mapSolver?.map?.x),
+                        y: this._int(this.mapSolver?.map?.y)
+                    };
+                    const path = this.mapSolver.findShortestPath(map, current, target);
+                    if (!path) throw new Error("Expiarka PVP: brak trasy do pola " + target.x + "|" + target.y + ".");
+                    for (const step of path) {
+                        if (!this.pvpExpRunning) break;
+                        const moved = await this.mapSolver.navigateTo(step.x, step.y, {
+                            source: "pvp-exp", allowBusy: true
+                        });
+                        if (!moved?.ok) throw new Error("Expiarka PVP: ruch nie powiódł się.");
+                        const generation = this.pvpAutoGeneration;
+                        if (!await this.waitForPvpExpField(generation, step.x, step.y)) break;
+                        const key = step.x + "_" + step.y;
+                        if (!visited.has(key)) {
+                            visited.add(key);
+                            attackedFields++;
+                        }
+                        if (attackedFields % 5 === 0 || attackedFields === plan.reachableCount) {
+                            this.setQuickPanelStatus("Expiarka PVP • pola " + attackedFields + "/" +
+                                plan.reachableCount + " • ostatnie " + step.x + "|" + step.y + ".");
+                        }
+                    }
+                }
+            } finally {
+                this.pvpExpRunning = false;
+                this.pvpAutoReset();
+            }
+            this.setQuickPanelStatus("Expiarka PVP zakończona • odwiedzone pola " +
+                attackedFields + "/" + plan.reachableCount + ".");
+            return { visited: attackedFields, reachable: plan.reachableCount };
+        }
+
+        togglePvpExpiarka() {
+            if (this.pvpExpRunning) {
+                this.stopPvpExpiarka();
+                return Promise.resolve({ stopped: true });
+            }
+            return this.runPvpExpiarka();
         }
 
         clickQuestActionAndWaitForSocket(
@@ -17832,7 +17950,7 @@
                 const tool = await toolReadyPromise;
                 if (tool.accountOperationRunning || tool.quickActionRunning ||
                     tool.questKillRunning || tool.pickupQuestRunning || tool.autoQuestRunning ||
-                    tool.expRunning || tool.respawnRunning ||
+                    tool.expRunning || tool.pvpExpRunning || tool.respawnRunning ||
                     tool.roninRunning || tool.characterSwitch || tool.responseWaiter) {
                     throw new Error("Nie można pobierać listy postaci podczas automatyzacji.");
                 }
@@ -17929,6 +18047,7 @@
                 const automationLabel =
                     tool.autoQuestRunning ? "Auto Quest" :
                     tool.pickupQuestRunning ? "Pickup Quest" :
+                    tool.pvpExpRunning ? "Expiarka PVP" :
                     tool.expRunning ? "Expiarka" :
                     tool.respawnRunning ? "Respiarka" :
                     tool.questKillRunning ? "Quest Kille" :
@@ -17959,6 +18078,7 @@
                     questRunning: tool.questKillRunning === true,
                     pickupRunning: tool.pickupQuestRunning === true,
                     expRunning: tool.expRunning === true,
+                    pvpExpRunning: tool.pvpExpRunning === true,
                     respawnRunning: tool.respawnRunning === true,
                     automationLabel,
                     latestLog: logs.length ? logs[logs.length - 1].message : "",
@@ -18003,6 +18123,7 @@
                         quest: () => tool.runQuestKills(),
                         pickup: () => tool.togglePickupQuest(),
                         exp: () => tool.toggleExpiarka(),
+                        pvpExp: () => tool.togglePvpExpiarka(),
                         respawn: () => {
                             tool.respawnPaLimit = Math.max(0, Math.floor(
                                 Number(data.payload?.respawnLimit || 0) || 0

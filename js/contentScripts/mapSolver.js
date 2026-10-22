@@ -270,6 +270,7 @@
                 this.tool.pickupQuestRunning ||
                 this.tool.respawnRunning ||
                 this.tool.expRunning ||
+                this.tool.pvpExpRunning ||
                 this.tool.dailyRewardClaimStage !== 0 ||
                 this.tool.characterSwitch ||
                 this.tool.trainingCaptchaWaiter
