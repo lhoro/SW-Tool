@@ -196,7 +196,7 @@
             '<div class="muted">ON: po kroku atakuje dostępnych wrogów z innej wioski na polu docelowym. Chodzenie pozostaje ręczne, cooldowny PvP są respektowane.</div>',
           '</div>',
           '<div class="card feature">',
-            '<button class="primary" data-command="pvpExp" id="pvp-exp-button">▶ Start expiarki PVP</button>',
+            '<button class="primary" data-command="pvpExp" id="pvp-exp-button">▶ Start Auto Wojny</button>',
             '<div class="muted">Przechodzi po osiągalnych polach obecnej mapy i po każdym kroku atakuje dostępnych graczy z innej wioski. Respektuje cooldowny. Kliknij ponownie, aby zatrzymać.</div>',
           '</div>',
         '</div>',
@@ -607,7 +607,7 @@
     taskStatus.title = busy ? String(s.latestLog || taskStatus.textContent) : "Brak aktywnej automatyzacji";
     $("#exp-button").textContent = s.expRunning ? "■ Zatrzymaj expiarkę" : "▶ Start expiarki";
     $("#resp-button").textContent = s.respawnRunning ? "■ Zatrzymaj respiarkę" : "▶ Start respiarki";
-    $("#pvp-exp-button").textContent = s.pvpExpRunning ? "■ Zatrzymaj expiarkę PVP" : "▶ Start expiarki PVP";
+    $("#pvp-exp-button").textContent = s.pvpExpRunning ? "■ Zatrzymaj Auto Wojny" : "▶ Start Auto Wojny";
     $("#pickup-button").innerHTML = s.pickupRunning ?
       "<strong>■</strong>Stop Pickup" : "<strong>▤</strong>Pickup Quest";
     $("#pickup-button").disabled = !active || s.autoQuestRunning || (busy && !s.pickupRunning);

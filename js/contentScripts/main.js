@@ -540,7 +540,7 @@
                         this.pvpAutoCompletedGeneration, field.generation
                     );
                     this.setQuickPanelStatus(
-                        (this.pvpExpRunning ? "Expiarka PVP: " : "PVP Autoataki: ") + field.x + "|" + field.y +
+                        (this.pvpExpRunning ? "Auto Wojny: " : "PVP Autoataki: ") + field.x + "|" + field.y +
                         " • ataki " + attacked +
                         (failed ? " • błędy " + failed : "") +
                         (skipped ? " • cooldown " + skipped : "") + "."
@@ -12223,7 +12223,7 @@
                 await this.sleep(50);
             }
             if (!this.pvpExpRunning) return false;
-            throw new Error("Expiarka PVP: brak zakończenia walki/potwierdzenia pola " + x + "|" + y + ".");
+            throw new Error("Auto Wojny: brak zakończenia walki/potwierdzenia pola " + x + "|" + y + ".");
         }
 
         stopPvpExpiarka() {
@@ -12232,9 +12232,9 @@
             this.pvpAutoReset();
             if (this.mapSolver?.active &&
                 String(this.mapSolver.source || "").startsWith("pvp-exp")) {
-                this.mapSolver.stop("Expiarka PVP STOP");
+                this.mapSolver.stop("Auto Wojny STOP");
             }
-            this.setQuickPanelStatus("Expiarka PVP zatrzymana — pozostaję na aktualnym polu.");
+            this.setQuickPanelStatus("Auto Wojny zatrzymana — pozostaję na aktualnym polu.");
         }
 
         async runPvpExpiarka() {
@@ -12243,17 +12243,17 @@
                 return { stopped: true };
             }
             if (this.pvpAutoBusy() || this.mapSolver?.active || this.responseWaiter) {
-                throw new Error("Expiarka PVP: poczekaj na zakończenie bieżącej automatyzacji.");
+                throw new Error("Auto Wojny: poczekaj na zakończenie bieżącej automatyzacji.");
             }
             const map = this.mapSolver?.map;
             if (!map || this._int(map.locationId) <= 0 ||
                 this._int(map.x) <= 0 || this._int(map.y) <= 0) {
-                throw new Error("Expiarka PVP: brak gotowej mapy/pozycji.");
+                throw new Error("Auto Wojny: brak gotowej mapy/pozycji.");
             }
             const locationId = this._int(map.locationId);
             const start = { x: this._int(map.x), y: this._int(map.y) };
             const plan = this.expSweepSegmentPlan(map, start.x, start.y);
-            if (!plan?.segments?.length) throw new Error("Expiarka PVP: brak osiągalnych pól.");
+            if (!plan?.segments?.length) throw new Error("Auto Wojny: brak osiągalnych pól.");
 
             const seen = new Set();
             const route = [];
@@ -12273,27 +12273,27 @@
 
             this.pvpExpRunning = true;
             this.pvpAutoCompletedGeneration = 0;
-            this.setQuickPanelStatus("Expiarka PVP START • pola " + plan.reachableCount + ".");
+            this.setQuickPanelStatus("Auto Wojny START • pola " + plan.reachableCount + ".");
             const visited = new Set();
             let attackedFields = 0;
             try {
                 for (const target of route) {
                     if (!this.pvpExpRunning) break;
                     if (this._int(this.mapSolver?.map?.locationId) !== locationId) {
-                        throw new Error("Expiarka PVP: postać opuściła mapę patrolu.");
+                        throw new Error("Auto Wojny: postać opuściła mapę patrolu.");
                     }
                     const current = {
                         x: this._int(this.mapSolver?.map?.x),
                         y: this._int(this.mapSolver?.map?.y)
                     };
                     const path = this.mapSolver.findShortestPath(map, current, target);
-                    if (!path) throw new Error("Expiarka PVP: brak trasy do pola " + target.x + "|" + target.y + ".");
+                    if (!path) throw new Error("Auto Wojny: brak trasy do pola " + target.x + "|" + target.y + ".");
                     for (const step of path) {
                         if (!this.pvpExpRunning) break;
                         const moved = await this.mapSolver.navigateTo(step.x, step.y, {
                             source: "pvp-exp", allowBusy: true
                         });
-                        if (!moved?.ok) throw new Error("Expiarka PVP: ruch nie powiódł się.");
+                        if (!moved?.ok) throw new Error("Auto Wojny: ruch nie powiódł się.");
                         const generation = this.pvpAutoGeneration;
                         if (!await this.waitForPvpExpField(generation, step.x, step.y)) break;
                         const key = step.x + "_" + step.y;
@@ -12302,7 +12302,7 @@
                             attackedFields++;
                         }
                         if (attackedFields % 5 === 0 || attackedFields === plan.reachableCount) {
-                            this.setQuickPanelStatus("Expiarka PVP • pola " + attackedFields + "/" +
+                            this.setQuickPanelStatus("Auto Wojny • pola " + attackedFields + "/" +
                                 plan.reachableCount + " • ostatnie " + step.x + "|" + step.y + ".");
                         }
                     }
@@ -12311,7 +12311,7 @@
                 this.pvpExpRunning = false;
                 this.pvpAutoReset();
             }
-            this.setQuickPanelStatus("Expiarka PVP zakończona • odwiedzone pola " +
+            this.setQuickPanelStatus("Auto Wojny zakończona • odwiedzone pola " +
                 attackedFields + "/" + plan.reachableCount + ".");
             return { visited: attackedFields, reachable: plan.reachableCount };
         }
@@ -18047,7 +18047,7 @@
                 const automationLabel =
                     tool.autoQuestRunning ? "Auto Quest" :
                     tool.pickupQuestRunning ? "Pickup Quest" :
-                    tool.pvpExpRunning ? "Expiarka PVP" :
+                    tool.pvpExpRunning ? "Auto Wojny" :
                     tool.expRunning ? "Expiarka" :
                     tool.respawnRunning ? "Respiarka" :
                     tool.questKillRunning ? "Quest Kille" :
