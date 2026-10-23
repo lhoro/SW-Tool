@@ -207,6 +207,8 @@
           '<button class="primary" id="save-accounts">Zapisz konta</button>',
         '</div>',
         '<div class="page" data-page="ustawienia" hidden>',
+          '<div class="section">Skróty klawiszowe</div>',
+          '<div class="card"><div class="muted">Kliknij Przypisz, a następnie naciśnij klawisz lub kombinację ze Steam Input. Esc anuluje nagrywanie. Skróty nie działają podczas pisania.</div><div id="hotkeys-list"></div><button class="secondary" id="reset-hotkeys">Przywróć domyślne skróty</button></div>',
           '<div class="section">Ustawienia gry i automatyzacji</div>',
           '<div class="card">',
           boolOption("dailyReward","Dzienne nagrody"),
@@ -668,6 +670,62 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+
+  const HOTKEY_ACTIONS = [["exp","Expiarka","command","exp"],["respawn","Respiarka","command","respawn"],["pvpExp","Auto Wojny","command","pvpExp"],["pvpAutoAttack","Autoataki PvP","configToggle","pvpAutoAttack"],["autoQuest","Auto Quest","command","autoQuest"],["quest","Quest Kille","command","quest"],["pickup","Pickup Quest","command","pickup"],["arena","Arena","quick","arena"],["abyss","Otchłań","quick","abyss"],["ronin","Ronin","quick","ronin"],["training","Trening","quick","training"],["mission","Misja","quick","mission"],["all","ALL postaci","quick","all"],["accountAll","ALL konta","accountAction","accountAll"],["accountArena","Arena konta","accountAction","accountArenaPvp"],["accountAbyss","Otchłań konta","accountAction","accountSoulAbyss"],["accountRonin","Ronin konta","accountAction","accountRonin"],["accountTraining","Treningi konta","accountAction","accountTrainings"],["accountMission","Misje konta","accountAction","accountMissions"],["accountTournament","Turnieje konta","accountAction","accountTournaments"],["panel","Pokaż / ukryj panel",null,null]];
+  const HOTKEY_DEFAULTS = { panel: "F10" };
+  let hotkeys = { ...HOTKEY_DEFAULTS };
+  let recordingHotkey = null;
+  function hotkeyFromEvent(e) {
+    if (["Control","Shift","Alt","Meta"].includes(e.key)) return null;
+    const key = e.code || e.key;
+    if (!/^(Key[A-Z]|Digit[0-9]|F(?:[1-9]|1[0-2])|Arrow(?:Up|Down|Left|Right)|Numpad[0-9]|Comma|Period|Space|Escape|Enter)$/.test(key)) return null;
+    return [e.ctrlKey ? "Ctrl" : "", e.altKey ? "Alt" : "", e.shiftKey ? "Shift" : "", key].filter(Boolean).join("+");
+  }
+  function renderHotkeys() {
+    const target = $("#hotkeys-list");
+    if (!target) return;
+    target.textContent = "";
+    for (const [id, label] of HOTKEY_ACTIONS) {
+      const row = document.createElement("div");
+      row.className = "row"; row.style.cssText = "gap:8px;margin:6px 0;justify-content:space-between";
+      const name = document.createElement("span"); name.textContent = label;
+      const button = document.createElement("button"); button.type = "button"; button.className = "secondary";
+      button.dataset.hotkeyRecord = id;
+      button.textContent = recordingHotkey === id ? "Naciśnij klawisz…" : (hotkeys[id] || "Przypisz");
+      const clear = document.createElement("button"); clear.type = "button"; clear.className = "secondary";
+      clear.dataset.hotkeyClear = id; clear.textContent = "×"; clear.title = "Usuń skrót";
+      row.append(name, button, clear); target.appendChild(row);
+    }
+  }
+  async function saveHotkeys() {
+    await chrome.storage.local.set({ swToolHotkeys: hotkeys });
+    renderHotkeys();
+  }
+  function handleHotkey(e) {
+    if (e.type !== "keydown" || e.repeat || e.isComposing) return;
+    if (recordingHotkey) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      const id = recordingHotkey; recordingHotkey = null;
+      if (e.key === "Escape") { renderHotkeys(); return; }
+      const combo = hotkeyFromEvent(e);
+      if (!combo) { notice("Nieobsługiwany klawisz.", true); renderHotkeys(); return; }
+      const collision = Object.entries(hotkeys).find(([other, key]) => other !== id && key === combo);
+      if (collision) { notice("Skrót jest już przypisany do innej akcji.", true); renderHotkeys(); return; }
+      hotkeys[id] = combo; saveHotkeys().catch(err => notice(err.message, true)); return;
+    }
+    const element = e.target;
+    if (element?.closest?.("input, textarea, select, [contenteditable], [role=textbox]")) return;
+    const combo = hotkeyFromEvent(e);
+    const action = HOTKEY_ACTIONS.find(([id]) => hotkeys[id] && hotkeys[id] === combo);
+    if (!action) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (action[0] === "panel") { setHidden(state.ui.hidden !== true); return; }
+    const [, , attribute, value] = action;
+    const button = Array.from(shadow.querySelectorAll("button")).find(b => b.dataset[attribute] === value);
+    if (!button || button.disabled) { notice("Akcja jest obecnie niedostępna.", true); return; }
+    button.click();
+  }
+
   function bind() {
     shadow.addEventListener("click", async event => {
       // Kliknięcie ikony pomocy ma pokazywać tooltip, a nie zmieniać checkbox.
@@ -677,6 +735,9 @@
       }
       const btn = event.target.closest("button");
       if (!btn) return;
+      if (btn.dataset.hotkeyRecord) { recordingHotkey = btn.dataset.hotkeyRecord; renderHotkeys(); return; }
+      if (btn.dataset.hotkeyClear) { delete hotkeys[btn.dataset.hotkeyClear]; saveHotkeys().catch(err => notice(err.message, true)); return; }
+      if (btn.id === "reset-hotkeys") { recordingHotkey = null; hotkeys = { ...HOTKEY_DEFAULTS }; saveHotkeys().catch(err => notice(err.message, true)); return; }
       if (btn.dataset.tab) return setTab(btn.dataset.tab);
       if (btn.dataset.jump) return setTab(btn.dataset.jump);
       if (btn.id === "minimize") return minimize(!state.ui.minimized);
@@ -796,6 +857,7 @@
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement ||
           e.target instanceof HTMLTextAreaElement) e.stopPropagation();
     });
+    document.addEventListener("keydown", handleHotkey, true);
     configureDrag();
   }
 
@@ -805,7 +867,7 @@
       else document.addEventListener("DOMContentLoaded", resolve, { once:true });
     });
     const stored = await chrome.storage.local.get(["config", "accounts", "swDashboardUI",
-      "swAccountSwitchStatus", "swAccountCharacters", "swActiveAccountSlot"]);
+      "swAccountSwitchStatus", "swAccountCharacters", "swActiveAccountSlot", "swToolHotkeys"]);
     Object.keys(DEFAULTS).forEach(key => {
       state.config[key] = typeof stored.config?.[key] === "boolean" ? stored.config[key] : DEFAULTS[key];
     });
@@ -818,6 +880,7 @@
       normalizeAccountCharacters(stored.swAccountCharacters?.[i], account.login));
     state.activeAccount = stored.swActiveAccountSlot || null;
     state.ui = stored.swDashboardUI || {};
+    hotkeys = { ...HOTKEY_DEFAULTS, ...(stored.swToolHotkeys || {}) };
     // Migracja zapisanej zakładki z poprzedniej wersji dashboardu.
     if (state.ui.tab === "automaty") state.ui.tab = "pve";
     // Stary przełącznik szerokiego widoku nie jest już używany.
@@ -839,6 +902,7 @@
     $("#logo-icon").src = chrome.runtime.getURL("images/icon_48x48.png");
     setTab(["pulpit","pve","pvp","konto","ustawienia","debug"].includes(state.ui.tab) ? state.ui.tab : "pulpit");
     renderAccounts();
+    renderHotkeys();
     syncConfig();
     bind();
     if (state.ui.position) positionPanel(state.ui.position);
