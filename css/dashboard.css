@@ -166,3 +166,44 @@ input:focus,button:focus-visible{outline:2px solid #e1bf7a;outline-offset:1px}
   .account-section summary{padding:7px}
   #launcher{right:8px;bottom:8px;min-height:40px;padding:7px 11px}
 }
+
+
+/* Steam Deck ultra-narrow: actions first, descriptions hidden. */
+@media (max-width:1300px), (max-height:850px) {
+  #panel:not(.compact){width:min(176px,calc(100vw - 12px));max-height:calc(100vh - 12px)}
+  #panel:not(.compact) .top{padding:4px}
+  #panel:not(.compact) .head{flex-wrap:wrap}
+  #panel:not(.compact) .head-actions{gap:2px}
+  #panel:not(.compact) .automation-state{font-size:8px;max-width:54px}
+  #panel:not(.compact) .title{font-size:10px}
+  #panel:not(.compact) .icon{width:23px;height:24px;font-size:11px}
+  #panel:not(.compact) .accounts-short{grid-template-columns:repeat(5,minmax(0,1fr));gap:2px}
+  #panel:not(.compact) .account-slot{font-size:8px;min-height:23px}
+  #panel:not(.compact) .tabs{grid-template-columns:repeat(3,minmax(0,1fr));gap:2px}
+  #panel:not(.compact) .tab{padding:5px 0;font-size:9px;border-radius:4px}
+  #panel:not(.compact) .scroller{height:340px;flex:0 1 340px;padding:5px}
+  #panel:not(.compact) .muted,
+  #panel:not(.compact) .label,
+  #panel:not(.compact) .auto-quest-feedback{display:none}
+  #panel:not(.compact) .section{font-size:8px;letter-spacing:0;margin:5px 0 3px}
+  #panel:not(.compact) .quick{grid-template-columns:repeat(2,minmax(0,1fr));gap:3px;margin-bottom:5px}
+  #panel:not(.compact) .action{font-size:9px;min-height:30px;padding:4px 2px;overflow-wrap:anywhere}
+  #panel:not(.compact) .action strong{display:none}
+  #panel:not(.compact) .card{padding:4px;margin-bottom:4px}
+  #panel:not(.compact) .primary,
+  #panel:not(.compact) .secondary{font-size:9px;min-height:30px;padding:5px 3px;margin-top:3px;overflow-wrap:anywhere}
+  #panel:not(.compact) .stats{gap:2px;margin-bottom:5px}
+  #panel:not(.compact) .stat{padding:3px}
+  #panel:not(.compact) .value{font-size:11px}
+  #panel:not(.compact) .field{grid-template-columns:1fr}
+  #panel:not(.compact) .option{align-items:flex-start;font-size:9px}
+  #panel:not(.compact) .option-copy{overflow-wrap:anywhere}
+  #panel:not(.compact) .account-content{padding:5px}
+  #panel:not(.compact) .account-section summary{padding:6px 4px}
+  #panel:not(.compact) .character-card{padding:4px}
+  #panel:not(.compact) .character-field{flex-wrap:wrap}
+  #panel:not(.compact) .character-field select{flex-basis:100%}
+  #panel:not(.compact) .limit-action{flex-wrap:wrap;gap:2px}
+  #panel:not(.compact) .limit-action input[type=number]{width:45px}
+  #panel:not(.compact) #hotkeys-list button{max-width:100%;overflow-wrap:anywhere}
+}
