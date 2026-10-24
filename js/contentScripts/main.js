@@ -17791,12 +17791,17 @@
 
             // Obsłuż skróty w fazie capture: oficjalny klient gry nie może
             // dostać drugiego eventu i wybrać usuwanej postaci.
-            if ((key === "," || key === ".") &&
-                !event.ctrlKey && !event.altKey && !event.metaKey) {
+            // Steam Input i różne układy klawiatury mogą podawać inny
+            // event.key dla fizycznych klawiszy przecinka i kropki.
+            const characterSwitchKey =
+                key === "," || event.code === "Comma" ? "prev" :
+                key === "." || event.code === "Period" ? "next" : null;
+            if (characterSwitchKey && !event.ctrlKey && !event.altKey &&
+                !event.metaKey && !event.shiftKey) {
                 event.preventDefault();
                 event.stopImmediatePropagation();
                 if (!event.repeat) {
-                    if (key === ",") BOT.prevChar();
+                    if (characterSwitchKey === "prev") BOT.prevChar();
                     else BOT.nextChar();
                 }
                 return;
