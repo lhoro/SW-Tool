@@ -129,3 +129,40 @@ input:focus,button:focus-visible{outline:2px solid #e1bf7a;outline-offset:1px}
 .primary.auto-quest-stop{background:#7e2e37;color:#ffe5e8;border-color:#dc7682}
 .primary.auto-quest-stop:hover{background:#9a3540}
 .auto-quest-feedback{margin-top:7px;min-height:15px;overflow-wrap:anywhere}
+
+
+/* Steam Deck: compact touch-friendly overlay, 1280x800 and smaller. */
+@media (max-width: 1300px), (max-height: 850px) {
+  #panel{width:min(310px,calc(100vw - 12px));max-height:min(690px,calc(100vh - 12px));right:6px;bottom:6px;border-radius:10px}
+  .top{padding:5px 7px 4px}
+  .head{gap:4px}
+  .logo{width:22px;height:22px;min-width:22px}
+  .title{font-size:11px}
+  .subtitle{display:none}
+  .icon{width:27px;height:27px}
+  .accounts-short{margin-top:4px;gap:3px}
+  .account-slot{min-height:24px;padding:2px;font-size:9px}
+  .tabs{padding:2px 3px 0;gap:1px}
+  .tab{padding:6px 1px;font-size:9px}
+  .scroller{height:350px;flex:0 1 350px;padding:6px 7px}
+  .section{font-size:9px;margin-bottom:4px;letter-spacing:.4px}
+  .stats{gap:3px;margin-bottom:6px}
+  .stat{padding:5px}
+  .value{font-size:12px}
+  .label{margin-top:1px}
+  .card{padding:6px;margin-bottom:5px;border-radius:7px}
+  .card-title{font-size:10px}
+  .muted{font-size:9px;line-height:1.25;margin-top:2px}
+  .quick{gap:3px;margin-bottom:6px}
+  .action{min-height:32px;padding:5px 2px;font-size:9px;border-radius:6px}
+  .action strong{font-size:12px;margin-right:3px}
+  .quest-actions .action{min-height:34px}
+  .options-grid .action,.resp-options .action{min-height:30px}
+  .primary,.secondary{margin-top:5px;padding:6px;font-size:10px}
+  .option{margin:4px 0;font-size:9px}
+  .field{margin:4px 0}
+  .log{max-height:145px;padding:5px}
+  .account-section{margin-bottom:5px}
+  .account-section summary{padding:7px}
+  #launcher{right:8px;bottom:8px;min-height:40px;padding:7px 11px}
+}
