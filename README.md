@@ -127,3 +127,15 @@ jako lista graczy na polu. OFF, zmiana postaci, kolejny krok i rozpoczęcie
 innej automatyzacji blokują dalsze ataki ze starego pola (bieżącego,
 wysłanego już żądania nie da się cofnąć). Przy odmowie serwera lub
 timeoutcie nie ponawia automatycznie pojedynczego ataku.
+
+### PvP — szybsze ataki i rozwijanie listy graczy
+
+Przed pierwszym atakiem Autoataki PvP próbują pobrać dostępne kolejne
+strony graczy dla bieżącego pola (serwerowe `a:3,type:1,start,vo`,
+odpowiedź `a:3.more_players` i znacznik `next_from`). Wybierani są
+wyłącznie gracze, których `loc/x/y` odpowiada aktualnemu polu,
+z pominięciem sojuszników i cooldownów. Dalsze strony listy nie są
+pobierane po rozpoczęciu ataków. Pomiędzy potwierdzonymi walkami
+`a:7,pvp_cd.target` nie ma sztucznego opóźnienia; następne `a:24`
+wysyłane jest bezpośrednio po obsłużeniu odpowiedzi serwera.
+Przy timeoutcie rozwijania zachowana jest już znana lista.
