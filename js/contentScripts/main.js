@@ -354,7 +354,13 @@
 
         async pvpAutoExpandTargets(field) {
             const results = [...field.targets];
-            if (!field.moreAvailable) return results;
+            // DOM po RX a:602 może aktualizować się chwilę później niż
+            // nasz nasłuch Socket.IO — sprawdzamy kontrolkę ponownie
+            // bezpośrednio przed rozpoczęciem walk.
+            if (!field.moreAvailable &&
+                !this.pvpAutoMorePlayersAvailable({ players: [] })) {
+                return results;
+            }
 
             const seen = new Set(results.map(target => target.id));
             let offset = Math.max(20, this._int(field.nextFrom));
