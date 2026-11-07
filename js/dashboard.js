@@ -207,6 +207,8 @@
           '<button class="primary" id="save-accounts">Zapisz konta</button>',
         '</div>',
         '<div class="page" data-page="ustawienia" hidden>',
+          '<div class="section">Wygląd panelu</div>',
+          '<div class="card"><label class="option"><span class="option-copy">Tryb kompaktowy (Steam Deck)</span><input type="checkbox" id="deck-mode-toggle" aria-label="Tryb kompaktowy Steam Deck"></label></div>',
           '<div class="section">Skróty klawiszowe</div>',
           '<div class="card"><div class="muted">Kliknij Przypisz, a następnie naciśnij klawisz lub kombinację ze Steam Input. Esc anuluje nagrywanie. Skróty nie działają podczas pisania.</div><div id="hotkeys-list"></div><button class="secondary" id="reset-hotkeys">Przywróć domyślne skróty</button></div>',
           '<div class="section">Ustawienia gry i automatyzacji</div>',
@@ -727,6 +729,12 @@
   }
 
   function bind() {
+    shadow.addEventListener("change", event => {
+      if (event.target?.id !== "deck-mode-toggle") return;
+      state.ui.deckMode = event.target.checked;
+      panel.classList.toggle("deck-mode", state.ui.deckMode);
+      persistUI();
+    });
     shadow.addEventListener("click", async event => {
       // Kliknięcie ikony pomocy ma pokazywać tooltip, a nie zmieniać checkbox.
       if (event.target.closest(".option-help")) {
@@ -899,6 +907,8 @@
     while (wrapper.firstChild) shadow.appendChild(wrapper.firstChild);
     document.body.appendChild(host);
     panel = $("#panel");
+    panel.classList.toggle("deck-mode", state.ui.deckMode === true);
+    $("#deck-mode-toggle").checked = state.ui.deckMode === true;
     $("#logo-icon").src = chrome.runtime.getURL("images/icon_48x48.png");
     setTab(["pulpit","pve","pvp","konto","ustawienia","debug"].includes(state.ui.tab) ? state.ui.tab : "pulpit");
     renderAccounts();
